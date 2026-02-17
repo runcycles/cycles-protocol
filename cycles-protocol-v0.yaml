@@ -3,22 +3,34 @@ info:
   title: Cycles Budget Authority API
   version: 0.1.0
   summary: v0 protocol for deterministic budget governance (reserve/commit) with optional decide + balance queries.
-  description: >
+  description: |-
     PURPOSE (v0):
       - Provide a minimal, language-agnostic protocol to enforce deterministic spend exposure for agent runtimes
         via concurrency-safe reservations and idempotent commits.
       - Include optional integration endpoints: /decide (soft landing) and /balances (operator visibility).
 
+    NON-GOALS (v0) (NORMATIVE):
+      - Budget establishment and funding operations are out of scope for v0.
+        v0 defines the reservation/commit/release enforcement plane and balance reporting only.
+      - v0 provides no API for budget CRUD (create/update/delete), allocation setting, credit/deposit, or debit/withdrawal.
+        Implementations MAY provide these via an operator/admin plane or a separate API; future versions may standardize them.
+      - A reservation lifecycle is denominated in exactly one unit (single-unit reserve/commit/release).
+        Multi-unit atomic reservation/settlement is a v1+ concern.
+
     AUTH & TENANCY (NORMATIVE):
       - Requests are authenticated via X-Cycles-API-Key.
       - Server determines an "effective tenant" from the API key (or other auth context).
-      - Subject.tenant is a budgeting dimension and MAY be validated against the effective tenant.
+      - Subject.tenant is a budgeting dimension and MUST be validated against the effective tenant.
         If validated and mismatched, server MUST return 403 FORBIDDEN.
+      - Reservation ownership MUST be enforced: every reservation is bound to the effective tenant at creation.
+        Any subsequent GET/commit/release for a reservation that exists but is owned by a different tenant
+        MUST return 403 FORBIDDEN.
+      - Balance visibility MUST be tenant-scoped: the server MUST only return balances within the effective tenant.
+        If a request attempts to query another tenant (e.g., tenant filter mismatches), server MUST return 403 FORBIDDEN.
 
     EVOLUTION CONTRACT:
       - This API starts at v0.1.0 with /v1 paths to avoid future client churn.
-      - v1+ evolution MUST be backward-compatible by default: new fields are additive, existing field meanings
-        MUST NOT change.
+      - v1+ evolution MUST be backward-compatible by default: new fields are additive, existing field meanings MUST NOT change.
       - Breaking changes (e.g., new required fields, semantic changes) require a new major API path (e.g., /v2).
 
     CORE INVARIANTS:
@@ -35,6 +47,8 @@ info:
     IDEMPOTENCY (NORMATIVE):
       - If X-Idempotency-Key header is present and body.idempotency_key is present, they MUST match.
       - Server MUST enforce idempotency per (effective tenant, endpoint, idempotency_key).
+      - On replay of an idempotent request that previously succeeded, server MUST return the original successful
+        response payload (including any server-generated identifiers such as reservation_id).
       - If the same key is reused with a different request payload, server MUST return 409 IDEMPOTENCY_MISMATCH.
       - Servers SHOULD compare idempotency payloads using a canonical JSON representation
         (e.g., RFC 8785 JSON Canonicalization Scheme) or an equivalent stable serialization.
@@ -46,10 +60,10 @@ info:
 
     RESERVATION LEASING (GUIDANCE):
       - To mitigate "zombie reservations" (client crash after reserve), SDKs SHOULD:
-          * keep ttl_ms short (typically 10s–30s),
-          * include modest estimation buffers when using overage_policy=REJECT,
-          * reserve in small initial leases and increase gradually ("slow start") for long or bursty operations,
-          * prefer chunked reserve/commit cycles for long-running actions rather than a single large reservation.
+        * keep ttl_ms short (typically 10s–30s),
+        * include modest estimation buffers when using overage_policy=REJECT,
+        * reserve in small initial leases and increase gradually ("slow start") for long or bursty operations,
+        * prefer chunked reserve/commit cycles for long-running actions rather than a single large reservation.
 
 servers:
   - url: https://api.cycles.local
@@ -102,6 +116,8 @@ components:
       description: >
         Optional idempotency key header. If both header and body idempotency_key are provided, they MUST match.
         Server MUST enforce idempotency per endpoint by (effective tenant, endpoint, idempotency_key).
+        On replay of an idempotent request that previously succeeded, server MUST return the original successful
+        response payload (including any server-generated identifiers such as reservation_id).
       schema:
         $ref: '#/components/schemas/IdempotencyKey'
 
@@ -410,6 +426,10 @@ components:
       type: object
       required: [scope, scope_path, remaining]
       additionalProperties: false
+      description: >-
+        Ledger state for a single (scope, unit) balance.
+        All Amount fields within a Balance (remaining/reserved/spent/allocated), if present, MUST share the same unit.
+        Servers MUST NOT emit a Balance with mixed units; clients MAY treat such responses as invalid.
       properties:
         scope:
           type: string
