@@ -113,7 +113,7 @@ components:
       name: X-Idempotency-Key
       in: header
       required: false
-      description: >
+      description: >-
         Optional idempotency key header. If both header and body idempotency_key are provided, they MUST match.
         Server MUST enforce idempotency per endpoint by (effective tenant, endpoint, idempotency_key).
         On replay of an idempotent request that previously succeeded, server MUST return the original successful
@@ -428,8 +428,15 @@ components:
       additionalProperties: false
       description: >-
         Ledger state for a single (scope, unit) balance.
-        All Amount fields within a Balance (remaining/reserved/spent/allocated), if present, MUST share the same unit.
-        Servers MUST NOT emit a Balance with mixed units; clients MAY treat such responses as invalid.
+
+        UNIT CONSISTENCY (NORMATIVE):
+          - All Amount fields within a Balance (remaining/reserved/spent/allocated), if present, MUST share the same unit.
+          - Servers MUST NOT emit a Balance with mixed units; clients MAY treat such responses as invalid.
+
+        LEDGER INVARIANT (NORMATIVE):
+           - If allocated is present, then remaining MUST satisfy: remaining.amount = allocated.amount - spent.amount - reserved.amount
+             treating absent spent/reserved as 0 (all in the same unit).
+           - If allocated is absent, the allocation/cap is server-defined or unknown; clients MUST NOT infer remaining via the above equation.
       properties:
         scope:
           type: string
@@ -685,96 +692,117 @@ paths:
       tags: [Decisions]
       operationId: decide
       summary: Optional preflight policy decision (no reservation created)
-      description: >
-        Returns ALLOW / DENY, optionally with Caps for soft landing. This endpoint does not reserve budget.
-        Clients that require concurrency safety MUST use /v1/reservations.
+      description: >-
+        Returns ALLOW / DENY, optionally with Caps for soft landing. This endpoint does not reserve budget. Clients that require
+        concurrency safety MUST use /v1/reservations.
+
+        IDEMPOTENCY (NORMATIVE): - On replay with the same idempotency_key, the server MUST return the original successful
+        response payload.
+
+        TENANCY (NORMATIVE): - subject.tenant MUST match the effective tenant derived from auth; otherwise the server MUST
+        return 403 FORBIDDEN.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKeyHeader'
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/DecisionRequest' }
+            schema: {$ref: '#/components/schemas/DecisionRequest'}
       responses:
         "200":
           description: Decision result
           headers:
-            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
-            X-Cycles-Tenant: { $ref: '#/components/headers/X-Cycles-Tenant' }
-            X-RateLimit-Remaining: { $ref: '#/components/headers/X-RateLimit-Remaining' }
-            X-RateLimit-Reset: { $ref: '#/components/headers/X-RateLimit-Reset' }
+            X-Request-Id: {$ref: '#/components/headers/X-Request-Id'}
+            X-Cycles-Tenant: {$ref: '#/components/headers/X-Cycles-Tenant'}
+            X-RateLimit-Remaining: {$ref: '#/components/headers/X-RateLimit-Remaining'}
+            X-RateLimit-Reset: {$ref: '#/components/headers/X-RateLimit-Reset'}
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/DecisionResponse' }
-        "400": { $ref: '#/components/responses/ErrorResponse' }
-        "401": { $ref: '#/components/responses/ErrorResponse' }
-        "403": { $ref: '#/components/responses/ErrorResponse' }
-        "409": { $ref: '#/components/responses/ErrorResponse' }
-        "500": { $ref: '#/components/responses/ErrorResponse' }
+              schema: {$ref: '#/components/schemas/DecisionResponse'}
+        "400": {$ref: '#/components/responses/ErrorResponse'}
+        "401": {$ref: '#/components/responses/ErrorResponse'}
+        "403": {$ref: '#/components/responses/ErrorResponse'}
+        "409": {$ref: '#/components/responses/ErrorResponse'}
+        "500": {$ref: '#/components/responses/ErrorResponse'}
 
   /v1/reservations:
     post:
       tags: [Reservations]
       operationId: createReservation
       summary: Reserve budget for a planned action (concurrency-safe)
-      description: >
-        Atomically reserves the estimated amount across server-derived scopes and returns a reservation_id.
-        Reservations expire at expires_at_ms; commits are accepted through (expires_at_ms + grace_period_ms).
-        If dry_run=true, the server performs a shadow evaluation and MUST NOT create a live reservation or modify balances.
+      description: >-
+        Atomically reserves the estimated amount across server-derived scopes and returns a reservation_id. Reservations expire
+        at expires_at_ms; commits are accepted through (expires_at_ms + grace_period_ms). If dry_run=true, the server performs
+        a shadow evaluation and MUST NOT create a live reservation or modify balances.
+
+        IDEMPOTENCY (NORMATIVE): - On replay with the same idempotency_key, the server MUST return the original successful
+        response payload,
+          including the original reservation_id (if any).
+
+        TENANCY (NORMATIVE): - subject.tenant MUST match the effective tenant derived from auth; otherwise the server MUST
+        return 403 FORBIDDEN.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKeyHeader'
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/ReservationCreateRequest' }
+            schema: {$ref: '#/components/schemas/ReservationCreateRequest'}
       responses:
         "200":
           description: Reservation decision (ALLOW/DENY with optional caps)
           headers:
-            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
-            X-Cycles-Tenant: { $ref: '#/components/headers/X-Cycles-Tenant' }
+            X-Request-Id: {$ref: '#/components/headers/X-Request-Id'}
+            X-Cycles-Tenant: {$ref: '#/components/headers/X-Cycles-Tenant'}
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ReservationCreateResponse' }
-        "400": { $ref: '#/components/responses/ErrorResponse' }
-        "401": { $ref: '#/components/responses/ErrorResponse' }
-        "403": { $ref: '#/components/responses/ErrorResponse' }
-        "409": { $ref: '#/components/responses/ErrorResponse' }
-        "500": { $ref: '#/components/responses/ErrorResponse' }
+              schema: {$ref: '#/components/schemas/ReservationCreateResponse'}
+        "400": {$ref: '#/components/responses/ErrorResponse'}
+        "401": {$ref: '#/components/responses/ErrorResponse'}
+        "403": {$ref: '#/components/responses/ErrorResponse'}
+        "409": {$ref: '#/components/responses/ErrorResponse'}
+        "500": {$ref: '#/components/responses/ErrorResponse'}
 
   /v1/reservations/{reservation_id}:
     get:
       tags: [Reservations]
       operationId: getReservation
       summary: Get reservation details (optional, for debugging)
-      description: >
-        Retrieve current status and details of a reservation by ID.
-        Useful for debugging and monitoring long-running operations.
+      description: >-
+        Retrieve current status and details of a reservation by ID. Useful for debugging and monitoring long-running operations.
+
+        TENANCY (NORMATIVE): - If the reservation exists but is owned by a different effective tenant, the server MUST return
+        403 FORBIDDEN.
       parameters:
         - $ref: '#/components/parameters/ReservationId'
       responses:
         "200":
           description: Reservation details
           headers:
-            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
-            X-Cycles-Tenant: { $ref: '#/components/headers/X-Cycles-Tenant' }
+            X-Request-Id: {$ref: '#/components/headers/X-Request-Id'}
+            X-Cycles-Tenant: {$ref: '#/components/headers/X-Cycles-Tenant'}
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ReservationDetail' }
-        "401": { $ref: '#/components/responses/ErrorResponse' }
-        "403": { $ref: '#/components/responses/ErrorResponse' }
-        "404": { $ref: '#/components/responses/ErrorResponse' }
-        "500": { $ref: '#/components/responses/ErrorResponse' }
+              schema: {$ref: '#/components/schemas/ReservationDetail'}
+        "401": {$ref: '#/components/responses/ErrorResponse'}
+        "403": {$ref: '#/components/responses/ErrorResponse'}
+        "404": {$ref: '#/components/responses/ErrorResponse'}
+        "500": {$ref: '#/components/responses/ErrorResponse'}
 
   /v1/reservations/{reservation_id}/commit:
     post:
       tags: [Reservations]
       operationId: commitReservation
       summary: Commit actual spend for a reservation (auto-releases delta)
-      description: >
-        Commits actual spend. If actual < reserved, delta is released automatically.
-        If actual > reserved, behavior is controlled by the reservation's overage_policy.
+      description: >-
+        Commits actual spend. If actual < reserved, delta is released automatically. If actual > reserved, behavior is controlled
+        by the reservation's overage_policy.
+
+        IDEMPOTENCY (NORMATIVE): - On replay with the same idempotency_key, the server MUST return the original successful
+        response payload.
+
+        TENANCY (NORMATIVE): - If the reservation exists but is owned by a different effective tenant, the server MUST return
+        403 FORBIDDEN.
       parameters:
         - $ref: '#/components/parameters/ReservationId'
         - $ref: '#/components/parameters/IdempotencyKeyHeader'
@@ -782,29 +810,36 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/CommitRequest' }
+            schema: {$ref: '#/components/schemas/CommitRequest'}
       responses:
         "200":
           description: Commit succeeded
           headers:
-            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
-            X-Cycles-Tenant: { $ref: '#/components/headers/X-Cycles-Tenant' }
+            X-Request-Id: {$ref: '#/components/headers/X-Request-Id'}
+            X-Cycles-Tenant: {$ref: '#/components/headers/X-Cycles-Tenant'}
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/CommitResponse' }
-        "400": { $ref: '#/components/responses/ErrorResponse' }
-        "401": { $ref: '#/components/responses/ErrorResponse' }
-        "403": { $ref: '#/components/responses/ErrorResponse' }
-        "404": { $ref: '#/components/responses/ErrorResponse' }
-        "409": { $ref: '#/components/responses/ErrorResponse' }
-        "500": { $ref: '#/components/responses/ErrorResponse' }
+              schema: {$ref: '#/components/schemas/CommitResponse'}
+        "400": {$ref: '#/components/responses/ErrorResponse'}
+        "401": {$ref: '#/components/responses/ErrorResponse'}
+        "403": {$ref: '#/components/responses/ErrorResponse'}
+        "404": {$ref: '#/components/responses/ErrorResponse'}
+        "409": {$ref: '#/components/responses/ErrorResponse'}
+        "500": {$ref: '#/components/responses/ErrorResponse'}
 
   /v1/reservations/{reservation_id}/release:
     post:
       tags: [Reservations]
       operationId: releaseReservation
       summary: Release an unused reservation
-      description: Releases reserved amount back to remaining budget.
+      description: >-
+        Releases reserved amount back to remaining budget.
+
+        IDEMPOTENCY (NORMATIVE): - On replay with the same idempotency_key, the server MUST return the original successful
+        response payload.
+
+        TENANCY (NORMATIVE): - If the reservation exists but is owned by a different effective tenant, the server MUST return
+        403 FORBIDDEN.
       parameters:
         - $ref: '#/components/parameters/ReservationId'
         - $ref: '#/components/parameters/IdempotencyKeyHeader'
@@ -812,21 +847,21 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/ReleaseRequest' }
+            schema: {$ref: '#/components/schemas/ReleaseRequest'}
       responses:
         "200":
           description: Release succeeded
           headers:
-            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
-            X-Cycles-Tenant: { $ref: '#/components/headers/X-Cycles-Tenant' }
+            X-Request-Id: {$ref: '#/components/headers/X-Request-Id'}
+            X-Cycles-Tenant: {$ref: '#/components/headers/X-Cycles-Tenant'}
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ReleaseResponse' }
-        "401": { $ref: '#/components/responses/ErrorResponse' }
-        "403": { $ref: '#/components/responses/ErrorResponse' }
-        "404": { $ref: '#/components/responses/ErrorResponse' }
-        "409": { $ref: '#/components/responses/ErrorResponse' }
-        "500": { $ref: '#/components/responses/ErrorResponse' }
+              schema: {$ref: '#/components/schemas/ReleaseResponse'}
+        "401": {$ref: '#/components/responses/ErrorResponse'}
+        "403": {$ref: '#/components/responses/ErrorResponse'}
+        "404": {$ref: '#/components/responses/ErrorResponse'}
+        "409": {$ref: '#/components/responses/ErrorResponse'}
+        "500": {$ref: '#/components/responses/ErrorResponse'}
 
   /v1/balances:
     get:
@@ -839,67 +874,73 @@ paths:
       parameters:
         - name: tenant
           in: query
-          schema: { type: string }
+          schema: {type: string}
         - name: workspace
           in: query
-          schema: { type: string }
+          schema: {type: string}
         - name: app
           in: query
-          schema: { type: string }
+          schema: {type: string}
         - name: workflow
           in: query
-          schema: { type: string }
+          schema: {type: string}
         - name: agent
           in: query
-          schema: { type: string }
+          schema: {type: string}
         - name: toolGroup
           in: query
-          schema: { type: string }
+          schema: {type: string}
         - name: include_children
           in: query
-          schema: { type: boolean, default: false }
+          schema: {type: boolean, default: false}
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
       responses:
         "200":
           description: Balance response
           headers:
-            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
-            X-Cycles-Tenant: { $ref: '#/components/headers/X-Cycles-Tenant' }
+            X-Request-Id: {$ref: '#/components/headers/X-Request-Id'}
+            X-Cycles-Tenant: {$ref: '#/components/headers/X-Cycles-Tenant'}
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/BalanceResponse' }
-        "400": { $ref: '#/components/responses/ErrorResponse' }
-        "401": { $ref: '#/components/responses/ErrorResponse' }
-        "403": { $ref: '#/components/responses/ErrorResponse' }
-        "500": { $ref: '#/components/responses/ErrorResponse' }
+              schema: {$ref: '#/components/schemas/BalanceResponse'}
+        "400": {$ref: '#/components/responses/ErrorResponse'}
+        "401": {$ref: '#/components/responses/ErrorResponse'}
+        "403": {$ref: '#/components/responses/ErrorResponse'}
+        "500": {$ref: '#/components/responses/ErrorResponse'}
 
   /v1/events:
     post:
       tags: [Events]
       operationId: createEvent
       summary: Optional post-only accounting when pre-estimation is not available
-      description: >
-        Records an accounting event without a reservation. This endpoint is optional in v0 deployments.
-        For deterministic governance under concurrency, prefer /v1/reservations.
+      description: >-
+        Records an accounting event without a reservation. This endpoint is optional in v0 deployments. For deterministic
+        governance under concurrency, prefer /v1/reservations.
+
+        IDEMPOTENCY (NORMATIVE): - On replay with the same idempotency_key, the server MUST return the original successful
+        response payload.
+
+        TENANCY (NORMATIVE): - subject.tenant MUST match the effective tenant derived from auth; otherwise the server MUST
+        return 403 FORBIDDEN.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKeyHeader'
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/EventCreateRequest' }
+            schema: {$ref: '#/components/schemas/EventCreateRequest'}
       responses:
         "202":
           description: Event accepted
           headers:
-            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
-            X-Cycles-Tenant: { $ref: '#/components/headers/X-Cycles-Tenant' }
+            X-Request-Id: {$ref: '#/components/headers/X-Request-Id'}
+            X-Cycles-Tenant: {$ref: '#/components/headers/X-Cycles-Tenant'}
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/EventCreateResponse' }
-        "400": { $ref: '#/components/responses/ErrorResponse' }
-        "401": { $ref: '#/components/responses/ErrorResponse' }
-        "403": { $ref: '#/components/responses/ErrorResponse' }
-        "409": { $ref: '#/components/responses/ErrorResponse' }
-        "500": { $ref: '#/components/responses/ErrorResponse' }
+              schema: {$ref: '#/components/schemas/EventCreateResponse'}
+        "400": {$ref: '#/components/responses/ErrorResponse'}
+        "401": {$ref: '#/components/responses/ErrorResponse'}
+        "403": {$ref: '#/components/responses/ErrorResponse'}
+        "409": {$ref: '#/components/responses/ErrorResponse'}
+        "500": {$ref: '#/components/responses/ErrorResponse'}
