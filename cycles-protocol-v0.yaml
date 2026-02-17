@@ -436,7 +436,8 @@ components:
         LEDGER INVARIANT (NORMATIVE):
            - If allocated is present, then remaining MUST satisfy: remaining.amount = allocated.amount - spent.amount - reserved.amount
              treating absent spent/reserved as 0 (all in the same unit).
-           - If allocated is absent, the allocation/cap is server-defined or unknown; clients MUST NOT infer remaining via the above equation.
+           - If allocated is absent, the allocation/cap is server-defined or unknown; clients MUST NOT infer remaining via
+        the above equation.
       properties:
         scope:
           type: string
@@ -629,6 +630,10 @@ components:
           additionalProperties: true
 
     # ---- Balances (nice-to-have) ----
+        idempotency_key:
+          $ref: '#/components/schemas/IdempotencyKey'
+
+  # 2) Add ReservationSummary schema for list responses (smaller than ReservationDetail).
     BalanceResponse:
       type: object
       required: [balances]
@@ -686,6 +691,66 @@ components:
           items:
             $ref: '#/components/schemas/Balance'
 
+    ReservationSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - reservation_id
+        - status
+        - subject
+        - action
+        - reserved
+        - created_at_ms
+        - expires_at_ms
+        - scope_path
+        - affected_scopes
+      properties:
+        reservation_id:
+          type: string
+        status:
+          $ref: '#/components/schemas/ReservationStatus'
+        idempotency_key:
+          $ref: '#/components/schemas/IdempotencyKey'
+          description: Present if the server persists reservation creation idempotency keys.
+        subject:
+          $ref: '#/components/schemas/Subject'
+        action:
+          $ref: '#/components/schemas/Action'
+        reserved:
+          $ref: '#/components/schemas/Amount'
+        created_at_ms:
+          type: integer
+          format: int64
+          minimum: 0
+        expires_at_ms:
+          type: integer
+          format: int64
+          minimum: 0
+        scope_path:
+          type: string
+        affected_scopes:
+          type: array
+          items:
+            type: string
+
+  # 3) Add ReservationListResponse schema (paged).
+    ReservationListResponse:
+      type: object
+      additionalProperties: false
+      required: [reservations]
+      properties:
+        reservations:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReservationSummary'
+        next_cursor:
+          type: string
+          description: Opaque cursor for next page (if any).
+        has_more:
+          type: boolean
+          description: True if next_cursor is present and more results may be available.
+
+  # 4) Add GET /v1/reservations (list + lookup).
 paths:
   /v1/decide:
     post:
@@ -761,6 +826,72 @@ paths:
         "401": {$ref: '#/components/responses/ErrorResponse'}
         "403": {$ref: '#/components/responses/ErrorResponse'}
         "409": {$ref: '#/components/responses/ErrorResponse'}
+        "500": {$ref: '#/components/responses/ErrorResponse'}
+    get:
+      tags: [Reservations]
+      operationId: listReservations
+      summary: List reservations (optional recovery/debug endpoint)
+      description: |-
+        Lists reservations visible to the effective tenant. This endpoint is OPTIONAL in v0 deployments.
+
+        RECOVERY (NORMATIVE):
+          - If a client loses reservation_id, it MAY recover it by querying with idempotency_key and/or subject filters.
+          - Servers SHOULD support filtering by status=ACTIVE to identify "stuck" reservations.
+
+        TENANCY (NORMATIVE):
+          - The server MUST scope results to the effective tenant derived from auth.
+          - If a tenant query parameter is provided and does not match the effective tenant, the server MUST return 403 FORBIDDEN.
+      parameters:
+        - name: idempotency_key
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/IdempotencyKey'
+          description: Lookup handle to recover the reservation_id from a prior createReservation call.
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/ReservationStatus'
+          description: Filter by reservation status (e.g., ACTIVE).
+        - name: tenant
+          in: query
+          required: false
+          schema: {type: string}
+        - name: workspace
+          in: query
+          required: false
+          schema: {type: string}
+        - name: app
+          in: query
+          required: false
+          schema: {type: string}
+        - name: workflow
+          in: query
+          required: false
+          schema: {type: string}
+        - name: agent
+          in: query
+          required: false
+          schema: {type: string}
+        - name: toolGroup
+          in: query
+          required: false
+          schema: {type: string}
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        "200":
+          description: Reservations list
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/X-Request-Id'}
+            X-Cycles-Tenant: {$ref: '#/components/headers/X-Cycles-Tenant'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ReservationListResponse'}
+        "400": {$ref: '#/components/responses/ErrorResponse'}
+        "401": {$ref: '#/components/responses/ErrorResponse'}
+        "403": {$ref: '#/components/responses/ErrorResponse'}
         "500": {$ref: '#/components/responses/ErrorResponse'}
 
   /v1/reservations/{reservation_id}:
