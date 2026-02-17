@@ -41,8 +41,10 @@ info:
     ERROR SEMANTICS (NORMATIVE):
       - Budget denials MUST return HTTP 409 with error=BUDGET_EXCEEDED.
       - Finalized reservations MUST return HTTP 409 with error=RESERVATION_FINALIZED.
-      - Expired reservations (beyond grace period) MUST return HTTP 404 with error=RESERVATION_EXPIRED.
+      - Expired reservations (beyond grace period) MUST return HTTP 410 with error=RESERVATION_EXPIRED.
+      - Reservations that never existed MUST return HTTP 404 with error=NOT_FOUND.
       - HTTP 429 is reserved for server-side throttling/rate limiting (optional in v0), not deterministic budget exhaustion.
+      - Unit mismatch on commit (actual.unit ≠ reservation unit) or event (actual.unit not supported for the target scope) MUST return HTTP 400 with error=UNIT_MISMATCH
 
     IDEMPOTENCY (NORMATIVE):
       - If X-Idempotency-Key header is present and body.idempotency_key is present, they MUST match.
@@ -229,7 +231,8 @@ components:
     Subject:
       type: object
       description: >
-        Dimension bag for hierarchical budgets. At least one field MUST be provided.
+        Dimension bag for hierarchical budgets. At least one standard field (tenant, workspace, app, workflow, agent, or toolGroup) MUST be provided.
+        A subject containing only `dimensions` is invalid; server MUST return 400 INVALID_REQUEST. 
         Hierarchy: tenant → workspace → app → workflow → agent → toolGroup.
 
         EXTENSIBILITY (v0):
@@ -238,7 +241,13 @@ components:
         - v0 servers MAY ignore dimensions for budgeting decisions; if they do, they still MUST accept and round-trip it.
         - Keys SHOULD be lowercase and match ^[a-z0-9_.-]+$ for stable canonicalization; values are opaque strings.
       additionalProperties: false
-      minProperties: 1
+      anyOf:
+        - required: [tenant]
+        - required: [workspace]
+        - required: [app]
+        - required: [workflow]
+        - required: [agent]
+        - required: [toolGroup]
       properties:
         tenant:
           type: string
@@ -374,7 +383,9 @@ components:
         How server handles commits where actual > reserved.
         REJECT: reject commit (client must reserve a buffer or over-estimate).
           Recommended: add 10-20% buffer to estimates when using REJECT.
-        ALLOW_IF_AVAILABLE: if remaining budget supports the delta, commit and charge the delta atomically.
+        ALLOW_IF_AVAILABLE: if remaining budget supports the delta, commit and charge the delta atomically across all derived scopes. 
+        The delta check and charge MUST be performed as a single atomic operation; 
+        if budget is exhausted between check and commit, server MUST return 409 BUDGET_EXCEEDED.
       enum: [REJECT, ALLOW_IF_AVAILABLE]
 
     ReservationStatus:
@@ -434,8 +445,9 @@ components:
           - Servers MUST NOT emit a Balance with mixed units; clients MAY treat such responses as invalid.
 
         LEDGER INVARIANT (NORMATIVE):
-           - If allocated is present, then remaining MUST satisfy: remaining.amount = allocated.amount - spent.amount - reserved.amount treating absent spent/reserved as 0 (all in the same unit).
-           - If allocated is absent, the allocation/cap is server-defined or unknown; clients MUST NOT infer remaining via the above equation.
+           - If allocated, spent, and reserved are all present, then remaining MUST satisfy: remaining.amount = allocated.amount - spent.amount - reserved.amount (same unit).
+           - If allocated is absent, remaining is authoritative and clients MUST treat it as opaque (i.e., MUST NOT derive it from other fields).
+           - Servers MUST NOT emit a Balance where the invariant is violated when all four fields are present.
       properties:
         scope:
           type: string
@@ -462,7 +474,7 @@ components:
           $ref: '#/components/schemas/DecisionEnum'
         reservation_id:
           type: string
-          description: Present if decision is ALLOW or ALLOW_WITH_CAPS and dry_run is false.
+          description: Present if decision is ALLOW or ALLOW_WITH_CAPS and dry_run is false. MUST be absent when dry_run is true.
         reserved:
           $ref: '#/components/schemas/Amount'
         expires_at_ms:
@@ -531,8 +543,6 @@ components:
         metadata:
           type: object
           additionalProperties: true
-      description: >
-        NOTE: actual.unit MUST equal the reservation unit. Otherwise server MUST return UNIT_MISMATCH.
 
     CommitResponse:
       type: object
@@ -660,6 +670,14 @@ components:
           $ref: '#/components/schemas/Action'
         actual:
           $ref: '#/components/schemas/Amount'
+        overage_policy:
+          $ref: '#/components/schemas/CommitOveragePolicy'
+          default: REJECT
+          description: >
+            How server handles events where actual would exceed remaining budget.
+            REJECT (default): server MUST return 409 BUDGET_EXCEEDED if actual > remaining across any derived scope.
+            ALLOW_IF_AVAILABLE: server MUST atomically apply the full `actual` amount only if sufficient remaining exists 
+            across all derived scopes at apply time; otherwise MUST return 409 BUDGET_EXCEEDED.
         metrics:
           $ref: '#/components/schemas/StandardMetrics'
         now_ms:
@@ -729,7 +747,6 @@ components:
           items:
             type: string
 
-  # 3) Add ReservationListResponse schema (paged).
     ReservationListResponse:
       type: object
       additionalProperties: false
@@ -746,7 +763,6 @@ components:
           type: boolean
           description: True if next_cursor is present and more results may be available.
 
-  # 4) Add GET /v1/reservations (list + lookup).
 paths:
   /v1/decide:
     post:
@@ -762,6 +778,9 @@ paths:
 
         TENANCY (NORMATIVE): 
         - subject.tenant MUST match the effective tenant derived from auth; otherwise the server MUST return 403 FORBIDDEN.
+
+        Idempotency on /decide is for request deduplication only. A replayed ALLOW response reflects budget state at the time of 
+        the original call; clients MUST NOT treat a replayed decision as current budget authorization.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKeyHeader'
       requestBody:
@@ -793,8 +812,10 @@ paths:
       summary: Reserve budget for a planned action (concurrency-safe)
       description: >-
         Atomically reserves the estimated amount across server-derived scopes and returns a reservation_id. Reservations expire
-        at expires_at_ms; commits are accepted through (expires_at_ms + grace_period_ms). If dry_run=true, the server performs
-        a shadow evaluation and MUST NOT create a live reservation or modify balances.
+        at expires_at_ms; commits are accepted through (expires_at_ms + grace_period_ms). 
+
+        If dry_run=true and decision is ALLOW or ALLOW_WITH_CAPS, server MUST populate affected_scopes, caps (if applicable), 
+        and balances as if the reservation were live; reservation_id and expires_at_ms MUST be absent.
 
         IDEMPOTENCY (NORMATIVE): 
         - On replay with the same idempotency_key, the server MUST return the original successful response payload, 
@@ -921,6 +942,7 @@ paths:
         "401": {$ref: '#/components/responses/ErrorResponse'}
         "403": {$ref: '#/components/responses/ErrorResponse'}
         "404": {$ref: '#/components/responses/ErrorResponse'}
+        "410": {$ref: '#/components/responses/ErrorResponse'}
         "500": {$ref: '#/components/responses/ErrorResponse'}
 
   /v1/reservations/{reservation_id}/commit:
@@ -959,6 +981,7 @@ paths:
         "403": {$ref: '#/components/responses/ErrorResponse'}
         "404": {$ref: '#/components/responses/ErrorResponse'}
         "409": {$ref: '#/components/responses/ErrorResponse'}
+        "410": {$ref: '#/components/responses/ErrorResponse'}
         "500": {$ref: '#/components/responses/ErrorResponse'}
 
   /v1/reservations/{reservation_id}/release:
@@ -995,6 +1018,7 @@ paths:
         "403": {$ref: '#/components/responses/ErrorResponse'}
         "404": {$ref: '#/components/responses/ErrorResponse'}
         "409": {$ref: '#/components/responses/ErrorResponse'}
+        "410": {$ref: '#/components/responses/ErrorResponse'}
         "500": {$ref: '#/components/responses/ErrorResponse'}
 
   /v1/balances:
