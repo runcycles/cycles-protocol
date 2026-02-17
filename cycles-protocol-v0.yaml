@@ -175,7 +175,6 @@ components:
         - UNAUTHORIZED
         - FORBIDDEN
         - NOT_FOUND
-        - CONFLICT
         - BUDGET_EXCEEDED
         - RESERVATION_EXPIRED
         - RESERVATION_FINALIZED
@@ -241,6 +240,7 @@ components:
         - v0 servers MAY ignore dimensions for budgeting decisions; if they do, they still MUST accept and round-trip it.
         - Keys SHOULD be lowercase and match ^[a-z0-9_.-]+$ for stable canonicalization; values are opaque strings.
       additionalProperties: false
+      minProperties: 1
       anyOf:
         - required: [tenant]
         - required: [workspace]
@@ -763,6 +763,45 @@ components:
           type: boolean
           description: True if next_cursor is present and more results may be available.
 
+    ReservationExtendRequest:
+      type: object
+      required: [idempotency_key, extend_by_ms]
+      additionalProperties: false
+      properties:
+        idempotency_key:
+          $ref: '#/components/schemas/IdempotencyKey'
+        extend_by_ms:
+          type: integer
+          minimum: 1
+          maximum: 86400000
+          description: >
+            Amount of time (ms) to extend the reservation expiry from its current expires_at_ms.
+            This does NOT change reserved amount. Server MAY clamp to policy limits.
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Optional debugging/audit metadata.
+
+    ReservationExtendResponse:
+      type: object
+      required: [status, expires_at_ms]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [ACTIVE]
+          description: Reservation remains ACTIVE after a successful extension.
+        expires_at_ms:
+          type: integer
+          format: int64
+          minimum: 0
+          description: New server-authoritative expiry timestamp (ms).
+        balances:
+          type: array
+          items:
+            $ref: '#/components/schemas/Balance'
+          description: Optional updated balances snapshot after extension (nice-to-have).
+
 paths:
   /v1/decide:
     post:
@@ -1021,14 +1060,73 @@ paths:
         "410": {$ref: '#/components/responses/ErrorResponse'}
         "500": {$ref: '#/components/responses/ErrorResponse'}
 
+  /v1/reservations/{reservation_id}/extend:
+    post:
+      tags: [Reservations]
+      operationId: extendReservation
+      summary: Extend reservation TTL (lease refresh / heartbeat)
+      description: >-
+        Extends the expiry of an ACTIVE reservation to support long-running agent workflows.
+
+        SEMANTICS (NORMATIVE):
+        - Extension updates expires_at_ms only; it MUST NOT change reserved amount, unit, subject, action, scope_path, or affected_scopes.
+        - Extensions MUST be applied in a concurrency-safe way.
+
+        IDEMPOTENCY (NORMATIVE):
+        - On replay with the same idempotency_key, the server MUST return the original successful response payload.
+
+        TENANCY (NORMATIVE):
+        - If the reservation exists but is owned by a different effective tenant, the server MUST return 403 FORBIDDEN.
+
+        ERROR SEMANTICS (NORMATIVE):
+        - If the reservation is COMMITTED or RELEASED, server MUST return 409 with error=RESERVATION_FINALIZED.
+        - If the reservation is expired beyond (expires_at_ms + grace_period_ms), server MUST return 410 with error=RESERVATION_EXPIRED.
+        - If the reservation never existed, server MUST return 404 with error=NOT_FOUND.
+      parameters:
+        - $ref: '#/components/parameters/ReservationId'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReservationExtendRequest'
+      responses:
+        "200":
+          description: Reservation expiry extended
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/X-Request-Id'}
+            X-Cycles-Tenant: {$ref: '#/components/headers/X-Cycles-Tenant'}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationExtendResponse'
+        "400": {$ref: '#/components/responses/ErrorResponse'}
+        "401": {$ref: '#/components/responses/ErrorResponse'}
+        "403": {$ref: '#/components/responses/ErrorResponse'}
+        "404": {$ref: '#/components/responses/ErrorResponse'}
+        "409": {$ref: '#/components/responses/ErrorResponse'}
+        "410": {$ref: '#/components/responses/ErrorResponse'}
+        "500": {$ref: '#/components/responses/ErrorResponse'}
+
   /v1/balances:
     get:
       tags: [Balances]
       operationId: getBalances
       summary: Query current budget balances across scopes (nice-to-have)
       description: >
-        Returns balances for scopes matching the provided subject filter. At least one subject field must be provided.
+        Returns balances for scopes matching the provided subject filter.
         include_children MAY be ignored by v0 implementations.
+
+        SUBJECT FILTER REQUIREMENT (NORMATIVE):
+        - At least one of tenant/workspace/app/workflow/agent/toolGroup MUST be provided.
+        - If all of these filters are omitted, server MUST return 400 with error=INVALID_REQUEST.
+
+        TENANCY (NORMATIVE):
+        - The server MUST scope results to the effective tenant derived from auth.
+        - If the tenant query parameter is provided, it is validation-only and MUST match the effective tenant; otherwise the server MUST return 403 FORBIDDEN.
+        - If tenant is omitted, the effective tenant is used. 
+
       parameters:
         - name: tenant
           in: query
