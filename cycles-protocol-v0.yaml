@@ -434,10 +434,8 @@ components:
           - Servers MUST NOT emit a Balance with mixed units; clients MAY treat such responses as invalid.
 
         LEDGER INVARIANT (NORMATIVE):
-           - If allocated is present, then remaining MUST satisfy: remaining.amount = allocated.amount - spent.amount - reserved.amount
-             treating absent spent/reserved as 0 (all in the same unit).
-           - If allocated is absent, the allocation/cap is server-defined or unknown; clients MUST NOT infer remaining via
-        the above equation.
+           - If allocated is present, then remaining MUST satisfy: remaining.amount = allocated.amount - spent.amount - reserved.amount treating absent spent/reserved as 0 (all in the same unit).
+           - If allocated is absent, the allocation/cap is server-defined or unknown; clients MUST NOT infer remaining via the above equation.
       properties:
         scope:
           type: string
@@ -600,6 +598,9 @@ components:
           type: string
         status:
           $ref: '#/components/schemas/ReservationStatus'
+        idempotency_key:
+          $ref: '#/components/schemas/IdempotencyKey'
+          description: Present if the server persists reservation creation idempotency keys for debugging/recovery.
         subject:
           $ref: '#/components/schemas/Subject'
         action:
@@ -629,11 +630,7 @@ components:
           type: object
           additionalProperties: true
 
-    # ---- Balances (nice-to-have) ----
-        idempotency_key:
-          $ref: '#/components/schemas/IdempotencyKey'
-
-  # 2) Add ReservationSummary schema for list responses (smaller than ReservationDetail).
+  # B) Clarify listReservations semantics: uniqueness, tenant param meaning, and subject filter scope
     BalanceResponse:
       type: object
       required: [balances]
@@ -831,16 +828,23 @@ paths:
       tags: [Reservations]
       operationId: listReservations
       summary: List reservations (optional recovery/debug endpoint)
-      description: |-
+      description: >-
         Lists reservations visible to the effective tenant. This endpoint is OPTIONAL in v0 deployments.
+
 
         RECOVERY (NORMATIVE):
           - If a client loses reservation_id, it MAY recover it by querying with idempotency_key and/or subject filters.
+          - If idempotency_key is provided, the server SHOULD return at most one matching reservation (uniqueness is expected per (effective tenant, endpoint, idempotency_key)).
           - Servers SHOULD support filtering by status=ACTIVE to identify "stuck" reservations.
+
+        SUBJECT FILTERS (GUIDANCE):
+          - Query parameters tenant/workspace/app/workflow/agent/toolGroup filter on the canonical Subject fields.
+          - Filtering on Subject.dimensions is out of scope for v0 unless explicitly implemented by the server.
 
         TENANCY (NORMATIVE):
           - The server MUST scope results to the effective tenant derived from auth.
-          - If a tenant query parameter is provided and does not match the effective tenant, the server MUST return 403 FORBIDDEN.
+          - If the tenant query parameter is provided, it is validation-only and MUST match the effective tenant; otherwise the server MUST return 403 FORBIDDEN.
+          - If tenant is omitted, the effective tenant is used.
       parameters:
         - name: idempotency_key
           in: query
