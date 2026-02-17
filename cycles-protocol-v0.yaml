@@ -630,7 +630,6 @@ components:
           type: object
           additionalProperties: true
 
-  # B) Clarify listReservations semantics: uniqueness, tenant param meaning, and subject filter scope
     BalanceResponse:
       type: object
       required: [balances]
