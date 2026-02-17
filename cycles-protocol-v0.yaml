@@ -679,7 +679,7 @@ components:
       properties:
         status:
           type: string
-          enum: [ACCEPTED]
+          enum: [APPLIED]
         event_id:
           type: string
         balances:
@@ -757,11 +757,11 @@ paths:
         Returns ALLOW / DENY, optionally with Caps for soft landing. This endpoint does not reserve budget. Clients that require
         concurrency safety MUST use /v1/reservations.
 
-        IDEMPOTENCY (NORMATIVE): - On replay with the same idempotency_key, the server MUST return the original successful
-        response payload.
+        IDEMPOTENCY (NORMATIVE): 
+        - On replay with the same idempotency_key, the server MUST return the original successful response payload.
 
-        TENANCY (NORMATIVE): - subject.tenant MUST match the effective tenant derived from auth; otherwise the server MUST
-        return 403 FORBIDDEN.
+        TENANCY (NORMATIVE): 
+        - subject.tenant MUST match the effective tenant derived from auth; otherwise the server MUST return 403 FORBIDDEN.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKeyHeader'
       requestBody:
@@ -796,12 +796,12 @@ paths:
         at expires_at_ms; commits are accepted through (expires_at_ms + grace_period_ms). If dry_run=true, the server performs
         a shadow evaluation and MUST NOT create a live reservation or modify balances.
 
-        IDEMPOTENCY (NORMATIVE): - On replay with the same idempotency_key, the server MUST return the original successful
-        response payload,
-          including the original reservation_id (if any).
+        IDEMPOTENCY (NORMATIVE): 
+        - On replay with the same idempotency_key, the server MUST return the original successful response payload, 
+        including the original reservation_id (if any).
 
-        TENANCY (NORMATIVE): - subject.tenant MUST match the effective tenant derived from auth; otherwise the server MUST
-        return 403 FORBIDDEN.
+        TENANCY (NORMATIVE): 
+        - subject.tenant MUST match the effective tenant derived from auth; otherwise the server MUST return 403 FORBIDDEN.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKeyHeader'
       requestBody:
@@ -905,8 +905,8 @@ paths:
       description: >-
         Retrieve current status and details of a reservation by ID. Useful for debugging and monitoring long-running operations.
 
-        TENANCY (NORMATIVE): - If the reservation exists but is owned by a different effective tenant, the server MUST return
-        403 FORBIDDEN.
+        TENANCY (NORMATIVE): 
+        - If the reservation exists but is owned by a different effective tenant, the server MUST return 403 FORBIDDEN.
       parameters:
         - $ref: '#/components/parameters/ReservationId'
       responses:
@@ -932,11 +932,11 @@ paths:
         Commits actual spend. If actual < reserved, delta is released automatically. If actual > reserved, behavior is controlled
         by the reservation's overage_policy.
 
-        IDEMPOTENCY (NORMATIVE): - On replay with the same idempotency_key, the server MUST return the original successful
-        response payload.
+        IDEMPOTENCY (NORMATIVE): 
+        - On replay with the same idempotency_key, the server MUST return the original successful response payload.
 
-        TENANCY (NORMATIVE): - If the reservation exists but is owned by a different effective tenant, the server MUST return
-        403 FORBIDDEN.
+        TENANCY (NORMATIVE): 
+        - If the reservation exists but is owned by a different effective tenant, the server MUST return 403 FORBIDDEN.
       parameters:
         - $ref: '#/components/parameters/ReservationId'
         - $ref: '#/components/parameters/IdempotencyKeyHeader'
@@ -969,11 +969,11 @@ paths:
       description: >-
         Releases reserved amount back to remaining budget.
 
-        IDEMPOTENCY (NORMATIVE): - On replay with the same idempotency_key, the server MUST return the original successful
-        response payload.
+        IDEMPOTENCY (NORMATIVE): 
+        - On replay with the same idempotency_key, the server MUST return the original successful response payload.
 
-        TENANCY (NORMATIVE): - If the reservation exists but is owned by a different effective tenant, the server MUST return
-        403 FORBIDDEN.
+        TENANCY (NORMATIVE): 
+        - If the reservation exists but is owned by a different effective tenant, the server MUST return 403 FORBIDDEN.
       parameters:
         - $ref: '#/components/parameters/ReservationId'
         - $ref: '#/components/parameters/IdempotencyKeyHeader'
@@ -1049,14 +1049,14 @@ paths:
       operationId: createEvent
       summary: Optional post-only accounting when pre-estimation is not available
       description: >-
-        Records an accounting event without a reservation. This endpoint is optional in v0 deployments. For deterministic
-        governance under concurrency, prefer /v1/reservations.
+        Records an accounting event without a reservation. This endpoint is optional in v0 deployments. 
+        The event MUST be applied atomically across all derived scopes before the server returns 201.
 
-        IDEMPOTENCY (NORMATIVE): - On replay with the same idempotency_key, the server MUST return the original successful
-        response payload.
+        IDEMPOTENCY (NORMATIVE): 
+        - On replay with the same idempotency_key, the server MUST return the original successful response payload.
 
-        TENANCY (NORMATIVE): - subject.tenant MUST match the effective tenant derived from auth; otherwise the server MUST
-        return 403 FORBIDDEN.
+        TENANCY (NORMATIVE): 
+        - subject.tenant MUST match the effective tenant derived from auth; otherwise the server MUST return 403 FORBIDDEN.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKeyHeader'
       requestBody:
@@ -1065,8 +1065,8 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/EventCreateRequest'}
       responses:
-        "202":
-          description: Event accepted
+        "201":
+          description: Event created and atomically applied to balances
           headers:
             X-Request-Id: {$ref: '#/components/headers/X-Request-Id'}
             X-Cycles-Tenant: {$ref: '#/components/headers/X-Cycles-Tenant'}
