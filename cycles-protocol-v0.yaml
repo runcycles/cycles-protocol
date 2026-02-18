@@ -24,7 +24,7 @@ info:
       - Requests are authenticated via X-Cycles-API-Key.
       - Server determines an "effective tenant" from the API key (or other auth context).
       - Subject.tenant is a budgeting dimension and MUST be validated against the effective tenant.
-        If validated and mismatched, server MUST return 403 FORBIDDEN.
+        If mismatched, server MUST return 403 FORBIDDEN.
       - Reservation ownership MUST be enforced: every reservation is bound to the effective tenant at creation.
         Any subsequent GET/commit/release for a reservation that exists but is owned by a different tenant
         MUST return 403 FORBIDDEN.
@@ -44,11 +44,11 @@ info:
     ERROR SEMANTICS (NORMATIVE):
       - Budget denials MUST return HTTP 409 with error=BUDGET_EXCEEDED.
       - Finalized reservations MUST return HTTP 409 with error=RESERVATION_FINALIZED.
-      - Expired reservations MUST return HTTP 410 with error=RESERVATION_EXPIRED
+      - Expired reservations MUST return HTTP 410 with error=RESERVATION_EXPIRED.
         (commit/release: beyond expires_at_ms + grace_period_ms; extend: beyond expires_at_ms).
       - Reservations that never existed MUST return HTTP 404 with error=NOT_FOUND.
       - HTTP 429 is reserved for server-side throttling/rate limiting (optional in v0), not deterministic budget exhaustion.
-      - Unit mismatch on commit (actual.unit ≠ reservation unit) or event (actual.unit not supported for the target scope) MUST return HTTP 400 with error=UNIT_MISMATCH
+      - Unit mismatch on commit (actual.unit ≠ reservation unit) or event (actual.unit not supported for the target scope) MUST return HTTP 400 with error=UNIT_MISMATCH.
       - For expiry comparisons, “now” refers to server time (not client-provided time).
 
     IDEMPOTENCY (NORMATIVE):
