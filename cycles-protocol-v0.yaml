@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cycles Budget Authority API
-  version: 0.1.12
+  version: 0.1.17
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -44,10 +44,12 @@ info:
     ERROR SEMANTICS (NORMATIVE):
       - Budget denials MUST return HTTP 409 with error=BUDGET_EXCEEDED.
       - Finalized reservations MUST return HTTP 409 with error=RESERVATION_FINALIZED.
-      - Expired reservations (beyond grace period) MUST return HTTP 410 with error=RESERVATION_EXPIRED.
+      - Expired reservations MUST return HTTP 410 with error=RESERVATION_EXPIRED
+        (commit/release: beyond expires_at_ms + grace_period_ms; extend: beyond expires_at_ms).
       - Reservations that never existed MUST return HTTP 404 with error=NOT_FOUND.
       - HTTP 429 is reserved for server-side throttling/rate limiting (optional in v0), not deterministic budget exhaustion.
       - Unit mismatch on commit (actual.unit ≠ reservation unit) or event (actual.unit not supported for the target scope) MUST return HTTP 400 with error=UNIT_MISMATCH
+      - For expiry comparisons, “now” refers to server time (not client-provided time).
 
     IDEMPOTENCY (NORMATIVE):
       - If X-Idempotency-Key header is present and body.idempotency_key is present, they MUST match.
@@ -1075,6 +1077,8 @@ paths:
         SEMANTICS (NORMATIVE):
         - Extension updates expires_at_ms only; it MUST NOT change reserved amount, unit, subject, action, scope_path, or affected_scopes.
         - Extensions MUST be applied in a concurrency-safe way.
+        - Server MUST accept extend only when status is ACTIVE and the reservation has not yet expired
+          (i.e., server time ≤ expires_at_ms). If the reservation is expired, server MUST return 410 with error=RESERVATION_EXPIRED.
 
         IDEMPOTENCY (NORMATIVE):
         - On replay with the same idempotency_key, the server MUST return the original successful response payload.
@@ -1084,7 +1088,7 @@ paths:
 
         ERROR SEMANTICS (NORMATIVE):
         - If the reservation is COMMITTED or RELEASED, server MUST return 409 with error=RESERVATION_FINALIZED.
-        - If the reservation is expired beyond (expires_at_ms + grace_period_ms), server MUST return 410 with error=RESERVATION_EXPIRED.
+        - If the reservation is expired (server time > expires_at_ms), server MUST return 410 with error=RESERVATION_EXPIRED.
         - If the reservation never existed, server MUST return 404 with error=NOT_FOUND.
       parameters:
         - $ref: '#/components/parameters/ReservationId'
