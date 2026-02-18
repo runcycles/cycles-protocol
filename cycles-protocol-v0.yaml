@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cycles Budget Authority API
-  version: 0.1.18
+  version: 0.1.19
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -362,6 +362,8 @@ components:
       properties:
         decision:
           $ref: '#/components/schemas/DecisionEnum'
+          description: >
+            For dry_run=true, decision MAY be DENY. For dry_run=false, insufficient budget MUST be expressed via 409 BUDGET_EXCEEDED (not decision=DENY).
         caps:
           $ref: '#/components/schemas/Caps'
           description: Present only when decision=ALLOW_WITH_CAPS; MUST be absent otherwise.
@@ -484,6 +486,8 @@ components:
       properties:
         decision:
           $ref: '#/components/schemas/DecisionEnum'
+          description: >
+            For dry_run=true, decision MAY be DENY. For dry_run=false, insufficient budget MUST be expressed via 409 BUDGET_EXCEEDED (not decision=DENY).
         reservation_id:
           type: string
           description: Present if decision is ALLOW or ALLOW_WITH_CAPS and dry_run is false. MUST be absent when dry_run is true.
@@ -699,7 +703,7 @@ components:
           minimum: 0
           description: >
             Optional client-observed timestamp (ms). This value is advisory only and MUST NOT be used for authorization, expiry, 
-            or budget enforcement decisions. The server's receipt time governs all budget comparisons and invariants.
+            idempotency or budget enforcement decisions. The server's receipt time governs all budget comparisons and invariants.
         metadata:
           type: object
           additionalProperties: true
@@ -870,13 +874,17 @@ paths:
         Atomically reserves the estimated amount across server-derived scopes and returns a reservation_id. Reservations expire
         at expires_at_ms; commits are accepted through (expires_at_ms + grace_period_ms). 
 
-        If dry_run=true, server MUST evaluate the full reservation request and return decision/caps/affected_scopes/balances 
-        as if the reservation were live, regardless of decision outcome:
-        - If ALLOW or ALLOW_WITH_CAPS: server MUST populate affected_scopes, caps (if applicable), and balances. reservation_id and expires_at_ms MUST be absent.
-        - If DENY: server MUST populate affected_scopes (so the client can observe which scopes would have been impacted) and reason_code (if available).
-        balances MAY be populated. reservation_id and expires_at_ms MUST be absent.
+        If dry_run=true, server MUST evaluate the full reservation request and return decision/caps/affected_scopes/balances
+        as if the reservation were live, but MUST NOT modify balances, persist a reservation, or require commit/release.
 
-        IDEMPOTENCY (NORMATIVE): 
+        DRY-RUN RESPONSE RULES (NORMATIVE):
+        - reservation_id and expires_at_ms MUST be absent.
+        - affected_scopes MUST be populated regardless of decision outcome (ALLOW / ALLOW_WITH_CAPS / DENY).
+        - If decision=ALLOW_WITH_CAPS, caps MUST be present; otherwise caps MUST be absent.
+        - If decision=DENY, reason_code SHOULD be populated; it is the primary diagnostic signal for why the dry_run was denied.
+        - balances MAY be populated (recommended for operator visibility), but MUST reflect a non-mutating evaluation.
+
+        IDEMPOTENCY (NORMATIVE):
         - On replay with the same idempotency_key, the server MUST return the original successful response payload, 
         including the original reservation_id (if any).
 
