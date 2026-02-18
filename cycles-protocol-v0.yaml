@@ -1,7 +1,10 @@
 openapi: 3.1.0
 info:
   title: Cycles Budget Authority API
-  version: 0.1.0
+  version: 0.1.12
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
   summary: v0 protocol for deterministic budget governance (reserve/commit) with optional decide + balance queries.
   description: |-
     PURPOSE (v0):
@@ -775,8 +778,9 @@ components:
           minimum: 1
           maximum: 86400000
           description: >
-            Amount of time (ms) to extend the reservation expiry from its current expires_at_ms.
-            This does NOT change reserved amount. Server MAY clamp to policy limits.
+            Amount of time (ms) to extend the reservation expiry relative to its current expires_at_ms 
+            (i.e., not relative to request time). This does NOT change reserved amount. Server MAY clamp
+            the effective extension to policy limits; the returned expires_at_ms is authoritative.
         metadata:
           type: object
           additionalProperties: true
