@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cycles Budget Authority API
-  version: 0.1.17
+  version: 0.1.18
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -351,10 +351,6 @@ components:
           $ref: '#/components/schemas/Action'
         estimate:
           $ref: '#/components/schemas/Amount'
-        now_ms:
-          type: integer
-          format: int64
-          minimum: 0
         metadata:
           type: object
           additionalProperties: true
@@ -368,6 +364,7 @@ components:
           $ref: '#/components/schemas/DecisionEnum'
         caps:
           $ref: '#/components/schemas/Caps'
+          description: Present only when decision=ALLOW_WITH_CAPS; MUST be absent otherwise.
         reason_code:
           type: string
           maxLength: 128
@@ -423,7 +420,17 @@ components:
           default: 5000
           description: >
             Grace window after TTL for in-flight commits. Default 5s.
-            For high-latency actions (streaming LLM, slow APIs), consider setting higher (10-30s).
+
+            OPERATIONAL GUIDANCE:
+            - For high-latency actions (streaming LLM, slow APIs), consider setting higher (10-30s).
+
+            INTEROP / SAFETY RATIONALE:
+            - The 60s maximum is an interoperability ceiling to limit long-lived "in-flight" commit windows and reduce
+              zombie-reservation and abuse surface (grace extends the time that a crashed client can keep budget locked).
+
+            LONG-RUNNING WORKFLOWS:
+            - For multi-minute operations, clients SHOULD keep ttl_ms relatively short and use /v1/reservations/{reservation_id}/extend
+              as a heartbeat, and/or use chunked reserve/commit cycles rather than relying on large grace_period_ms.
         overage_policy:
           $ref: '#/components/schemas/CommitOveragePolicy'
           default: REJECT
@@ -472,7 +479,7 @@ components:
 
     ReservationCreateResponse:
       type: object
-      required: [decision]
+      required: [decision, affected_scopes]
       additionalProperties: false
       properties:
         decision:
@@ -495,6 +502,7 @@ components:
           description: Canonical scope identifiers impacted by this reservation, in canonical order.
         caps:
           $ref: '#/components/schemas/Caps'
+          description: Present only when decision=ALLOW_WITH_CAPS; MUST be absent otherwise.
         balances:
           type: array
           items:
@@ -685,10 +693,13 @@ components:
             across all derived scopes at apply time; otherwise MUST return 409 BUDGET_EXCEEDED.
         metrics:
           $ref: '#/components/schemas/StandardMetrics'
-        now_ms:
+        client_time_ms:
           type: integer
           format: int64
           minimum: 0
+          description: >
+            Optional client-observed timestamp (ms). This value is advisory only and MUST NOT be used for authorization, expiry, 
+            or budget enforcement decisions. The server's receipt time governs all budget comparisons and invariants.
         metadata:
           type: object
           additionalProperties: true
@@ -859,8 +870,11 @@ paths:
         Atomically reserves the estimated amount across server-derived scopes and returns a reservation_id. Reservations expire
         at expires_at_ms; commits are accepted through (expires_at_ms + grace_period_ms). 
 
-        If dry_run=true and decision is ALLOW or ALLOW_WITH_CAPS, server MUST populate affected_scopes, caps (if applicable), 
-        and balances as if the reservation were live; reservation_id and expires_at_ms MUST be absent.
+        If dry_run=true, server MUST evaluate the full reservation request and return decision/caps/affected_scopes/balances 
+        as if the reservation were live, regardless of decision outcome:
+        - If ALLOW or ALLOW_WITH_CAPS: server MUST populate affected_scopes, caps (if applicable), and balances. reservation_id and expires_at_ms MUST be absent.
+        - If DENY: server MUST populate affected_scopes (so the client can observe which scopes would have been impacted) and reason_code (if available).
+        balances MAY be populated. reservation_id and expires_at_ms MUST be absent.
 
         IDEMPOTENCY (NORMATIVE): 
         - On replay with the same idempotency_key, the server MUST return the original successful response payload, 
