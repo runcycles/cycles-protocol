@@ -80,7 +80,7 @@ info:
 
     SCOPE DERIVATION (NORMATIVE):
       - Server derives canonical scope identifiers and a canonical scope_path from Subject fields.
-      - Canonical ordering is: tenant → workspace → app → workflow → agent → toolGroup.
+      - Canonical ordering is: tenant → workspace → app → workflow → agent → toolset.
       - affected_scopes returned by the server MUST be in that canonical order.
 
     RESERVATION LEASING (GUIDANCE):
@@ -105,9 +105,38 @@ info:
           4. Monitor that is_over_limit returns to false
           5. Resume operations automatically
 
+    CHANGELOG:
+      v0.1.23 (2026-02-21):
+        - Renamed Subject.toolGroup → Subject.toolset across all endpoints, schemas,
+          and normative text for consistency with scope hierarchy naming conventions.
+        - Added ALLOW_WITH_OVERDRAFT semantics to EventCreateRequest.overage_policy
+          (finding: behavior was previously unspecified for events).
+        - Clarified DecisionResponse.decision description: DENY is a valid live-path
+          outcome on /decide; removed erroneous dry_run framing copied from
+          ReservationCreateResponse.
+        - Added ERROR SEMANTICS precedence rule: when is_over_limit=true, server MUST
+          return 409 OVERDRAFT_LIMIT_EXCEEDED for new reservations, taking precedence
+          over DEBT_OUTSTANDING even when debt > 0.
+        - Added DEBT/OVERDRAFT STATE normative block to /decide: server SHOULD return
+          decision=DENY under debt or over-limit conditions; MUST NOT return 409.
+
+      v0.1.22 (2026-02-18):
+        - Added overdraft/debt model: ALLOW_WITH_OVERDRAFT overage policy, debt and
+          overdraft_limit fields on Balance, is_over_limit flag, OVERDRAFT_LIMIT_EXCEEDED
+          and DEBT_OUTSTANDING error codes.
+        - Added SignedAmount schema to support negative remaining in overdraft state.
+        - Added OVERDRAFT RECONCILIATION normative section and OVERDRAFT MONITORING
+          guidance section including recommended alerting thresholds and operator runbook.
+        - Added OVER-LIMIT BLOCKING normative block to createReservation.
+
+      v0.1.0 → v0.1.21:
+        - Initial protocol definition: reserve/commit/release lifecycle, idempotency,
+          scope derivation, /decide, /balances, /events, dry_run shadow mode,
+          reservation extend/list/get endpoints, soft enforcement via Caps.
+
 servers:
   - url: https://api.cycles.local
-    description: Default server (example)
+    description: Replace with your implementation endpoint
 
 tags:
   - name: Decisions
@@ -286,9 +315,9 @@ components:
     Subject:
       type: object
       description: >
-        Dimension bag for hierarchical budgets. At least one standard field (tenant, workspace, app, workflow, agent, or toolGroup) MUST be provided.
+        Dimension bag for hierarchical budgets. At least one standard field (tenant, workspace, app, workflow, agent, or toolset) MUST be provided.
         A subject containing only `dimensions` is invalid; server MUST return 400 INVALID_REQUEST. 
-        Hierarchy: tenant → workspace → app → workflow → agent → toolGroup.
+        Hierarchy: tenant → workspace → app → workflow → agent → toolset.
 
         EXTENSIBILITY (v0):
         - dimensions is an optional, user-defined map for alternative taxonomies
@@ -303,7 +332,7 @@ components:
         - required: [app]
         - required: [workflow]
         - required: [agent]
-        - required: [toolGroup]
+        - required: [toolset]
       properties:
         tenant:
           type: string
@@ -320,7 +349,7 @@ components:
         agent:
           type: string
           maxLength: 128
-        toolGroup:
+        toolset:
           type: string
           maxLength: 128
         dimensions:
@@ -1057,7 +1086,7 @@ paths:
           - Servers SHOULD support filtering by status=ACTIVE to identify "stuck" reservations.
 
         SUBJECT FILTERS (GUIDANCE):
-          - Query parameters tenant/workspace/app/workflow/agent/toolGroup filter on the canonical Subject fields.
+          - Query parameters tenant/workspace/app/workflow/agent/toolset filter on the canonical Subject fields.
           - Filtering on Subject.dimensions is out of scope for v0 unless explicitly implemented by the server.
 
         TENANCY (NORMATIVE):
@@ -1097,7 +1126,7 @@ paths:
           in: query
           required: false
           schema: {type: string}
-        - name: toolGroup
+        - name: toolset
           in: query
           required: false
           schema: {type: string}
@@ -1281,7 +1310,7 @@ paths:
         include_children MAY be ignored by v0 implementations.
 
         SUBJECT FILTER REQUIREMENT (NORMATIVE):
-        - At least one of tenant/workspace/app/workflow/agent/toolGroup MUST be provided.
+        - At least one of tenant/workspace/app/workflow/agent/toolset MUST be provided.
         - If all of these filters are omitted, server MUST return 400 with error=INVALID_REQUEST.
 
         TENANCY (NORMATIVE):
@@ -1305,7 +1334,7 @@ paths:
         - name: agent
           in: query
           schema: {type: string}
-        - name: toolGroup
+        - name: toolset
           in: query
           schema: {type: string}
         - name: include_children
