@@ -1,11 +1,11 @@
 openapi: 3.1.0
 info:
   title: Cycles Budget Authority API
-  version: 0.1.19
+  version: 0.1.23
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
-  summary: v0 protocol for deterministic budget governance (reserve/commit) with optional decide + balance queries.
+  summary: v0 protocol for deterministic budget governance (reserve/commit) with optional decide + balance queries, plus debt/overdraft support with soft-limit reconciliation.
   description: |-
     PURPOSE (v0):
       - Provide a minimal, language-agnostic protocol to enforce deterministic spend exposure for agent runtimes
@@ -43,6 +43,11 @@ info:
 
     ERROR SEMANTICS (NORMATIVE):
       - Budget denials MUST return HTTP 409 with error=BUDGET_EXCEEDED.
+      - Overdraft limit exceeded MUST return HTTP 409 with error=OVERDRAFT_LIMIT_EXCEEDED in two cases:
+        1. During commit: when overage_policy=ALLOW_WITH_OVERDRAFT and (current_debt + delta) > overdraft_limit at commit time
+        2. During reservation: when the scope is in over-limit state (debt > overdraft_limit due to prior concurrent commits)
+      - Outstanding debt blocking reservation MUST return HTTP 409 with error=DEBT_OUTSTANDING
+        (when debt > 0 and new reservation is attempted).
       - Finalized reservations MUST return HTTP 409 with error=RESERVATION_FINALIZED.
       - Expired reservations MUST return HTTP 410 with error=RESERVATION_EXPIRED.
         (commit/release: beyond expires_at_ms + grace_period_ms; extend: beyond expires_at_ms).
@@ -50,6 +55,19 @@ info:
       - HTTP 429 is reserved for server-side throttling/rate limiting (optional in v0), not deterministic budget exhaustion.
       - Unit mismatch on commit (actual.unit ≠ reservation unit) or event (actual.unit not supported for the target scope) MUST return HTTP 400 with error=UNIT_MISMATCH.
       - For expiry comparisons, “now” refers to server time (not client-provided time).
+      - When is_over_limit=true, server MUST return 409 OVERDRAFT_LIMIT_EXCEEDED for new reservations. 
+        This takes precedence over DEBT_OUTSTANDING even when debt > 0.
+
+    OVERDRAFT RECONCILIATION (NORMATIVE):
+      - When concurrent commits cause debt > overdraft_limit on a scope, the server MUST mark that scope as "over-limit" (is_over_limit=true).
+      - Over-limit scopes MUST reject ALL new reservation attempts with 409 OVERDRAFT_LIMIT_EXCEEDED until debt is reduced below overdraft_limit.
+      - Operators reconcile over-limit scopes via budget funding operations (out-of-scope for this API). 
+        When debt is repaid below overdraft_limit, is_over_limit automatically returns to false.
+      - Servers SHOULD provide monitoring/alerting when scopes enter over-limit state:
+          * Log events with scope identifier, current debt, and overdraft_limit
+          * Optionally emit webhooks or notifications to operators
+          * Optionally expose metrics endpoint showing over-limit scope count
+      - Clients SHOULD handle 409 OVERDRAFT_LIMIT_EXCEEDED on reservation as a signal to wait/retry with exponential backoff, or escalate to operators.
 
     IDEMPOTENCY (NORMATIVE):
       - If X-Idempotency-Key header is present and body.idempotency_key is present, they MUST match.
@@ -71,6 +89,21 @@ info:
         * include modest estimation buffers when using overage_policy=REJECT,
         * reserve in small initial leases and increase gradually ("slow start") for long or bursty operations,
         * prefer chunked reserve/commit cycles for long-running actions rather than a single large reservation.
+
+    OVERDRAFT MONITORING (GUIDANCE):
+      - Implementations SHOULD provide visibility into over-limit states:
+          * Dashboard showing scopes with is_over_limit=true
+          * Alerts when debt exceeds overdraft_limit
+          * Time-series metrics: debt_utilization = debt / overdraft_limit
+      - Recommended alerting thresholds:
+          * Warning at 80% of overdraft_limit
+          * Critical at 100% (over-limit state)
+      - Recommended operator runbook:
+          1. Investigate which reservations caused the over-limit state
+          2. Determine if overdraft_limit should be increased (normal variance) or if this represents anomalous consumption (incident)
+          3. Fund the scope to repay debt below limit
+          4. Monitor that is_over_limit returns to false
+          5. Resume operations automatically
 
 servers:
   - url: https://api.cycles.local
@@ -185,6 +218,8 @@ components:
         - RESERVATION_FINALIZED
         - IDEMPOTENCY_MISMATCH
         - UNIT_MISMATCH
+        - OVERDRAFT_LIMIT_EXCEEDED
+        - DEBT_OUTSTANDING
         - INTERNAL_ERROR
 
     ErrorResponse:
@@ -231,6 +266,22 @@ components:
           type: integer
           format: int64
           minimum: 0
+
+    SignedAmount:
+      type: object
+      required: [unit, amount]
+      additionalProperties: false
+      description: >-
+        Like Amount, but allows negative values. Used for Balance.remaining which can be negative in overdraft scenarios.
+      properties:
+        unit:
+          $ref: '#/components/schemas/UnitEnum'
+        amount:
+          type: integer
+          format: int64
+          description: >-
+            Signed integer amount. Can be negative when representing remaining balance in overdraft state
+            (debt > allocated - spent - reserved).
 
     Subject:
       type: object
@@ -363,7 +414,10 @@ components:
         decision:
           $ref: '#/components/schemas/DecisionEnum'
           description: >
-            For dry_run=true, decision MAY be DENY. For dry_run=false, insufficient budget MUST be expressed via 409 BUDGET_EXCEEDED (not decision=DENY).
+            ALLOW indicates sufficient budget exists. ALLOW_WITH_CAPS indicates budget exists 
+            but soft constraints apply. DENY indicates insufficient budget or policy block.
+            Note: /decide does not create a reservation; a subsequent reservation call may 
+            still fail if concurrent activity depletes budget between the two calls.
         caps:
           $ref: '#/components/schemas/Caps'
           description: Present only when decision=ALLOW_WITH_CAPS; MUST be absent otherwise.
@@ -385,12 +439,29 @@ components:
       type: string
       description: >
         How server handles commits where actual > reserved.
+        
         REJECT: reject commit (client must reserve a buffer or over-estimate).
           Recommended: add 10-20% buffer to estimates when using REJECT.
+          If the action already happened externally, this creates an unaccounted gap.
+        
         ALLOW_IF_AVAILABLE: if remaining budget supports the delta, commit and charge the delta atomically across all derived scopes. 
         The delta check and charge MUST be performed as a single atomic operation; 
         if budget is exhausted between check and commit, server MUST return 409 BUDGET_EXCEEDED.
-      enum: [REJECT, ALLOW_IF_AVAILABLE]
+        
+        ALLOW_WITH_OVERDRAFT: if remaining budget supports the delta, commit normally.
+        Otherwise, check if (debt + delta) <= overdraft_limit across all affected scopes.
+          If yes: commit succeeds, add delta to debt, remaining can go negative.
+          If no: commit fails with 409 OVERDRAFT_LIMIT_EXCEEDED.
+        This policy ensures the ledger always reflects reality even when budget is exhausted at commit time.
+        
+        CONCURRENCY (NORMATIVE):
+          - The overdraft_limit check is performed per-commit and is NOT atomic across concurrent commits to the same scope.
+          - Multiple commits may each individually pass the (debt + delta) <= limit check but collectively cause debt to exceed overdraft_limit.
+          - This is acceptable: all commits succeed (actions already happened), and the scope enters "over-limit" state, 
+            blocking future reservations until reconciled.
+          - Servers SHOULD use optimistic locking or compare-and-swap on debt updates to ensure individual commit atomicity, 
+            but cross-commit atomicity is not required.
+      enum: [REJECT, ALLOW_IF_AVAILABLE, ALLOW_WITH_OVERDRAFT]
 
     ReservationStatus:
       type: string
@@ -455,13 +526,36 @@ components:
         Ledger state for a single (scope, unit) balance.
 
         UNIT CONSISTENCY (NORMATIVE):
-          - All Amount fields within a Balance (remaining/reserved/spent/allocated), if present, MUST share the same unit.
+          - All Amount fields within a Balance (remaining/reserved/spent/allocated/debt/overdraft_limit), if present, MUST share the same unit.
           - Servers MUST NOT emit a Balance with mixed units; clients MAY treat such responses as invalid.
 
         LEDGER INVARIANT (NORMATIVE):
-           - If allocated, spent, and reserved are all present, then remaining MUST satisfy: remaining.amount = allocated.amount - spent.amount - reserved.amount (same unit).
+           - If allocated, spent, reserved, and debt are all present, then remaining MUST satisfy: 
+             remaining.amount = allocated.amount - spent.amount - reserved.amount - debt.amount (same unit).
+           - Note that remaining.amount can be negative when debt exceeds available budget.
            - If allocated is absent, remaining is authoritative and clients MUST treat it as opaque (i.e., MUST NOT derive it from other fields).
-           - Servers MUST NOT emit a Balance where the invariant is violated when all four fields are present.
+           - Servers MUST NOT emit a Balance where the invariant is violated when all fields are present.
+        
+        DEBT SEMANTICS (NORMATIVE):
+           - debt represents actual consumption that occurred when insufficient budget was available to cover a commit overage.
+           - debt is created only when overage_policy=ALLOW_WITH_OVERDRAFT and (remaining + released_reservation) < actual at commit time.
+           - When debt > 0, new reservations MUST be rejected with 409 DEBT_OUTSTANDING (unless explicitly allowed by policy).
+           - debt MUST be repaid via budget funding operations (out-of-scope for this API) before new reservations are permitted.
+           - When budget is added to a scope with debt > 0, debt MUST be repaid first, then remaining funds added to remaining.
+        
+        OVERDRAFT LIMIT (NORMATIVE):
+           - overdraft_limit defines the target maximum debt for this scope.
+           - If overdraft_limit is absent or amount=0, no overdraft is permitted (behaves as ALLOW_IF_AVAILABLE).
+           - The overdraft_limit is enforced per-commit but is NOT atomic across concurrent commits.
+             Multiple concurrent commits MAY cause cumulative debt to briefly exceed overdraft_limit.
+           - Individual commits are rejected with 409 OVERDRAFT_LIMIT_EXCEEDED only if (current_debt + delta) > overdraft_limit 
+             at the moment of that specific commit.
+           - When debt > overdraft_limit after reconciliation (due to concurrent commits), the scope enters an "over-limit" state:
+               * The server MUST set is_over_limit=true on the Balance
+               * ALL new reservations against that scope MUST be rejected with 409 OVERDRAFT_LIMIT_EXCEEDED (not DEBT_OUTSTANDING)
+               * Existing active reservations MAY be committed or released normally
+               * The server SHOULD emit alerts/events for operator intervention
+           - Once debt is repaid below overdraft_limit, is_over_limit returns to false and normal reservation operation resumes.
       properties:
         scope:
           type: string
@@ -470,14 +564,36 @@ components:
           type: string
           description: Canonical hierarchical path (server-derived)
         remaining:
-          $ref: '#/components/schemas/Amount'
+          $ref: '#/components/schemas/SignedAmount'
+          description: >-
+            Available budget for new reservations. Can be negative when debt exceeds allocated budget.
+            Formula: remaining = allocated - spent - reserved - debt
         reserved:
           $ref: '#/components/schemas/Amount'
+          description: Amount currently locked by active reservations
         spent:
           $ref: '#/components/schemas/Amount'
+          description: Amount successfully committed through reservations
+        debt:
+          $ref: '#/components/schemas/Amount'
+          description: >-
+            Overdraft amount from commits where actual > reserved and insufficient budget existed to cover the delta.
+            Represents consumption that happened but couldn't be paid from available budget at commit time.
+            Must be repaid before new reservations are allowed (unless policy permits otherwise).
         allocated:
           $ref: '#/components/schemas/Amount'
-          description: Optional if a fixed allocation exists.
+          description: Optional total budget cap if a fixed allocation exists.
+        overdraft_limit:
+          $ref: '#/components/schemas/Amount'
+          description: >-
+            Optional maximum debt allowed for this scope. If absent or amount=0, no overdraft is permitted.
+            When present and amount > 0, commits can succeed by creating debt up to this limit.
+        is_over_limit:
+          type: boolean
+          description: >-
+            True when debt > overdraft_limit due to concurrent commits creating cumulative debt beyond the limit.
+            When true, ALL new reservations against this scope are blocked with 409 OVERDRAFT_LIMIT_EXCEEDED 
+            until debt is reduced below overdraft_limit. Defaults to false when absent.
 
     ReservationCreateResponse:
       type: object
@@ -695,6 +811,12 @@ components:
             REJECT (default): server MUST return 409 BUDGET_EXCEEDED if actual > remaining across any derived scope.
             ALLOW_IF_AVAILABLE: server MUST atomically apply the full `actual` amount only if sufficient remaining exists 
             across all derived scopes at apply time; otherwise MUST return 409 BUDGET_EXCEEDED.
+            ALLOW_WITH_OVERDRAFT: if remaining budget supports actual, apply normally. Otherwise, check if
+            (current_debt + actual) <= overdraft_limit across all derived scopes. If yes: apply succeeds,
+            add actual to debt, remaining can go negative. If no: server MUST return 409 OVERDRAFT_LIMIT_EXCEEDED.
+            Concurrency semantics are identical to commit: the overdraft_limit check is per-event and NOT
+            atomic across concurrent events; scopes may enter over-limit state if concurrent events collectively
+            exceed overdraft_limit.
         metrics:
           $ref: '#/components/schemas/StandardMetrics'
         client_time_ms:
@@ -838,6 +960,11 @@ paths:
 
         TENANCY (NORMATIVE): 
         - subject.tenant MUST match the effective tenant derived from auth; otherwise the server MUST return 403 FORBIDDEN.
+        
+        DEBT/OVERDRAFT STATE (NORMATIVE):
+        - If the subject scope has debt > 0 or is_over_limit=true, server SHOULD return 
+        decision=DENY with reason_code=DEBT_OUTSTANDING or reason_code=OVERDRAFT_LIMIT_EXCEEDED 
+        respectively. Server MUST NOT return 409 for these conditions on /decide.
 
         Idempotency on /decide is for request deduplication only. A replayed ALLOW response reflects budget state at the time of 
         the original call; clients MUST NOT treat a replayed decision as current budget authorization.
@@ -883,6 +1010,11 @@ paths:
         - If decision=ALLOW_WITH_CAPS, caps MUST be present; otherwise caps MUST be absent.
         - If decision=DENY, reason_code SHOULD be populated; it is the primary diagnostic signal for why the dry_run was denied.
         - balances MAY be populated (recommended for operator visibility), but MUST reflect a non-mutating evaluation.
+
+        OVER-LIMIT BLOCKING (NORMATIVE):
+        - If ANY affected scope has debt > overdraft_limit (is_over_limit=true), the reservation MUST be rejected 
+          with 409 OVERDRAFT_LIMIT_EXCEEDED, regardless of available remaining budget.
+        - This blocks new work when overdraft reconciliation is needed.
 
         IDEMPOTENCY (NORMATIVE):
         - On replay with the same idempotency_key, the server MUST return the original successful response payload, 
