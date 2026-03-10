@@ -120,7 +120,7 @@ Use `/decide` for soft-landing checks before reserving. A subsequent `/reservati
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/v1/reservations` | Reserve budget atomically. Returns `reservation_id`. |
+| `POST` | `/v1/reservations` | Reserve budget atomically. Returns `reservation_id` with decision `ALLOW` or `ALLOW_WITH_CAPS`. |
 | `GET` | `/v1/reservations` | List reservations (optional, for recovery/debug). |
 | `GET` | `/v1/reservations/{id}` | Get reservation details (optional, for debug). |
 | `POST` | `/v1/reservations/{id}/commit` | Commit actual spend. Auto-releases delta if actual < reserved. |
@@ -137,13 +137,13 @@ Use `/decide` for soft-landing checks before reserving. A subsequent `/reservati
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/v1/events` | Record spend without a prior reservation (when pre-estimation is unavailable). |
+| `POST` | `/v1/events` | Record spend without a prior reservation (when pre-estimation is unavailable). Returns `201`. |
 
 ---
 
 ## Subject Hierarchy
 
-Every request targets a **Subject** — a dimension bag describing where in the hierarchy the budget applies. At least one standard field must be provided.
+Every request targets a **Subject** — a dimension bag describing where in the hierarchy the budget applies. At least one standard field (tenant, workspace, app, workflow, agent, or toolset) must be provided. A Subject containing only `dimensions` is invalid (`400 INVALID_REQUEST`).
 
 ```
 tenant → workspace → app → workflow → agent → toolset
@@ -157,7 +157,7 @@ tenant → workspace → app → workflow → agent → toolset
 | `workflow` | Workflow or run | 128 |
 | `agent` | Individual agent | 128 |
 | `toolset` | Group of tools | 128 |
-| `dimensions` | Optional custom key-value pairs for enterprise taxonomies | 16 keys, 256 chars/value |
+| `dimensions` | Optional custom key-value pairs for enterprise taxonomies. Keys should match `^[a-z0-9_.-]+$`. v0 servers may ignore for budgeting but must accept and round-trip. | 16 keys, 256 chars/value |
 
 The server derives canonical scope identifiers from the Subject. Scope ordering in `affected_scopes` is always canonical: tenant, workspace, app, workflow, agent, toolset.
 
@@ -184,7 +184,7 @@ Controls what happens when actual spend exceeds the reserved estimate at commit 
 |--------|----------|
 | `REJECT` (default) | Reject the commit. SDK should add 10-20% estimation buffer. |
 | `ALLOW_IF_AVAILABLE` | Commit succeeds only if the delta fits in remaining budget. Atomic check-and-charge. |
-| `ALLOW_WITH_OVERDRAFT` | Commit succeeds if `(current_debt + delta) <= overdraft_limit`. Creates debt; remaining can go negative. |
+| `ALLOW_WITH_OVERDRAFT` | If remaining budget covers the delta, commit normally. Otherwise, commit succeeds if `(current_debt + delta) <= overdraft_limit`, creating debt; remaining can go negative. |
 
 The same policies apply to `/events`.
 
@@ -207,7 +207,7 @@ The overdraft limit check is per-commit and is **not** atomic across concurrent 
 When any affected scope has `is_over_limit=true`:
 - New reservations return `409 OVERDRAFT_LIMIT_EXCEEDED`
 - Existing active reservations can still be committed or released
-- `/decide` returns `decision=DENY` (never 409)
+- `/decide` returns `decision=DENY` with `reason_code` (`DEBT_OUTSTANDING` or `OVERDRAFT_LIMIT_EXCEEDED`) — never 409
 
 ---
 
@@ -227,7 +227,8 @@ All mutating endpoints support idempotency via `idempotency_key` (body field) an
 - **Auth:** `X-Cycles-API-Key` header on every request.
 - **Effective tenant:** Derived by the server from the API key or auth context.
 - **Validation:** If `subject.tenant` is provided, it must match the effective tenant — otherwise `403 FORBIDDEN`.
-- **Scoping:** All queries (reservations, balances, events) are automatically tenant-scoped.
+- **Reservation ownership:** Every reservation is bound to its creating tenant. GET, commit, release, or extend on a reservation owned by a different tenant must return `403 FORBIDDEN`.
+- **Scoping:** All queries (reservations, balances, events) are automatically tenant-scoped. Cross-tenant balance queries must return `403 FORBIDDEN`.
 
 ---
 
@@ -245,7 +246,8 @@ All mutating endpoints support idempotency via `idempotency_key` (body field) an
 | 409 | `IDEMPOTENCY_MISMATCH` | Same key, different payload |
 | 409 | `OVERDRAFT_LIMIT_EXCEEDED` | Debt would exceed limit, or scope is over-limit |
 | 409 | `DEBT_OUTSTANDING` | Debt > 0 blocks new reservations |
-| 410 | `RESERVATION_EXPIRED` | Beyond `expires_at_ms + grace_period_ms` |
+| 410 | `RESERVATION_EXPIRED` | Commit/release: beyond `expires_at_ms + grace_period_ms`. Extend: beyond `expires_at_ms` (no grace period). |
+| 429 | *(rate limiting)* | Server-side throttling (optional in v0). Not used for budget exhaustion. |
 | 500 | `INTERNAL_ERROR` | Server error |
 
 Error precedence for reservations: `OVERDRAFT_LIMIT_EXCEEDED` takes priority over `DEBT_OUTSTANDING` when `is_over_limit=true`.
@@ -259,9 +261,9 @@ When building an SDK or client integration:
 - **Keep TTL short** (10-30s) to limit zombie reservations from client crashes.
 - **Buffer estimates** by 10-20% when using `overage_policy=REJECT`.
 - **Chunk long operations** — prefer multiple small reserve/commit cycles over one large reservation.
-- **Use `/extend` as a heartbeat** for long-running agent workflows instead of setting large TTLs.
+- **Use `/extend` as a heartbeat** for long-running agent workflows instead of setting large TTLs. Extension is relative to the current `expires_at_ms`, not request time.
 - **Slow-start pattern** — begin with small reserves and increase gradually for bursty workloads.
-- **Dry-run mode** (`dry_run: true`) — use for safe rollout and testing. No balances are modified, no persistence, no commit/release needed.
+- **Dry-run mode** (`dry_run: true`) — use for safe rollout and testing. No balances are modified, no persistence, no commit/release needed. In dry-run responses, `reservation_id` and `expires_at_ms` are absent, but `affected_scopes` is always populated.
 
 ### Reservation parameters
 
@@ -297,8 +299,6 @@ The following are explicitly out of scope for v0:
 - Budget establishment and funding operations (create/update/delete budgets)
 - Allocation setting, credit/deposit, debit/withdrawal
 - Multi-unit atomic reservation/settlement
-- Condition language for policy expression
-
 Implementations may provide these via a separate operator/admin API. Future protocol versions may standardize them.
 
 ---
@@ -307,7 +307,7 @@ Implementations may provide these via a separate operator/admin API. Future prot
 
 - The API starts at v0.1.0 with `/v1` paths to avoid future client churn.
 - v1+ evolution is **backward-compatible by default**: new fields are additive, existing field meanings never change.
-- Breaking changes require a new major API path (e.g., `/v2`).
+- Breaking changes (e.g., new required fields, semantic changes) require a new major API path (e.g., `/v2`).
 
 ---
 
