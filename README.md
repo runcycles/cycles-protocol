@@ -1,2 +1,316 @@
-# cycles-protocol
-Cycles protocol specification
+# Cycles Protocol
+
+Deterministic budget governance for agent runtimes.
+
+Cycles is a language-agnostic, OpenAPI 3.1.0 protocol specification that enforces spend exposure through concurrency-safe reservations, idempotent commits, and idempotent releases. It gives agent platforms a minimal API to guarantee that no agent action exceeds its budget, even under concurrent execution.
+
+**Spec version:** v0.1.23 &middot; **API path:** `/v1` &middot; **License:** Apache 2.0
+
+---
+
+## Table of Contents
+
+- [Core Concepts](#core-concepts)
+- [Reservation Lifecycle](#reservation-lifecycle)
+- [API Reference](#api-reference)
+- [Subject Hierarchy](#subject-hierarchy)
+- [Units](#units)
+- [Overage Policies](#overage-policies)
+- [Debt and Overdraft](#debt-and-overdraft)
+- [Idempotency](#idempotency)
+- [Authentication and Tenancy](#authentication-and-tenancy)
+- [Error Codes](#error-codes)
+- [SDK Guidance](#sdk-guidance)
+- [Operator Guidance](#operator-guidance)
+- [Non-Goals (v0)](#non-goals-v0)
+- [Evolution Contract](#evolution-contract)
+
+---
+
+## Core Concepts
+
+Cycles enforces three invariants:
+
+1. **Reserve is atomic** across all derived scopes.
+2. **Commit and release are idempotent** — no double-charge on retries.
+3. **No unaccounted spend** — the ledger always reflects reality.
+
+The balance invariant at any point in time:
+
+```
+remaining = allocated - spent - reserved - debt
+```
+
+---
+
+## Reservation Lifecycle
+
+```
+    ┌──────────┐
+    │  Reserve │  Atomically lock estimated budget
+    └────┬─────┘
+         │
+    ┌────▼─────┐
+    │  ACTIVE  │  reservation_id returned, TTL starts
+    └────┬─────┘
+         │
+    ┌────┴────────────┬──────────────┐
+    │                 │              │
+┌───▼────┐     ┌──────▼─────┐  ┌────▼─────┐
+│ Commit │     │  Release   │  │  Expire  │
+│ actual │     │  (cancel)  │  │ (timeout)│
+└───┬────┘     └──────┬─────┘  └────┬─────┘
+    │                 │              │
+    │  auto-releases  │  returns     │  budget
+    │  delta if       │  full        │  unlocked
+    │  actual<reserved│  amount      │  by server
+    ▼                 ▼              ▼
+ COMMITTED         RELEASED       EXPIRED
+```
+
+### Quick Example
+
+```bash
+# 1. Reserve budget for an LLM call
+curl -X POST https://api.cycles.local/v1/reservations \
+  -H "X-Cycles-API-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "idempotency_key": "req-abc-001",
+    "subject": { "tenant": "acme", "agent": "support-bot" },
+    "action": { "kind": "llm.completion", "name": "openai:gpt-4o" },
+    "estimate": { "unit": "USD_MICROCENTS", "amount": 500000 },
+    "ttl_ms": 30000,
+    "overage_policy": "REJECT"
+  }'
+# → { "decision": "ALLOW", "reservation_id": "rsv_1a2b3c", "expires_at_ms": 1709312345678, ... }
+
+# 2. Execute the action, then commit actual spend
+curl -X POST https://api.cycles.local/v1/reservations/rsv_1a2b3c/commit \
+  -H "X-Cycles-API-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "idempotency_key": "commit-abc-001",
+    "actual": { "unit": "USD_MICROCENTS", "amount": 420000 },
+    "metrics": { "tokens_input": 1200, "tokens_output": 800, "model_version": "gpt-4o-2024-05" }
+  }'
+# → { "status": "COMMITTED", "charged": { ... }, "released": { ... } }
+
+# 3. Or release if the action was cancelled
+curl -X POST https://api.cycles.local/v1/reservations/rsv_1a2b3c/release \
+  -H "X-Cycles-API-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "idempotency_key": "release-abc-001", "reason": "user cancelled" }'
+# → { "status": "RELEASED", "released": { ... } }
+```
+
+---
+
+## API Reference
+
+### Decisions (optional preflight)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/v1/decide` | Check if an action fits within budget. Returns `ALLOW`, `ALLOW_WITH_CAPS`, or `DENY`. Does **not** create a reservation. |
+
+Use `/decide` for soft-landing checks before reserving. A subsequent `/reservations` call can still fail if concurrent activity depletes budget between the two calls.
+
+### Reservations (core)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/v1/reservations` | Reserve budget atomically. Returns `reservation_id`. |
+| `GET` | `/v1/reservations` | List reservations (optional, for recovery/debug). |
+| `GET` | `/v1/reservations/{id}` | Get reservation details (optional, for debug). |
+| `POST` | `/v1/reservations/{id}/commit` | Commit actual spend. Auto-releases delta if actual < reserved. |
+| `POST` | `/v1/reservations/{id}/release` | Release unused reservation back to budget. |
+| `POST` | `/v1/reservations/{id}/extend` | Extend TTL as a heartbeat for long-running operations. |
+
+### Balances (operator visibility)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/v1/balances` | Query current budget balances across scopes. |
+
+### Events (optional post-only accounting)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/v1/events` | Record spend without a prior reservation (when pre-estimation is unavailable). |
+
+---
+
+## Subject Hierarchy
+
+Every request targets a **Subject** — a dimension bag describing where in the hierarchy the budget applies. At least one standard field must be provided.
+
+```
+tenant → workspace → app → workflow → agent → toolset
+```
+
+| Field | Description | Max Length |
+|-------|-------------|-----------|
+| `tenant` | Top-level organizational boundary | 128 |
+| `workspace` | Workspace within a tenant | 128 |
+| `app` | Application | 128 |
+| `workflow` | Workflow or run | 128 |
+| `agent` | Individual agent | 128 |
+| `toolset` | Group of tools | 128 |
+| `dimensions` | Optional custom key-value pairs for enterprise taxonomies | 16 keys, 256 chars/value |
+
+The server derives canonical scope identifiers from the Subject. Scope ordering in `affected_scopes` is always canonical: tenant, workspace, app, workflow, agent, toolset.
+
+---
+
+## Units
+
+| Unit | Description | Precision |
+|------|-------------|-----------|
+| `USD_MICROCENTS` | 10⁻⁶ cents (10⁻⁸ dollars) | int64; max ~$92.2B |
+| `TOKENS` | Integer token counts | int64 |
+| `CREDITS` | Generic integer units | int64 |
+| `RISK_POINTS` | Generic integer units (optional) | int64 |
+
+A reservation lifecycle is denominated in exactly **one unit**. Committing with a mismatched unit returns `400 UNIT_MISMATCH`.
+
+---
+
+## Overage Policies
+
+Controls what happens when actual spend exceeds the reserved estimate at commit time.
+
+| Policy | Behavior |
+|--------|----------|
+| `REJECT` (default) | Reject the commit. SDK should add 10-20% estimation buffer. |
+| `ALLOW_IF_AVAILABLE` | Commit succeeds only if the delta fits in remaining budget. Atomic check-and-charge. |
+| `ALLOW_WITH_OVERDRAFT` | Commit succeeds if `(current_debt + delta) <= overdraft_limit`. Creates debt; remaining can go negative. |
+
+The same policies apply to `/events`.
+
+---
+
+## Debt and Overdraft
+
+When `overage_policy=ALLOW_WITH_OVERDRAFT` is used, the protocol supports controlled deficit spending:
+
+- **`debt`** — actual consumption that occurred when insufficient budget existed. Must be repaid via out-of-band funding operations before new reservations are allowed.
+- **`overdraft_limit`** — maximum debt permitted per scope. If absent or 0, no overdraft is allowed.
+- **`is_over_limit`** — set to `true` when `debt > overdraft_limit` (can happen due to concurrent commits). Blocks **all** new reservations on that scope until reconciled.
+
+### Concurrency semantics
+
+The overdraft limit check is per-commit and is **not** atomic across concurrent commits. Multiple commits may each individually pass but collectively push debt past the limit. This is by design — the actions already happened — and the scope enters over-limit state until an operator reconciles.
+
+### Over-limit blocking
+
+When any affected scope has `is_over_limit=true`:
+- New reservations return `409 OVERDRAFT_LIMIT_EXCEEDED`
+- Existing active reservations can still be committed or released
+- `/decide` returns `decision=DENY` (never 409)
+
+---
+
+## Idempotency
+
+All mutating endpoints support idempotency via `idempotency_key` (body field) and/or `X-Idempotency-Key` (header). If both are provided, they must match.
+
+- Scoped per `(effective_tenant, endpoint, idempotency_key)`.
+- Replay of a previously successful request returns the **original response** (including server-generated IDs).
+- Same key with a different payload returns `409 IDEMPOTENCY_MISMATCH`.
+- Servers should use canonical JSON (RFC 8785) for payload comparison.
+
+---
+
+## Authentication and Tenancy
+
+- **Auth:** `X-Cycles-API-Key` header on every request.
+- **Effective tenant:** Derived by the server from the API key or auth context.
+- **Validation:** If `subject.tenant` is provided, it must match the effective tenant — otherwise `403 FORBIDDEN`.
+- **Scoping:** All queries (reservations, balances, events) are automatically tenant-scoped.
+
+---
+
+## Error Codes
+
+| HTTP | Error Code | When |
+|------|-----------|------|
+| 400 | `INVALID_REQUEST` | Malformed request, missing required fields |
+| 400 | `UNIT_MISMATCH` | Commit/event unit doesn't match reservation/scope unit |
+| 401 | `UNAUTHORIZED` | Missing or invalid API key |
+| 403 | `FORBIDDEN` | Tenant mismatch or ownership violation |
+| 404 | `NOT_FOUND` | Reservation never existed |
+| 409 | `BUDGET_EXCEEDED` | Insufficient budget with `REJECT` or `ALLOW_IF_AVAILABLE` |
+| 409 | `RESERVATION_FINALIZED` | Reservation already committed or released |
+| 409 | `IDEMPOTENCY_MISMATCH` | Same key, different payload |
+| 409 | `OVERDRAFT_LIMIT_EXCEEDED` | Debt would exceed limit, or scope is over-limit |
+| 409 | `DEBT_OUTSTANDING` | Debt > 0 blocks new reservations |
+| 410 | `RESERVATION_EXPIRED` | Beyond `expires_at_ms + grace_period_ms` |
+| 500 | `INTERNAL_ERROR` | Server error |
+
+Error precedence for reservations: `OVERDRAFT_LIMIT_EXCEEDED` takes priority over `DEBT_OUTSTANDING` when `is_over_limit=true`.
+
+---
+
+## SDK Guidance
+
+When building an SDK or client integration:
+
+- **Keep TTL short** (10-30s) to limit zombie reservations from client crashes.
+- **Buffer estimates** by 10-20% when using `overage_policy=REJECT`.
+- **Chunk long operations** — prefer multiple small reserve/commit cycles over one large reservation.
+- **Use `/extend` as a heartbeat** for long-running agent workflows instead of setting large TTLs.
+- **Slow-start pattern** — begin with small reserves and increase gradually for bursty workloads.
+- **Dry-run mode** (`dry_run: true`) — use for safe rollout and testing. No balances are modified, no persistence, no commit/release needed.
+
+### Reservation parameters
+
+| Parameter | Range | Default | Notes |
+|-----------|-------|---------|-------|
+| `ttl_ms` | 1s – 24h | 60s | Time until reservation expires |
+| `grace_period_ms` | 0 – 60s | 5s | Window after TTL for in-flight commits |
+
+---
+
+## Operator Guidance
+
+### Monitoring
+
+- Track scopes with `is_over_limit=true` via the `/balances` endpoint.
+- Alert at **80%** of `overdraft_limit` (warning) and **100%** (critical).
+- Monitor `debt_utilization = debt / overdraft_limit` as a time-series metric.
+
+### Reconciliation runbook
+
+1. Identify which reservations/commits caused the over-limit state.
+2. Determine if the overdraft limit should be increased (normal variance) or if this is anomalous consumption (incident).
+3. Fund the scope to repay debt below the limit.
+4. Verify `is_over_limit` returns to `false`.
+5. Operations resume automatically.
+
+---
+
+## Non-Goals (v0)
+
+The following are explicitly out of scope for v0:
+
+- Budget establishment and funding operations (create/update/delete budgets)
+- Allocation setting, credit/deposit, debit/withdrawal
+- Multi-unit atomic reservation/settlement
+- Condition language for policy expression
+
+Implementations may provide these via a separate operator/admin API. Future protocol versions may standardize them.
+
+---
+
+## Evolution Contract
+
+- The API starts at v0.1.0 with `/v1` paths to avoid future client churn.
+- v1+ evolution is **backward-compatible by default**: new fields are additive, existing field meanings never change.
+- Breaking changes require a new major API path (e.g., `/v2`).
+
+---
+
+## Specification
+
+The canonical protocol definition is in [`cycles-protocol-v0.yaml`](cycles-protocol-v0.yaml) (OpenAPI 3.1.0). Use it to generate client/server code, validate implementations, or render interactive API docs.
