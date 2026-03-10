@@ -19,6 +19,9 @@ Cycles is a language-agnostic, OpenAPI 3.1.0 protocol specification that enforce
 - [Debt and Overdraft](#debt-and-overdraft)
 - [Idempotency](#idempotency)
 - [Authentication and Tenancy](#authentication-and-tenancy)
+- [Response Headers](#response-headers)
+- [Key Schemas](#key-schemas)
+- [Pagination](#pagination)
 - [Error Codes](#error-codes)
 - [SDK Guidance](#sdk-guidance)
 - [Operator Guidance](#operator-guidance)
@@ -94,7 +97,8 @@ curl -X POST https://api.cycles.local/v1/reservations/rsv_1a2b3c/commit \
     "actual": { "unit": "USD_MICROCENTS", "amount": 420000 },
     "metrics": { "tokens_input": 1200, "tokens_output": 800, "model_version": "gpt-4o-2024-05" }
   }'
-# → { "status": "COMMITTED", "charged": { ... }, "released": { ... } }
+# → { "status": "COMMITTED", "charged": { ... }, "released": { ... }, ... }
+# Note: "released" is only present when actual < reserved
 
 # 3. Or release if the action was cancelled
 curl -X POST https://api.cycles.local/v1/reservations/rsv_1a2b3c/release \
@@ -112,7 +116,7 @@ curl -X POST https://api.cycles.local/v1/reservations/rsv_1a2b3c/release \
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/v1/decide` | Check if an action fits within budget. Returns `ALLOW`, `ALLOW_WITH_CAPS`, or `DENY`. Does **not** create a reservation. |
+| `POST` | `/v1/decide` | Check if an action fits within budget. Returns `ALLOW`, `ALLOW_WITH_CAPS`, or `DENY`. Does **not** create a reservation. Response may include `retry_after_ms`. |
 
 Use `/decide` for soft-landing checks before reserving. A subsequent `/reservations` call can still fail if concurrent activity depletes budget between the two calls.
 
@@ -207,7 +211,7 @@ The overdraft limit check is per-commit and is **not** atomic across concurrent 
 When any affected scope has `is_over_limit=true`:
 - New reservations return `409 OVERDRAFT_LIMIT_EXCEEDED`
 - Existing active reservations can still be committed or released
-- `/decide` returns `decision=DENY` with `reason_code` (`DEBT_OUTSTANDING` or `OVERDRAFT_LIMIT_EXCEEDED`) — never 409
+- `/decide` SHOULD return `decision=DENY` with `reason_code` (`DEBT_OUTSTANDING` or `OVERDRAFT_LIMIT_EXCEEDED`) — must never return 409 for these conditions
 
 ---
 
@@ -229,6 +233,98 @@ All mutating endpoints support idempotency via `idempotency_key` (body field) an
 - **Validation:** If `subject.tenant` is provided, it must match the effective tenant — otherwise `403 FORBIDDEN`.
 - **Reservation ownership:** Every reservation is bound to its creating tenant. GET, commit, release, or extend on a reservation owned by a different tenant must return `403 FORBIDDEN`.
 - **Scoping:** All queries (reservations, balances, events) are automatically tenant-scoped. Cross-tenant balance queries must return `403 FORBIDDEN`.
+
+---
+
+## Response Headers
+
+All responses may include these headers:
+
+| Header | Description |
+|--------|-------------|
+| `X-Request-Id` | Unique request identifier for debugging |
+| `X-Cycles-Tenant` | Effective tenant identifier derived from auth context (optional in v0) |
+| `X-RateLimit-Remaining` | Requests remaining in current rate-limit window (optional in v0) |
+| `X-RateLimit-Reset` | Unix timestamp (seconds) when the rate limit resets (optional in v0) |
+
+---
+
+## Key Schemas
+
+### Action
+
+Describes the operation being budgeted. Required on `/decide`, `/reservations`, and `/events`.
+
+| Field | Type | Required | Constraints | Description |
+|-------|------|----------|-------------|-------------|
+| `kind` | string | yes | maxLength 64 | Action type. Format: `<category>.<operation>` (e.g., `llm.completion`, `tool.search`, `db.query`) |
+| `name` | string | yes | maxLength 256 | Provider/model/tool identifier (e.g., `openai:gpt-4o`, `web.search`) |
+| `tags` | string[] | no | maxItems 10, 64 chars each | Optional policy tags (e.g., `["prod", "customer-facing"]`) |
+
+### Caps
+
+Soft-landing constraints returned when `decision=ALLOW_WITH_CAPS` on `/decide` or `/reservations`. Must be absent when decision is `ALLOW` or `DENY`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `max_tokens` | integer | Token limit |
+| `max_steps_remaining` | integer | Step budget |
+| `tool_allowlist` | string[] | Allowed tools (allowlist takes precedence over denylist) |
+| `tool_denylist` | string[] | Denied tools (ignored if allowlist is non-empty) |
+| `cooldown_ms` | integer | Rate-limiting cooldown in milliseconds |
+
+**Precedence:** If `tool_allowlist` is non-empty, only those tools are allowed and `tool_denylist` is ignored. Tool names are case-sensitive and match `Action.name` exactly.
+
+### StandardMetrics
+
+Optional metrics included in commit and event requests for observability.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `tokens_input` | integer | Input tokens consumed |
+| `tokens_output` | integer | Output tokens generated |
+| `latency_ms` | integer | Total operation latency in milliseconds |
+| `model_version` | string | Actual model/tool version used (maxLength 128) |
+| `custom` | object | Arbitrary additional metrics (free-form key-value) |
+
+### ErrorResponse
+
+All error responses share this structure:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `error` | ErrorCode | yes | Machine-readable error code (see [Error Codes](#error-codes)) |
+| `message` | string | yes | Human-readable error description |
+| `request_id` | string | yes | Request identifier for debugging |
+| `details` | object | no | Additional context (free-form) |
+
+### Amount
+
+Non-negative quantity with a unit. Used for `estimate`, `actual`, `reserved`, `charged`, etc.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `unit` | UnitEnum | One of `USD_MICROCENTS`, `TOKENS`, `CREDITS`, `RISK_POINTS` |
+| `amount` | int64 | Non-negative integer (`minimum: 0`) |
+
+`SignedAmount` is identical but allows negative values — used only for `Balance.remaining` which can go negative in overdraft state.
+
+---
+
+## Pagination
+
+List endpoints (`GET /v1/reservations`, `GET /v1/balances`) support cursor-based pagination:
+
+| Parameter/Field | Location | Description |
+|-----------------|----------|-------------|
+| `limit` | query param | Max results per page (1-200, default 50) |
+| `cursor` | query param | Opaque cursor from a previous response |
+| `next_cursor` | response body | Cursor for the next page (if any) |
+| `has_more` | response body | `true` if more results are available |
+
+### Balance query requirements
+
+`GET /v1/balances` requires at least one subject filter (`tenant`, `workspace`, `app`, `workflow`, `agent`, or `toolset`). Omitting all filters returns `400 INVALID_REQUEST`. The `include_children` query parameter (boolean, default `false`) may be ignored by v0 implementations.
 
 ---
 
@@ -263,7 +359,7 @@ When building an SDK or client integration:
 - **Chunk long operations** — prefer multiple small reserve/commit cycles over one large reservation.
 - **Use `/extend` as a heartbeat** for long-running agent workflows instead of setting large TTLs. Extension is relative to the current `expires_at_ms`, not request time.
 - **Slow-start pattern** — begin with small reserves and increase gradually for bursty workloads.
-- **Dry-run mode** (`dry_run: true`) — use for safe rollout and testing. No balances are modified, no persistence, no commit/release needed. In dry-run responses, `reservation_id` and `expires_at_ms` are absent, but `affected_scopes` is always populated.
+- **Dry-run mode** (`dry_run: true`) — use for safe rollout and testing. No balances are modified, no persistence, no commit/release needed. In dry-run responses: `reservation_id` and `expires_at_ms` are absent; `affected_scopes` is always populated; if `decision=ALLOW_WITH_CAPS`, `caps` must be present; if `decision=DENY`, `reason_code` should be populated as the primary diagnostic signal.
 
 ### Reservation parameters
 
@@ -271,6 +367,11 @@ When building an SDK or client integration:
 |-----------|-------|---------|-------|
 | `ttl_ms` | 1s – 24h | 60s | Time until reservation expires |
 | `grace_period_ms` | 0 – 60s | 5s | Window after TTL for in-flight commits |
+| `extend_by_ms` | 1ms – 24h | *(required)* | Added to current `expires_at_ms` (not request time). Server may clamp to policy limits. |
+
+### Reservation statuses
+
+`ACTIVE` — reserved, awaiting commit/release. `COMMITTED` — actual spend recorded. `RELEASED` — budget returned. `EXPIRED` — TTL elapsed without commit/release.
 
 ---
 
@@ -299,6 +400,7 @@ The following are explicitly out of scope for v0:
 - Budget establishment and funding operations (create/update/delete budgets)
 - Allocation setting, credit/deposit, debit/withdrawal
 - Multi-unit atomic reservation/settlement
+
 Implementations may provide these via a separate operator/admin API. Future protocol versions may standardize them.
 
 ---
