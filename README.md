@@ -1,6 +1,6 @@
-# Cycles Protocol
+# Cycles Protocol — Deterministic Risk & Budget Governance for Autonomous Agents
 
-**Deterministic budget governance for autonomous agent runtimes.**
+**An open protocol for concurrency-safe spend control in autonomous agent runtimes.**
 
 Cycles is an open protocol that ensures agents cannot authorize more spend than policy allows — even when dozens of them run concurrently.
 
@@ -79,7 +79,8 @@ POST /v1/reservations/rsv_1a2b3c/commit
 
 ## Intended use
 
-**Cycles is a protocol specification, not a product**. It defines the API contract — request/response schemas, lifecycle rules, and invariants — so that:
+**Cycles is a protocol specification, not a product**. 
+It defines the API contract — request/response schemas, lifecycle rules, and invariants — so that:
 
 - **Platform teams** implement a Cycles-compliant server inside their infrastructure (or adopt an open-source implementation).
 - **SDK authors** build thin client libraries that wrap reserve/commit/release into idiomatic helpers for Python, TypeScript, Go, etc.
