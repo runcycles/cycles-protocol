@@ -2,7 +2,7 @@
 
 **Deterministic budget governance for autonomous agent runtimes.**
 
-Cycles is an open protocol that makes sure your AI agents never spend more than you allow — even when dozens of them run concurrently.
+Cycles is an open protocol that ensures agents cannot authorize more spend than policy allows — even when dozens of them run concurrently.
 
 **Spec version:** v0.1.23 &middot; **API path:** `/v1` &middot; **License:** Apache 2.0
 
@@ -10,9 +10,9 @@ Cycles is an open protocol that makes sure your AI agents never spend more than 
 
 ## Why Cycles
 
-AI agents make spending decisions autonomously — calling LLMs, executing tool actions, spawning sub-agents. Each call costs real money, and the agent decides when and how often to call. Traditional cost controls were designed for human-initiated requests with predictable patterns. Agents break those assumptions: they run in loops, retry on failure, fan out in parallel, and chain actions whose total cost is unknowable in advance.
+AI agents spend money autonomously: they call LLMs, execute tools, retry on failure, fan out in parallel, and spawn sub-agents. Traditional cost controls assume predictable, human-initiated requests. Agent runtimes break those assumptions.
 
-Cycles exists because **spend is a safety property in agentic systems, not a billing afterthought.** Without a protocol-level enforcement point, every platform team independently reinvents budget checks — with varying correctness under concurrency, retries, and partial failures.
+Cycles exists because **spend is a safety property in agentic systems, not a billing afterthought.** It provides a protocol-level enforcement point for budget control that remains correct under concurrency, retries, and partial failures.
 
 ## When to use Cycles
 
@@ -25,25 +25,27 @@ Cycles is *not* needed for single-user scripts, free-tier-only workloads, or env
 
 ## What Cycles prevents
 
-- **Runaway spend** — a single misbehaving agent drains your entire cloud budget overnight.
-- **Double-charging** — retries and crashes cause the same action to be billed twice.
-- **Silent overruns** — concurrent agents each pass individual budget checks but collectively blow past the limit.
+- **Runaway spend** — loops, retries, or recursive tool chains consume budget without bound.
+- **Double settlement** — network retries or crashes replay the same economic action.
+- **Concurrency overruns** — multiple agents each pass local checks but collectively exceed the shared budget.
+- **Post-hoc-only control** — alerts fire after the spend has already occurred.
 
 ## Who it's for
 
-- **Agent platform teams** building multi-tenant runtimes where untrusted or semi-trusted agents call paid APIs (LLMs, search, compute).
-- **Enterprise operators** who need audit-grade spend accountability per tenant, workspace, or agent.
-- **SDK authors** looking for a vendor-neutral budget layer that works across any LLM provider.
-
+- **Platform teams** building multi-tenant agent runtimes
+- **Framework authors** integrating budget enforcement into agent SDKs and orchestration layers
+- **Enterprise operators** who need audit-grade accountability per tenant, workspace, workflow, or agent
+- **Gateway builders** enforcing shared spend policy across multiple LLM and tool providers
+  
 ## Execution model
 
-Cycles sits **between** the agent and the paid API. The agent never calls the downstream service directly — it asks Cycles for permission first, then reports back what it actually spent.
+Cycles sits **between** the agent and the paid API. Before calling a downstream paid service, the agent asks Cycles for permission first, then reports back what it actually spent.
 
 ```
 Agent ──► Cycles (reserve) ──► Agent ──► Downstream API ──► Agent ──► Cycles (commit)
 ```
 
-The protocol is **synchronous and blocking by design**: the reserve call returns `ALLOW` or `DENY` before the agent acts. This makes budget enforcement deterministic — there is no window where spend can leak through.
+Cycles is **synchronous and blocking by design**: the reserve call returns `ALLOW` or `DENY` before the agent acts. This is what makes budget enforcement deterministic. There is no post-facto reconciliation window where spend can leak through.
 
 Cycles is **not a proxy**. It does not sit in the data path or see request/response payloads. It only tracks cost metadata (who, what, how much). The agent is responsible for calling the downstream API and reporting actual cost on commit.
 
@@ -57,7 +59,7 @@ Cycles is **not a proxy**. It does not sit in the data path or see request/respo
 ```
 
 **Tiny example:**
-
+Examples use integer-denominated units to keep accounting exact and portable across implementations.
 ```jsonc
 // Reserve $0.05 for an LLM call
 POST /v1/reservations
@@ -77,7 +79,7 @@ POST /v1/reservations/rsv_1a2b3c/commit
 
 ## Intended use
 
-Cycles is a **protocol specification**, not a product. It defines the API contract — request/response schemas, lifecycle rules, and invariants — so that:
+**Cycles is a protocol specification, not a product**. It defines the API contract — request/response schemas, lifecycle rules, and invariants — so that:
 
 - **Platform teams** implement a Cycles-compliant server inside their infrastructure (or adopt an open-source implementation).
 - **SDK authors** build thin client libraries that wrap reserve/commit/release into idiomatic helpers for Python, TypeScript, Go, etc.
@@ -95,9 +97,14 @@ A typical deployment looks like: agent framework → Cycles SDK → Cycles serve
 
 ## Core guarantees
 
-1. **Atomic reservation** — budget is locked across all scopes in a single step; no partial locks.
-2. **Idempotent commit & release** — safe to retry on network errors; no double-charge.
-3. **No unaccounted spend** — the ledger always reflects reality: `remaining = allocated - spent - reserved - debt`.
+1. **Atomic reservation** — budget is locked across all affected scopes in one step; no partial locks.
+2. **Concurrency-safe enforcement** — shared budgets cannot be oversubscribed by simultaneous reserve operations.
+3. **Idempotent commit and release** — retries are safe; the same action cannot settle twice.
+4. **No unaccounted spend** — the ledger remains internally consistent: `remaining = allocated - spent - reserved - debt`.
+
+## Design boundaries
+
+Cycles does not proxy downstream requests, execute tools, price provider calls for you, or manage budget funding in v0. It governs reservation and settlement of economic exposure around those systems.
 
 ---
 
