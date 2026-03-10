@@ -1,16 +1,75 @@
-# Cycles Protocol — Deterministic Risk & Budget Governance for Autonomous Agents
+# Cycles Protocol
 
-Deterministic budget governance for autonomous agent runtimes.
+**Deterministic budget governance for autonomous agent runtimes.**
 
-Cycles is a language-agnostic, OpenAPI 3.1.0 protocol specification that enforces spend exposure through concurrency-safe reservations, idempotent commits, and idempotent releases. It gives agent platforms a minimal API to guarantee that no agent action exceeds its budget, even under concurrent execution.
+Cycles is an open protocol that makes sure your AI agents never spend more than you allow — even when dozens of them run concurrently.
 
 **Spec version:** v0.1.23 &middot; **API path:** `/v1` &middot; **License:** Apache 2.0
 
 ---
 
+## What Cycles prevents
+
+- **Runaway spend** — a single misbehaving agent drains your entire cloud budget overnight.
+- **Double-charging** — retries and crashes cause the same action to be billed twice.
+- **Silent overruns** — concurrent agents each pass individual budget checks but collectively blow past the limit.
+
+## Who it's for
+
+- **Agent platform teams** building multi-tenant runtimes where untrusted or semi-trusted agents call paid APIs (LLMs, search, compute).
+- **Enterprise operators** who need audit-grade spend accountability per tenant, workspace, or agent.
+- **SDK authors** looking for a vendor-neutral budget layer that works across any LLM provider.
+
+## How it works
+
+```
+1. Reserve     Lock estimated cost before the action runs.
+2. Execute     Call the LLM / tool / API.
+3. Commit      Record actual cost; unused budget is released automatically.
+4. Release     Or cancel — full budget is returned, no charge.
+```
+
+**Tiny example:**
+
+```jsonc
+// Reserve $0.05 for an LLM call
+POST /v1/reservations
+{
+  "subject": { "tenant": "acme", "agent": "support-bot" },
+  "action":  { "kind": "llm.completion", "name": "openai:gpt-4o" },
+  "estimate": { "unit": "USD_MICROCENTS", "amount": 500000 },
+  "ttl_ms": 30000
+}
+// → { "decision": "ALLOW", "reservation_id": "rsv_1a2b3c" }
+
+// After the call, commit actual spend ($0.042)
+POST /v1/reservations/rsv_1a2b3c/commit
+{ "actual": { "unit": "USD_MICROCENTS", "amount": 420000 } }
+// → delta automatically released back to budget
+```
+
+## Why not just…
+
+| Approach | Gap Cycles fills |
+|----------|-----------------|
+| **Rate limiting** | Caps request volume, not dollar cost. A single expensive call still blows the budget. |
+| **Observability / alerts** | Tells you *after* the money is gone. Cycles blocks the spend *before* it happens. |
+| **Provider-side budgets** | Per-provider, not cross-provider. Can't enforce org-wide policy across OpenAI + Anthropic + Google + tool calls in one place. |
+
+## Core guarantees
+
+1. **Atomic reservation** — budget is locked across all scopes in a single step; no partial locks.
+2. **Idempotent commit & release** — safe to retry on network errors; no double-charge.
+3. **No unaccounted spend** — the ledger always reflects reality: `remaining = allocated - spent - reserved - debt`.
+
+---
+
+# Protocol specification
+
+Everything below is the full protocol reference. For the OpenAPI 3.1.0 definition, see [`cycles-protocol-v0.yaml`](cycles-protocol-v0.yaml).
+
 ## Table of Contents
 
-- [Core Concepts](#core-concepts)
 - [Reservation Lifecycle](#reservation-lifecycle)
 - [API Reference](#api-reference)
 - [Subject Hierarchy](#subject-hierarchy)
@@ -27,22 +86,6 @@ Cycles is a language-agnostic, OpenAPI 3.1.0 protocol specification that enforce
 - [Operator Guidance](#operator-guidance)
 - [Non-Goals (v0)](#non-goals-v0)
 - [Evolution Contract](#evolution-contract)
-
----
-
-## Core Concepts
-
-Cycles enforces three invariants:
-
-1. **Reserve is atomic** across all derived scopes.
-2. **Commit and release are idempotent** — no double-charge on retries.
-3. **No unaccounted spend** — the ledger always reflects reality.
-
-The balance invariant at any point in time:
-
-```
-remaining = allocated - spent - reserved - debt
-```
 
 ---
 
@@ -411,8 +454,3 @@ Implementations may provide these via a separate operator/admin API. Future prot
 - v1+ evolution is **backward-compatible by default**: new fields are additive, existing field meanings never change.
 - Breaking changes (e.g., new required fields, semantic changes) require a new major API path (e.g., `/v2`).
 
----
-
-## Specification
-
-The canonical protocol definition is in [`cycles-protocol-v0.yaml`](cycles-protocol-v0.yaml) (OpenAPI 3.1.0). Use it to generate client/server code, validate implementations, or render interactive API docs.
