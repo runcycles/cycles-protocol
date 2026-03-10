@@ -1,6 +1,6 @@
-# Cycles Protocol
+# Cycles Protocol — Deterministic Risk & Budget Governance for Autonomous Agents
 
-Deterministic budget governance for agent runtimes.
+Deterministic budget governance for autonomous agent runtimes.
 
 Cycles is a language-agnostic, OpenAPI 3.1.0 protocol specification that enforces spend exposure through concurrency-safe reservations, idempotent commits, and idempotent releases. It gives agent platforms a minimal API to guarantee that no agent action exceeds its budget, even under concurrent execution.
 
