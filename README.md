@@ -61,9 +61,10 @@ Cycles is **not a proxy**. It does not sit in the data path or see request/respo
 **Tiny example:**
 Examples use integer-denominated units to keep accounting exact and portable across implementations.
 ```jsonc
-// Reserve $0.05 for an LLM call
+// Reserve $0.005 for an LLM call
 POST /v1/reservations
 {
+  "idempotency_key": "req-abc-123",
   "subject": { "tenant": "acme", "agent": "support-bot" },
   "action":  { "kind": "llm.completion", "name": "openai:gpt-4o" },
   "estimate": { "unit": "USD_MICROCENTS", "amount": 500000 },
@@ -71,9 +72,9 @@ POST /v1/reservations
 }
 // → { "decision": "ALLOW", "reservation_id": "rsv_1a2b3c" }
 
-// After the call, commit actual spend ($0.042)
+// After the call, commit actual spend ($0.0042)
 POST /v1/reservations/rsv_1a2b3c/commit
-{ "actual": { "unit": "USD_MICROCENTS", "amount": 420000 } }
+{ "idempotency_key": "commit-abc-123", "actual": { "unit": "USD_MICROCENTS", "amount": 420000 } }
 // → delta automatically released back to budget
 ```
 
