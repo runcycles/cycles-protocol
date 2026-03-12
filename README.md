@@ -89,6 +89,25 @@ It defines the API contract — request/response schemas, lifecycle rules, and i
 
 A typical deployment looks like: agent framework → Cycles SDK → Cycles server (your infra) → budget database. The protocol is intentionally minimal so it can be backed by Postgres, Redis, DynamoDB, or an in-memory store depending on your scale and durability needs.
 
+### Reference server
+
+A reference implementation is available at [cycles-server](https://github.com/runcycles/cycles-server). Run it with Docker — no Java or build tools required:
+
+```bash
+# Pull the pre-built image and start
+docker compose -f docker-compose.prod.yml up
+```
+
+Or build from source:
+
+```bash
+git clone https://github.com/runcycles/cycles-server.git
+cd cycles-server
+docker compose up --build
+```
+
+The server starts on port 7878 with interactive API docs at http://localhost:7878/swagger-ui.html. Pre-built images are published to `ghcr.io/runcycles/cycles-server`.
+
 ## Why not just…
 
 | Approach | Gap Cycles fills |
