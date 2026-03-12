@@ -108,6 +108,16 @@ docker compose up --build
 
 The server starts on port 7878 with interactive API docs at http://localhost:7878/swagger-ui.html. Pre-built images are published to `ghcr.io/runcycles/cycles-server`.
 
+> **Note:** The runtime server handles budget enforcement but cannot create tenants, API keys, or budgets on its own. For a complete setup, you also need the [Cycles Admin Server](https://github.com/runcycles/cycles-server-admin) (management plane). The easiest path is the one-command quickstart:
+>
+> ```bash
+> git clone https://github.com/runcycles/cycles-server.git
+> cd cycles-server
+> ./quickstart.sh
+> ```
+>
+> This starts the full stack (Redis + runtime server + admin server), creates a tenant, API key, and funded budget, and verifies the complete lifecycle. See the [full deployment guide](https://runcycles.github.io/docs/quickstart/deploying-the-full-cycles-stack) for details.
+
 ## Why not just…
 
 | Approach | Gap Cycles fills |
