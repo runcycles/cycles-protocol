@@ -89,6 +89,30 @@ It defines the API contract — request/response schemas, lifecycle rules, and i
 
 A typical deployment looks like: agent framework → Cycles SDK → Cycles server (your infra) → budget database. The protocol is intentionally minimal so it can be backed by Postgres, Redis, DynamoDB, or an in-memory store depending on your scale and durability needs.
 
+### Python client
+
+A production-ready Python client is available at [cycles-client-python](https://github.com/runcycles/cycles-client-python):
+
+```bash
+pip install runcycles
+```
+
+```python
+from runcycles import CyclesClient, CyclesConfig, cycles, set_default_client
+
+config = CyclesConfig(base_url="http://localhost:7878", api_key="cyc_live_...", tenant="acme")
+client = CyclesClient(config)
+set_default_client(client)
+
+@cycles(estimate=1000, action_kind="llm.completion", action_name="gpt-4o")
+def call_llm(prompt: str) -> str:
+    return invoke_model(prompt)
+
+result = call_llm("Hello")  # reserve → execute → commit
+```
+
+The `@cycles` decorator wraps any function in a reserve → execute → commit lifecycle with automatic heartbeat extensions and commit retry. Both sync and async clients are supported. See the [Python quickstart](https://runcycles.github.io/docs/quickstart/getting-started-with-the-python-client) for full documentation.
+
 ### Reference server
 
 A reference implementation is available at [cycles-server](https://github.com/runcycles/cycles-server). Run it with Docker — no Java or build tools required:
