@@ -1,0 +1,81 @@
+extends:
+  - "spectral:oas"
+
+rules:
+  # --- Override built-in rules ---
+
+  # Protocol spec, not product API — no contact info needed.
+  info-contact: off
+
+  # Every operation must have an operationId (belt-and-suspenders with built-in).
+  operation-operationId: error
+
+  # --- Enforce existing conventions ---
+
+  schema-must-have-description:
+    description: "Top-level schemas in components should have a description"
+    severity: warn
+    given: "$.components.schemas[*]"
+    then:
+      field: description
+      function: truthy
+
+  operation-must-have-description:
+    description: "Operations must have a description for protocol clarity"
+    severity: error
+    given: "$.paths[*][get,post,put,patch,delete]"
+    then:
+      field: description
+      function: truthy
+
+  operation-must-have-summary:
+    description: "Operations must have a summary"
+    severity: error
+    given: "$.paths[*][get,post,put,patch,delete]"
+    then:
+      field: summary
+      function: truthy
+
+  request-body-json-only:
+    description: "Request bodies must use application/json content type"
+    severity: error
+    given: "$.paths[*][*].requestBody.content"
+    then:
+      field: "application/json"
+      function: truthy
+
+  success-response-must-have-body:
+    description: "Success responses (2xx) must define response content"
+    severity: warn
+    given: "$.paths[*][*].responses[?(@property >= '200' && @property < '300')]"
+    then:
+      field: content
+      function: truthy
+
+  protocol-schemas-no-additional-properties:
+    description: "Object schemas should set additionalProperties explicitly"
+    severity: warn
+    given: "$.components.schemas[?(@.type == 'object')]"
+    then:
+      field: additionalProperties
+      function: defined
+
+  # --- Protocol-specific naming conventions ---
+
+  operation-id-camel-case:
+    description: "operationId should use camelCase"
+    severity: error
+    given: "$.paths[*][*].operationId"
+    then:
+      function: casing
+      functionOptions:
+        type: camel
+
+  paths-must-be-versioned:
+    description: "All paths must start with /v1"
+    severity: error
+    given: "$.paths[*]~"
+    then:
+      function: pattern
+      functionOptions:
+        match: "^/v1"
