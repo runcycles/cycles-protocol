@@ -81,6 +81,8 @@ info:
     SCOPE DERIVATION (NORMATIVE):
       - Server derives canonical scope identifiers and a canonical scope_path from Subject fields.
       - Canonical ordering is: tenant → workspace → app → workflow → agent → toolset.
+      - Only explicitly provided subject levels are included in scope paths; intermediate gaps are skipped (not filled with "default").
+      - Scopes without budgets are skipped during enforcement; at least one derived scope MUST have a budget.
       - affected_scopes returned by the server MUST be in that canonical order.
 
     RESERVATION LEASING (GUIDANCE):
