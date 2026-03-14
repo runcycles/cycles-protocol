@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "name": "cycles-protocol",
+  "description": "Validation tooling for the Cycles Protocol OpenAPI spec",
+  "devDependencies": {
+    "@stoplight/spectral-cli": "^6.14.0"
+  }
+}

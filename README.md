@@ -535,6 +535,22 @@ When building an SDK or client integration:
 
 ---
 
+## Validation
+
+This repository uses [Spectral](https://github.com/stoplightio/spectral) to lint the OpenAPI spec against both standard OpenAPI 3.1 rules and protocol-specific conventions.
+
+```bash
+# Install tooling (once)
+npm ci
+
+# Run validation
+make lint
+```
+
+CI runs automatically on pull requests and pushes to `main`. The workflow fails on errors; warnings (e.g., missing schema descriptions) are surfaced but do not block merges.
+
+---
+
 ## Non-Goals (v0)
 
 The following are explicitly out of scope for v0:
