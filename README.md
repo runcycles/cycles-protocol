@@ -114,7 +114,9 @@ def call_llm(prompt: str) -> str:
 result = call_llm("Hello")  # reserve → execute → commit
 ```
 
-The `@cycles` decorator wraps any function in a reserve → execute → commit lifecycle with automatic heartbeat extensions and commit retry. Both sync and async clients are supported. See the [Python quickstart](https://runcycles.github.io/docs/quickstart/getting-started-with-the-python-client) for full documentation.
+> **Need an API key?** API keys are created via the Cycles Admin Server. See the [deployment guide](https://runcycles.io/quickstart/deploying-the-full-cycles-stack#step-3-create-an-api-key) or [API Key Management](https://runcycles.io/how-to/api-key-management-in-cycles).
+
+The `@cycles` decorator wraps any function in a reserve → execute → commit lifecycle with automatic heartbeat extensions and commit retry. Both sync and async clients are supported. See the [Python quickstart](https://runcycles.io/quickstart/getting-started-with-the-python-client) for full documentation.
 
 ### Reference server
 
@@ -143,7 +145,7 @@ The server starts on port 7878 with interactive API docs at http://localhost:787
 > ./quickstart.sh
 > ```
 >
-> This starts the full stack (Redis + runtime server + admin server), creates a tenant, API key, and funded budget, and verifies the complete lifecycle. See the [full deployment guide](https://runcycles.github.io/docs/quickstart/deploying-the-full-cycles-stack) for details.
+> This starts the full stack (Redis + runtime server + admin server), creates a tenant, API key, and funded budget, and verifies the complete lifecycle. See the [full deployment guide](https://runcycles.io/quickstart/deploying-the-full-cycles-stack) for details.
 
 ## Why not just…
 
