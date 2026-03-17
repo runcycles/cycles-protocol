@@ -28,10 +28,10 @@ Cycles is *not* needed for single-user scripts, free-tier-only workloads, or env
 
 ## What Cycles prevents
 
-- **Runaway spend** — loops, retries, or recursive tool chains consume budget without bound.
-- **Double settlement** — network retries or crashes replay the same economic action.
-- **Concurrency overruns** — multiple agents each pass local checks but collectively exceed the shared budget.
-- **Post-hoc-only control** — alerts fire after the spend has already occurred.
+- **Runaway exposure** — agents loop, retry, or fan out past safe limits.
+- **Double settlement** — the same economic action is committed more than once.
+- **Concurrency overruns** — parallel agents collectively exceed a shared budget or boundary.
+- **Too-late control** — alerts arrive only after spend or side effects already happened.
 
 ## Who it's for
 
@@ -42,7 +42,7 @@ Cycles is *not* needed for single-user scripts, free-tier-only workloads, or env
   
 ## Execution model
 
-Cycles sits **between** the agent and the paid API. Before calling a downstream paid service, the agent asks Cycles for permission first, then reports back what it actually spent.
+Cycles sits **between** the agent and the downstream system. Before calling a model, tool, API, or other consequential service, the agent asks Cycles for permission first, then reports back what it actually consumed or did.
 
 ```
 Agent ──► Cycles (reserve) ──► Agent ──► Downstream API ──► Agent ──► Cycles (commit)
