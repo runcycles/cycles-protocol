@@ -10,18 +10,21 @@ Cycles is an open protocol that ensures agents cannot authorize more spend than 
 
 ## Why Cycles
 
-AI agents spend money autonomously: they call LLMs, execute tools, retry on failure, fan out in parallel, and spawn sub-agents. Traditional cost controls assume predictable, human-initiated requests. Agent runtimes break those assumptions.
+AI agents do not just spend money autonomously. They call LLMs, execute tools, retry on failure, fan out in parallel, and spawn sub-agents — creating not only cost, but **risk and operational exposure**.
 
-Cycles exists because **spend is a safety property in agentic systems, not a billing afterthought.** It provides a protocol-level enforcement point for budget control that remains correct under concurrency, retries, and partial failures.
+That exposure can be financial, but it can also be consequential: records changed, emails sent, jobs triggered, APIs called, files overwritten, or external systems affected. Traditional cost controls assume predictable, human-initiated requests. Agent runtimes break those assumptions.
+
+Cycles exists because **budget and exposure are safety properties in agentic systems, not billing afterthoughts.** It provides a protocol-level enforcement point for governing spend and actions before execution, with correctness under concurrency, retries, and partial failures.
 
 ## When to use Cycles
 
-- You run **agents that call paid APIs** (LLMs, search, code execution, SaaS tools) and need hard spend limits per tenant, workspace, or agent.
-- You need **concurrency-safe budget enforcement** — multiple agents or threads spending against the same budget simultaneously.
-- You want a **single budget layer across providers** instead of configuring per-provider caps on OpenAI, Anthropic, Google, etc.
-- You're building **multi-tenant platforms** where tenants set their own budgets and you must guarantee isolation.
+- You run **agents that call paid APIs or perform consequential actions** and need hard limits on spend, permissions, or total exposure per tenant, workspace, or agent.
+- You need **concurrency-safe enforcement** — multiple agents or threads acting against the same budget or risk boundary at the same time.
+- You want a **single control layer across providers and tools** instead of relying on fragmented limits in OpenAI, Anthropic, Google, SaaS APIs, and internal systems.
+- You're building **multi-tenant platforms** where tenants define budgets or policies and you must guarantee isolation and bounded execution.
+- You need to stop **runaway loops, retries, or fan-out behavior** before they create unacceptable cost or side effects.
 
-Cycles is *not* needed for single-user scripts, free-tier-only workloads, or environments where cost overruns carry no consequence.
+Cycles is *not* needed for single-user scripts, free-tier-only workloads, or environments where overruns and unintended actions carry no meaningful consequence.
 
 ## What Cycles prevents
 
