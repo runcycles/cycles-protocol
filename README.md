@@ -148,12 +148,12 @@ The server starts on port 7878 with interactive API docs at http://localhost:787
 > This starts the full stack (Redis + runtime server + admin server), creates a tenant, API key, and funded budget, and verifies the complete lifecycle. See the [full deployment guide](https://runcycles.io/quickstart/deploying-the-full-cycles-stack) for details.
 
 ## Why not just…
-
 | Approach | Gap Cycles fills |
 |----------|-----------------|
 | **Rate limiting** | Caps request volume, not dollar cost. A single expensive call still blows the budget. |
 | **Observability / alerts** | Tells you *after* the money is gone. Cycles blocks the spend *before* it happens. |
 | **Provider-side budgets** | Per-provider, not cross-provider. Can't enforce org-wide policy across OpenAI + Anthropic + Google + tool calls in one place. |
+| **LLM Proxies & Gateways** | Sit between you and the LLM provider — but agents do more than call LLMs. Tool calls, database writes, emails, deployments are all uninstrumented. Gateways also report after the call completes, not before it starts. |
 
 ## Core guarantees
 
