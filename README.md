@@ -1,3 +1,6 @@
+[![CI](https://github.com/runcycles/cycles-protocol/actions/workflows/ci.yml/badge.svg)](https://github.com/runcycles/cycles-protocol/actions)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+
 # Cycles Protocol — Deterministic Risk & Budget Governance for Autonomous Agents
 
 **An open protocol for concurrency-safe spend control in autonomous agent runtimes.**
