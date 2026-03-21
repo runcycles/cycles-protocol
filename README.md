@@ -3,7 +3,7 @@
 
 # Cycles Protocol — Runtime Authority for Autonomous Agents
 
-**An open protocol for concurrency-safe spend control in autonomous agent runtimes.**
+**An open protocol for concurrency-safe spend and action control in autonomous agent runtimes.**
 
 Cycles is an open protocol that ensures agents cannot authorize more spend than policy allows — even when dozens of them run concurrently.
 
