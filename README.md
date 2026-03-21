@@ -51,7 +51,7 @@ Cycles sits **between** the agent and the downstream system. Before calling a mo
 Agent ──► Cycles (reserve) ──► Agent ──► Downstream API ──► Agent ──► Cycles (commit)
 ```
 
-Cycles is **synchronous and blocking by design**: the reserve call returns `ALLOW` or `DENY` before the agent acts. This is what makes budget enforcement deterministic. There is no post-facto reconciliation window where spend can leak through.
+Cycles is **synchronous and blocking by design**: the reserve call returns `ALLOW` or `ALLOW_WITH_CAPS` before the agent acts, or rejects with a `409 BUDGET_EXCEEDED` error. This is what makes budget enforcement deterministic. There is no post-facto reconciliation window where spend can leak through.
 
 Cycles is **not a proxy**. It does not sit in the data path or see request/response payloads. It only tracks cost metadata (who, what, how much). The agent is responsible for calling the downstream API and reporting actual cost on commit.
 
