@@ -120,6 +120,10 @@ info:
           overage delta is capped, in addition to ALLOW_WITH_OVERDRAFT debt scenarios.
         - Updated CommitResponse.charged description: charged may be less than actual
           when ALLOW_IF_AVAILABLE caps the overage delta.
+        - Added charged field to EventCreateResponse: optional Amount present when
+          ALLOW_IF_AVAILABLE caps the event charge to remaining budget.
+        - Added ErrorCode values: BUDGET_FROZEN, BUDGET_CLOSED, MAX_EXTENSIONS_EXCEEDED.
+          These were already used by the reference server but missing from the spec enum.
 
       v0.1.23 (2026-02-21):
         - Renamed Subject.toolGroup → Subject.toolset across all endpoints, schemas,
