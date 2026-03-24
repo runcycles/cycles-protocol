@@ -7,7 +7,7 @@
 
 Cycles is an open protocol that ensures agents cannot authorize more spend than policy allows — even when dozens of them run concurrently.
 
-**Spec version:** v0.1.23 &middot; **API path:** `/v1` &middot; **License:** Apache 2.0
+**Spec version:** v0.1.24 &middot; **API path:** `/v1` &middot; **License:** Apache 2.0
 
 ---
 
