@@ -861,9 +861,11 @@ components:
           default: ALLOW_IF_AVAILABLE
           description: >
             How server handles events where actual would exceed remaining budget.
-            REJECT (default): server MUST return 409 BUDGET_EXCEEDED if actual > remaining across any derived scope.
-            ALLOW_IF_AVAILABLE: server MUST atomically apply the full `actual` amount only if sufficient remaining exists 
-            across all derived scopes at apply time; otherwise MUST return 409 BUDGET_EXCEEDED.
+            REJECT: server MUST return 409 BUDGET_EXCEEDED if actual > remaining across any derived scope.
+            ALLOW_IF_AVAILABLE (default): event always succeeds. If remaining budget supports the full actual,
+            charge it atomically. Otherwise, cap the charge to available remaining (minimum across all derived
+            scopes, floor 0) and set is_over_limit=true on scopes where the full amount could not be covered.
+            Never creates debt. Never rejects an event.
             ALLOW_WITH_OVERDRAFT: if remaining budget supports actual, apply normally. Otherwise, check if
             (current_debt + actual) <= overdraft_limit across all derived scopes. If yes: apply succeeds,
             add actual to debt, remaining can go negative. If no: server MUST return 409 OVERDRAFT_LIMIT_EXCEEDED.
