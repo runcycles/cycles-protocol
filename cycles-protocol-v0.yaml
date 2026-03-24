@@ -258,12 +258,15 @@ components:
         - FORBIDDEN
         - NOT_FOUND
         - BUDGET_EXCEEDED
+        - BUDGET_FROZEN
+        - BUDGET_CLOSED
         - RESERVATION_EXPIRED
         - RESERVATION_FINALIZED
         - IDEMPOTENCY_MISMATCH
         - UNIT_MISMATCH
         - OVERDRAFT_LIMIT_EXCEEDED
         - DEBT_OUTSTANDING
+        - MAX_EXTENSIONS_EXCEEDED
         - INTERNAL_ERROR
 
     ErrorResponse:
