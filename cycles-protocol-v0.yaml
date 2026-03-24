@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cycles Budget Authority API
-  version: 0.1.23
+  version: 0.1.24
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -108,6 +108,19 @@ info:
           5. Resume operations automatically
 
     CHANGELOG:
+      v0.1.24 (2026-03-24):
+        - BREAKING: Changed default CommitOveragePolicy from REJECT to ALLOW_IF_AVAILABLE.
+          Clients relying on implicit REJECT must now set overage_policy explicitly.
+        - Changed ALLOW_IF_AVAILABLE commit behavior: when remaining budget cannot cover
+          the full overage delta, the commit now succeeds with a capped charge
+          (estimate + available remaining) instead of returning 409 BUDGET_EXCEEDED.
+          Scopes where the full delta could not be covered are marked is_over_limit=true,
+          blocking future reservations until reconciled.
+        - Extended is_over_limit semantics: now also set by ALLOW_IF_AVAILABLE when
+          overage delta is capped, in addition to ALLOW_WITH_OVERDRAFT debt scenarios.
+        - Updated CommitResponse.charged description: charged may be less than actual
+          when ALLOW_IF_AVAILABLE caps the overage delta.
+
       v0.1.23 (2026-02-21):
         - Renamed Subject.toolGroup → Subject.toolset across all endpoints, schemas,
           and normative text for consistency with scope hierarchy naming conventions.
@@ -475,9 +488,12 @@ components:
           Recommended: add 10-20% buffer to estimates when using REJECT.
           If the action already happened externally, this creates an unaccounted gap.
         
-        ALLOW_IF_AVAILABLE: if remaining budget supports the delta, commit and charge the delta atomically across all derived scopes. 
-        The delta check and charge MUST be performed as a single atomic operation; 
-        if budget is exhausted between check and commit, server MUST return 409 BUDGET_EXCEEDED.
+        ALLOW_IF_AVAILABLE (default): commit always succeeds when actual > reserved.
+        If remaining budget supports the full delta, charge it atomically across all derived scopes.
+        Otherwise, cap the delta to available remaining (minimum across all affected scopes, floor 0),
+        charge estimate + capped_delta, and set is_over_limit=true on scopes where the full delta
+        could not be covered. This blocks future reservations until reconciled.
+        Never creates debt. Never rejects a commit — the action already happened.
         
         ALLOW_WITH_OVERDRAFT: if remaining budget supports the delta, commit normally.
         Otherwise, check if (debt + delta) <= overdraft_limit across all affected scopes.
@@ -537,7 +553,7 @@ components:
               as a heartbeat, and/or use chunked reserve/commit cycles rather than relying on large grace_period_ms.
         overage_policy:
           $ref: '#/components/schemas/CommitOveragePolicy'
-          default: REJECT
+          default: ALLOW_IF_AVAILABLE
         dry_run:
           type: boolean
           default: false
@@ -622,9 +638,11 @@ components:
         is_over_limit:
           type: boolean
           description: >-
-            True when debt > overdraft_limit due to concurrent commits creating cumulative debt beyond the limit.
-            When true, ALL new reservations against this scope are blocked with 409 OVERDRAFT_LIMIT_EXCEEDED 
-            until debt is reduced below overdraft_limit. Defaults to false when absent.
+            True when debt > overdraft_limit due to concurrent commits creating cumulative debt beyond the limit,
+            or when ALLOW_IF_AVAILABLE could not cover the full overage delta and capped the charge.
+            When true, ALL new reservations against this scope are blocked with 409 OVERDRAFT_LIMIT_EXCEEDED
+            until reconciled (debt repaid below overdraft_limit, or is_over_limit cleared by operator).
+            Defaults to false when absent.
 
     ReservationCreateResponse:
       type: object
@@ -718,6 +736,10 @@ components:
           enum: [COMMITTED]
         charged:
           $ref: '#/components/schemas/Amount'
+          description: >-
+            Amount actually charged to the budget. Equals actual when the full amount could be covered.
+            With ALLOW_IF_AVAILABLE, charged may be less than actual when the overage delta is capped
+            to available remaining (charged = estimate + capped_delta).
         released:
           $ref: '#/components/schemas/Amount'
           description: Amount returned from over-reservation (if any)
@@ -836,7 +858,7 @@ components:
           $ref: '#/components/schemas/Amount'
         overage_policy:
           $ref: '#/components/schemas/CommitOveragePolicy'
-          default: REJECT
+          default: ALLOW_IF_AVAILABLE
           description: >
             How server handles events where actual would exceed remaining budget.
             REJECT (default): server MUST return 409 BUDGET_EXCEEDED if actual > remaining across any derived scope.
