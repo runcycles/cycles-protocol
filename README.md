@@ -488,10 +488,13 @@ List endpoints (`GET /v1/reservations`, `GET /v1/balances`) support cursor-based
 | 403 | `FORBIDDEN` | Tenant mismatch or ownership violation |
 | 404 | `NOT_FOUND` | Reservation never existed |
 | 409 | `BUDGET_EXCEEDED` | Insufficient budget with `REJECT` or `ALLOW_IF_AVAILABLE` |
+| 409 | `BUDGET_FROZEN` | Budget scope is frozen; operations blocked until unfrozen |
+| 409 | `BUDGET_CLOSED` | Budget scope is permanently closed |
 | 409 | `RESERVATION_FINALIZED` | Reservation already committed or released |
 | 409 | `IDEMPOTENCY_MISMATCH` | Same key, different payload |
 | 409 | `OVERDRAFT_LIMIT_EXCEEDED` | Debt would exceed limit, or scope is over-limit |
 | 409 | `DEBT_OUTSTANDING` | Debt > 0 blocks new reservations |
+| 409 | `MAX_EXTENSIONS_EXCEEDED` | Tenant `max_reservation_extensions` limit reached |
 | 410 | `RESERVATION_EXPIRED` | Commit/release: beyond `expires_at_ms + grace_period_ms`. Extend: beyond `expires_at_ms` (no grace period). |
 | 429 | *(rate limiting)* | Server-side throttling (optional in v0). Not used for budget exhaustion. |
 | 500 | `INTERNAL_ERROR` | Server error |
