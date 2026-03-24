@@ -258,12 +258,15 @@ components:
         - FORBIDDEN
         - NOT_FOUND
         - BUDGET_EXCEEDED
+        - BUDGET_FROZEN
+        - BUDGET_CLOSED
         - RESERVATION_EXPIRED
         - RESERVATION_FINALIZED
         - IDEMPOTENCY_MISMATCH
         - UNIT_MISMATCH
         - OVERDRAFT_LIMIT_EXCEEDED
         - DEBT_OUTSTANDING
+        - MAX_EXTENSIONS_EXCEEDED
         - INTERNAL_ERROR
 
     ErrorResponse:
@@ -897,6 +900,12 @@ components:
           enum: [APPLIED]
         event_id:
           type: string
+        charged:
+          description: >-
+            The amount actually applied.  Present when overage_policy is
+            ALLOW_IF_AVAILABLE and the actual was capped to the remaining
+            budget, so the client can see the effective charge.
+          $ref: '#/components/schemas/Amount'
         balances:
           type: array
           items:
