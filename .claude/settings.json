@@ -9,15 +9,26 @@
       "Bash(git diff:*)",
       "Bash(git fetch:*)",
       "Bash(git log:*)",
+      "Bash(git merge:*)",
       "Bash(git pull:*)",
       "Bash(git push:*)",
-      "Bash(git status:*)"
+      "Bash(git rebase:*)",
+      "Bash(git remote:*)",
+      "Bash(git reset:*)",
+      "Bash(git show:*)",
+      "Bash(git stash:*)",
+      "Bash(git status:*)",
+      "Bash(git tag:*)"
     ],
     "deny": [
+      "mcp__github__create_branch",
       "mcp__github__create_or_update_file",
-      "mcp__github__push_files",
       "mcp__github__create_or_update_files",
-      "mcp__github__delete_file"
+      "mcp__github__create_repository",
+      "mcp__github__delete_file",
+      "mcp__github__fork_repository",
+      "mcp__github__merge_pull_request",
+      "mcp__github__push_files"
     ]
   }
 }
