@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cycles Budget Authority API
-  version: 0.1.24
+  version: 0.1.25
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -107,7 +107,94 @@ info:
           4. Monitor that is_over_limit returns to false
           5. Resume operations automatically
 
+    WEBHOOK EVENT GUIDANCE (GUIDANCE):
+      Implementations MAY emit webhook events when runtime operations produce observable state changes.
+      This enables operators and tenant applications to react to budget state transitions in real-time
+      without polling. The webhook delivery system is separate from the protocol endpoints — it does not
+      add new API paths to the runtime server.
+
+      Event types emitted by the runtime server:
+        * reservation.denied — Reserve or decide returned DENY (budget exceeded, overdraft limit, frozen, etc.)
+        * reservation.commit_overage — Commit actual amount exceeded estimated amount
+        * reservation.expired — Reservation TTL expired without commit or release (via background sweeper)
+        * budget.exhausted — Remaining budget reached 0 after a reservation or event
+        * budget.debt_incurred — Commit created new debt via ALLOW_WITH_OVERDRAFT policy
+        * budget.over_limit_entered — is_over_limit flipped to true (debt > overdraft_limit)
+        * budget.over_limit_exited — Debt repaid below overdraft_limit (via admin funding operations)
+        * budget.threshold_crossed — Utilization crossed a configured threshold (e.g., 80%, 95%)
+        * budget.burn_rate_anomaly — Spend rate exceeded baseline by configured multiplier
+
+      Event types emitted by the admin/operator server:
+        * tenant.created/updated/suspended/reactivated/closed — Tenant lifecycle
+        * budget.created/updated/funded/debited/reset/debt_repaid/frozen/unfrozen/closed — Budget lifecycle
+        * api_key.created/revoked/expired/permissions_changed/auth_failed — API key lifecycle
+        * policy.created/updated/deleted — Policy lifecycle
+        * system.store_connection_lost/restored, system.high_latency — System health
+        * system.webhook_delivery_failed — Meta-alert for persistent delivery failures
+
+      Standard event payload schema (JSON):
+        * event_id (string, required) — Globally unique (e.g., "evt_01abc..."). Use for deduplication.
+        * event_type (string, required) — Dotted format: "{category}.{action}" (e.g., "reservation.denied")
+        * category (string, required) — One of: budget, reservation, tenant, api_key, policy, system
+        * timestamp (string, date-time, required) — ISO 8601 UTC
+        * tenant_id (string, required) — Tenant context. System events use "__system__".
+        * scope (string, optional) — Full scope path affected (e.g., "tenant:acme/agent:bot")
+        * actor (object, optional) — Who caused the event: { type: admin|api_key|system|scheduler, key_id?, source_ip? }
+        * source (string, required) — Service that emitted: "cycles-server", "cycles-admin", "expiry-sweeper"
+        * data (object, optional) — Event-specific payload (varies by event_type)
+        * correlation_id (string, optional) — Links related events for chain reconstruction
+        * request_id (string, optional) — X-Request-Id from the originating HTTP request
+        * metadata (object, optional) — Operator-defined key-value pairs
+
+      Webhook delivery protocol:
+        * Delivery method: HTTP POST to subscriber's URL with JSON event payload as body
+        * Delivery semantics: At-least-once. Consumers MUST deduplicate using event_id.
+        * Ordering: Events for the same tenant are dispatched in order. Cross-tenant ordering NOT guaranteed.
+        * Non-blocking: Webhook delivery MUST NOT block the operation that produced the event.
+
+      Required HTTP headers on webhook delivery:
+        * Content-Type: application/json
+        * X-Cycles-Event-Id: {event_id} — For deduplication
+        * X-Cycles-Event-Type: {event_type} — For routing
+        * X-Cycles-Signature: sha256={hex} — HMAC-SHA256 of raw request body using subscription's signing secret
+        * User-Agent: {service-name}/{version}
+        * Custom headers from subscription configuration (e.g., Authorization)
+
+      Signature verification (X-Cycles-Signature):
+        * Algorithm: HMAC-SHA256
+        * Input: Raw JSON request body (bytes, not parsed)
+        * Key: Subscription's signing_secret (UTF-8 encoded)
+        * Format: "sha256=" + lowercase hex encoding of HMAC digest
+        * Consumers SHOULD verify the signature before processing the event.
+        * Use constant-time comparison (e.g., hmac.compare_digest) to prevent timing attacks.
+
+      Retry and failure handling:
+        * On non-2xx response: exponential backoff retry (default: 5 retries, 1s/2s/4s/8s/16s, max 60s)
+        * After all retries exhausted: delivery marked FAILED, system.webhook_delivery_failed event emitted
+        * After N consecutive failures (default 10): subscription auto-disabled (status → DISABLED)
+        * Disabled subscriptions can be re-enabled via admin API (resets failure counter)
+
+      Retention:
+        * Event records: 90 days hot storage (recommended). TTL enforced via Redis EXPIRE.
+        * Delivery records: 14 days (operational debugging data).
+        * ZSET index entries: Trimmed hourly by background cleanup job.
+        * Stale deliveries: Deliveries older than 24h (configurable) are auto-failed on pickup
+          to prevent delivering ancient webhooks after prolonged service outage.
+
+      Extensibility:
+        * New event types MAY be added in future versions without a breaking change.
+        * Consumers MUST ignore unrecognized event types gracefully.
+        * Custom event types MUST use a "custom." prefix (e.g., "custom.billing.invoice_sent").
+
     CHANGELOG:
+      v0.1.25 (2026-04-01):
+        - Added WEBHOOK EVENT GUIDANCE section documenting 40 event types across 6 categories,
+          standard event payload schema, webhook delivery protocol, X-Cycles-Signature HMAC
+          verification, retry/failure handling, retention policy, and extensibility contract.
+        - No new API endpoints — webhook guidance is informational, not normative.
+        - Runtime server implementations now emit events for reservation.denied,
+          reservation.commit_overage, and budget state changes to a shared dispatch queue.
+
       v0.1.24 (2026-03-24):
         - BREAKING: Changed default CommitOveragePolicy from REJECT to ALLOW_IF_AVAILABLE.
           Clients relying on implicit REJECT must now set overage_policy explicitly.
