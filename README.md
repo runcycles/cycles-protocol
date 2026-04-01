@@ -7,7 +7,9 @@
 
 Cycles is an open protocol that ensures agents cannot authorize more spend than policy allows — even when dozens of them run concurrently.
 
-**Spec version:** v0.1.24 &middot; **API path:** `/v1` &middot; **License:** Apache 2.0
+**Spec version:** v0.1.25 &middot; **API path:** `/v1` &middot; **License:** Apache 2.0
+
+> **v0.1.25** adds Webhook Event Guidance: 40 event types, standard payload schema, HMAC-SHA256 signing, delivery protocol, and retry semantics. No new API endpoints — guidance is informational. See the [admin governance spec](https://github.com/runcycles/cycles-server-admin/blob/main/complete-budget-governance-v0.1.25.yaml) for webhook subscription endpoints.
 
 ---
 
