@@ -1,4 +1,4 @@
-[![Validate OpenAPI Spec](https://github.com/runcycles/cycles-protocol/actions/workflows/validate.yml/badge.svg)](https://github.com/runcycles/cycles-protocol/actions/workflows/validate.yml)
+[![Validate OpenAPI Spec Suite](https://github.com/runcycles/cycles-protocol/actions/workflows/validate.yml/badge.svg)](https://github.com/runcycles/cycles-protocol/actions/workflows/validate.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
 # Cycles Protocol — Runtime Authority for Autonomous Agents

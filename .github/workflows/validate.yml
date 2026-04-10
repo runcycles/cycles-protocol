@@ -1,4 +1,4 @@
-name: Validate OpenAPI Spec
+name: Validate OpenAPI Spec Suite
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   validate:
-    name: Lint & Validate
+    name: Lint sources, check merge drift, lint merged artifacts
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -23,8 +23,32 @@ jobs:
           node-version: "20"
           cache: "npm"
 
-      - name: Install dependencies
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Node dependencies (spectral)
         run: npm ci
 
-      - name: Spectral lint
-        run: npx spectral lint cycles-protocol-v0.yaml --fail-severity=error
+      - name: Install Python dependencies (PyYAML)
+        run: pip install PyYAML
+
+      # Step 1: Lint all 5 canonical source specs.
+      # Catches YAML/OpenAPI errors in any source file before merge.
+      - name: Lint all source specs
+        run: make lint-sources
+
+      # Step 2: Merge drift check.
+      # Regenerates the pre-built merged artifacts from source specs and fails
+      # if the result differs from what's committed. This prevents contributors
+      # from accidentally shipping stale merged files after editing a source spec.
+      - name: Verify merged artifacts match sources (drift check)
+        run: make merge-check
+
+      # Step 3: Lint the pre-built merged artifacts.
+      # Catches bugs in the merge script itself — e.g., the merged output might
+      # have broken $refs, enum duplicates, or missing required fields even if
+      # every source spec is individually valid.
+      - name: Lint merged artifacts
+        run: make lint-merged
