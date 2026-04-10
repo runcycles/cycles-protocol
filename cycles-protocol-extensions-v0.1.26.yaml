@@ -59,7 +59,19 @@ info:
          EventDataQuotaThresholdApproaching schema.
          Emitted when quota counter crosses configured threshold_pct.
 
-    DRY_RUN VS OBSERVE_MODE — EXPLICIT PRECEDENCE (NORMATIVE):
+    ============================================================
+    OBSERVE MODE EVALUATION RULES (NORMATIVE)
+    ============================================================
+    This section is the authoritative source for observe_mode and
+    dry_run interaction. Implementers MUST follow these rules exactly.
+
+    PRECEDENCE (NORMATIVE):
+      Effective observe mode is determined in this order (first match wins):
+        1. Per-request ReservationCreateRequest.observe_mode (if present)
+        2. Tenant.observe_mode from governance extension (if not ENFORCE)
+        3. Default: ENFORCE
+
+    DECISION RULES (NORMATIVE):
 
       RULE 1 — observe_mode=OBSERVE (any source) → dry-run semantics + event emission:
         - If per-request observe_mode=OBSERVE: evaluate as dry_run, emit event.
@@ -87,8 +99,7 @@ info:
         dry_run is the PROTOCOL PRIMITIVE (SDK testing, CI validation).
         Both are supported indefinitely. Neither is deprecated.
 
-    OBSERVE MODE SEMANTICS (NORMATIVE):
-      Effective observe mode: per-request override > tenant.observe_mode > ENFORCE.
+    SIDE-EFFECT CONTRACT (NORMATIVE):
       When effective mode = OBSERVE:
         - Server MUST evaluate full reserve path (access control + quota + budget).
         - Server MUST NOT modify any balance or quota counter.
@@ -101,6 +112,10 @@ info:
         - affected_scopes MUST be populated regardless of decision.
         - Quota threshold events (quota.threshold_approaching) are NOT emitted
           in OBSERVE mode because counters are not incremented.
+
+    ============================================================
+    END OBSERVE MODE EVALUATION RULES
+    ============================================================
 
     POLICY KEYS EVALUATION SEMANTICS (NORMATIVE):
       Action.policy_keys provides extra routing dimensions for policy matching.
@@ -524,8 +539,9 @@ components:
           and make spike detection unreliable. Separate event types preserve
           clean signal in both streams.
 
-        CORRELATION WITH reservation.denied:
-          The server MUST populate the Event envelope's top-level correlation_id
+        CORRELATION WITH reservation.denied (NORMATIVE):
+          For reservation.observed_denied events specifically, the server
+          MUST populate the Event envelope's top-level correlation_id
           field using a deterministic hash over at least
           (tenant_id, scope, action_kind, window_key, reason_code).
           Servers MAY include policy_id to reduce collisions across distinct
@@ -534,6 +550,9 @@ components:
           only on the envelope. Dashboard consumers reading event.correlation_id
           can JOIN observed_denied and reservation.denied streams without
           merging the event types.
+          This rule applies ONLY to reservation.observed_denied.
+          reservation.observed_allowed and quota.threshold_approaching use
+          their own correlation rules (see those schemas).
 
         DEDUPLICATION: consumers MUST deduplicate on event_id.
       required: [scope, deny_detail, observe_mode]
@@ -593,6 +612,15 @@ components:
           When sampling, the event payload MUST include the sample_rate so
           consumers can extrapolate. If not sampling, sample_rate is absent
           or 1.0.
+
+        CORRELATION (NORMATIVE):
+          reservation.observed_allowed events have no counterpart in the
+          production event stream (there is no reservation.allowed event),
+          so cross-stream correlation is not applicable. Servers SHOULD
+          still populate event.correlation_id to correlate multiple
+          observed_allowed events within a single run, using a deterministic
+          hash over (tenant_id, scope, run_id). If run_id is absent, omit
+          correlation_id rather than using an incorrect key.
 
         DEDUPLICATION: consumers MUST deduplicate on event_id.
       required: [scope, decision, observe_mode]
@@ -664,6 +692,14 @@ components:
         OBSERVE MODE: When observe_mode=OBSERVE, counters are NOT incremented,
         so threshold events are NOT emitted. Threshold events are only
         meaningful in ENFORCE mode where counters actually move.
+
+        CORRELATION (NORMATIVE):
+          Servers MUST populate event.correlation_id using a deterministic
+          hash over (tenant_id, scope, action_kind_or_risk_class, window,
+          window_key). This allows dashboards to correlate a threshold
+          crossing with the subsequent quota-exceeded denials in the
+          same window. For risk-class quotas, use the risk_class value
+          in place of action_kind in the hash input.
 
         DEDUPLICATION: consumers MUST deduplicate on event_id.
       required: [scope, action_kind, window, used, limit, threshold_pct]

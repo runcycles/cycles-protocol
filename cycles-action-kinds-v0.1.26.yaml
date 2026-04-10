@@ -255,27 +255,47 @@ info:
         The <org> segment prevents collisions between operators.
         Examples: "custom.acme.erp.invoice.post", "custom.acme.sap.query"
 
-      RISK CLASS:
-        Custom kinds MUST declare a risk_class. There is no default.
-        Servers MUST reject reservation requests with custom kinds that
-        have no risk_class configured in any matching policy.
+      DECLARATION CONTRACT (NORMATIVE):
+        For every custom kind, operators MUST make the following declarable
+        to the server at startup or runtime:
+          REQUIRED:
+            - kind (string, format: "custom.<org>.<operation>[.<qualifier>]")
+            - risk_class (ActionRiskClass enum value)
+          OPTIONAL:
+            - description (string)
+            - policy_key_spec (ActionPolicyKeySpec object)
+            - mcp_tool_prefixes (array of strings)
+
+        The declaration mechanism is implementation-defined (config file,
+        database seed, admin API extension, environment variables). This
+        spec does not prescribe a specific mechanism, but servers MUST
+        support declaration of at least the required fields above.
+
+        Servers MUST validate declarations at load time:
+          - kind MUST match the "custom.<org>.<operation>" format
+          - risk_class MUST be a valid ActionRiskClass enum value
+          - mcp_tool_prefixes MUST NOT overlap with any built-in kind's
+            prefixes (if overlap detected, server SHOULD log a warning
+            and give precedence to the built-in kind)
+
+      ENFORCEMENT:
+        When a reservation request uses a custom kind:
+          - If the kind has been declared: the declared risk_class and
+            policy_key_spec are used for policy matching and routing.
+          - If the kind has NOT been declared: the server MUST reject the
+            request with 400 INVALID_REQUEST. The error message SHOULD
+            indicate that the kind is not registered.
+          - There is no implicit default. Accepting unregistered custom
+            kinds with a fallback risk_class would bypass governance.
 
       POLICY KEY SPEC:
-        Custom kinds MAY declare a policy_key_spec. If absent, policy
-        routing falls back to kind-only matching (no host/domain/resource
-        routing).
+        If absent from the declaration, policy routing falls back to
+        kind-only matching (no host/domain/resource routing).
 
-      MCP TOOL PREFIXES:
-        Custom kinds MAY declare mcp_tool_prefixes. Custom prefixes
-        MUST NOT overlap with any built-in kind's prefixes. If overlap
-        is detected at server startup, the server SHOULD log a warning
-        and give precedence to the built-in kind.
-
-      REGISTRATION:
-        Custom kinds are registered via operator configuration (out of
-        scope for this spec). They do NOT appear in the public
-        GET /v1/action-kinds endpoint unless the server is configured
-        to expose them.
+      VISIBILITY:
+        Custom kinds do NOT appear in the public GET /v1/action-kinds
+        endpoint by default. Servers MAY provide a separate
+        operator-scoped endpoint for custom kind introspection.
 
     CHANGELOG:
       v0.1.26 (2026-04-09):
@@ -748,7 +768,21 @@ paths:
       description: >-
         Returns the published registry. Safe to cache aggressively (TTL: 1 hour).
         Use ETag / If-None-Match for efficient cache validation.
-        Open endpoint — no API key required. Server MAY rate-limit unauthenticated requests.
+
+        PUBLIC ENDPOINT RATE LIMITING (NORMATIVE):
+          No API key required. Servers MUST implement abuse protection on
+          this endpoint since it is unauthenticated. Specific mechanisms
+          are implementation-defined, but servers SHOULD:
+            - Apply per-IP rate limits (recommended baseline: 60 requests
+              per minute per source IP).
+            - Honor If-None-Match for cheap cache validation (prefer 304
+              over 200 when possible — 304 responses SHOULD NOT count
+              against rate limits).
+            - Return 429 Too Many Requests when rate limits are exceeded,
+              with a Retry-After header (seconds) indicating when the
+              client may retry.
+          Servers MAY additionally use WAF, CDN caching, or bot-detection
+          mechanisms — these are deployment concerns outside this spec.
       parameters:
         - name: risk_class
           in: query
@@ -795,6 +829,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        "429":
+          description: Too many requests (rate limit exceeded)
+          headers:
+            Retry-After:
+              description: Seconds until the client may retry.
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         "500":
           description: Internal server error
           content:
@@ -812,7 +858,8 @@ paths:
         404 if it is not. No prefix matching, no fuzzy matching, no "closest
         alternative." Convention-mapping (MCP tool name → registered kind)
         belongs in the MCP gateway layer, not here.
-        Open endpoint — no API key required.
+        Open endpoint — no API key required. Rate limiting rules from
+        GET /v1/action-kinds apply to this endpoint as well.
       parameters:
         - $ref: '#/components/parameters/ActionKindParam'
       responses:
@@ -824,6 +871,18 @@ paths:
                 $ref: '#/components/schemas/ActionKind'
         "404":
           description: Action kind not found in registry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "429":
+          description: Too many requests (rate limit exceeded)
+          headers:
+            Retry-After:
+              description: Seconds until the client may retry.
+              schema:
+                type: integer
+                minimum: 1
           content:
             application/json:
               schema:
