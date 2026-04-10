@@ -336,7 +336,7 @@ The server derives canonical scope identifiers from the Subject. Scope ordering 
 | `CREDITS` | Generic integer units | int64 |
 | `RISK_POINTS` | Generic integer units (optional) | int64 |
 
-A reservation lifecycle is denominated in exactly **one unit**. Reserving, committing, or recording a direct event with a unit that doesn't match the stored budget unit returns `400 UNIT_MISMATCH`. When the target scope has a budget in a different unit, the error response's `details` object includes `scope`, `requested_unit`, and `available_units` so clients can self-correct.
+A reservation lifecycle is denominated in exactly **one unit**. Reserving, committing, or recording a direct event with a unit that doesn't match the stored budget unit returns `400 UNIT_MISMATCH`. When the target scope has a budget in a different unit, the error response's `details` object includes `scope`, `requested_unit`, and `expected_units` so clients can self-correct.
 
 ---
 
@@ -493,7 +493,7 @@ List endpoints (`GET /v1/reservations`, `GET /v1/balances`) support cursor-based
 | HTTP | Error Code | When |
 |------|-----------|------|
 | 400 | `INVALID_REQUEST` | Malformed request, missing required fields |
-| 400 | `UNIT_MISMATCH` | Reserve/commit/event unit doesn't match the reservation's unit or the stored budget unit for the target scope. When a budget exists at the scope in a different unit, reserve and event responses populate `details.scope`, `details.requested_unit`, and `details.available_units`. |
+| 400 | `UNIT_MISMATCH` | Reserve/commit/event unit doesn't match the reservation's unit or the stored budget unit for the target scope. When a budget exists at the scope in a different unit, reserve and event responses populate `details.scope`, `details.requested_unit`, and `details.expected_units`. |
 | 401 | `UNAUTHORIZED` | Missing or invalid API key |
 | 403 | `FORBIDDEN` | Tenant mismatch or ownership violation |
 | 404 | `NOT_FOUND` | Reservation never existed |

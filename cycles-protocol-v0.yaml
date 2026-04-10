@@ -62,7 +62,7 @@ info:
         servers SHOULD populate the error response's `details` object with:
           - `scope` — the canonical scope identifier where the mismatch was detected
           - `requested_unit` — the unit supplied by the client
-          - `available_units` — array of units for which a budget does exist at that scope
+          - `expected_units` — array of units for which a budget does exist at that scope
         so clients can self-correct without a separate lookup. BUDGET_NOT_FOUND (404) is
         reserved for the case where the target scope has no budget in ANY unit.
       - For expiry comparisons, “now” refers to server time (not client-provided time).
@@ -1207,6 +1207,16 @@ paths:
         "400": {$ref: '#/components/responses/ErrorResponse'}
         "401": {$ref: '#/components/responses/ErrorResponse'}
         "403": {$ref: '#/components/responses/ErrorResponse'}
+        "404":
+          description: >-
+            BUDGET_NOT_FOUND — no budget exists at any of the reservation's derived scopes in any unit.
+            Distinct from 400 UNIT_MISMATCH (a budget exists at the scope but in a different unit).
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/X-Request-Id'}
+            X-Cycles-Tenant: {$ref: '#/components/headers/X-Cycles-Tenant'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
         "409": {$ref: '#/components/responses/ErrorResponse'}
         "500": {$ref: '#/components/responses/ErrorResponse'}
     get:
@@ -1526,5 +1536,15 @@ paths:
         "400": {$ref: '#/components/responses/ErrorResponse'}
         "401": {$ref: '#/components/responses/ErrorResponse'}
         "403": {$ref: '#/components/responses/ErrorResponse'}
+        "404":
+          description: >-
+            BUDGET_NOT_FOUND — no budget exists at any of the event's derived scopes in any unit.
+            Distinct from 400 UNIT_MISMATCH (a budget exists at the scope but in a different unit).
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/X-Request-Id'}
+            X-Cycles-Tenant: {$ref: '#/components/headers/X-Cycles-Tenant'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
         "409": {$ref: '#/components/responses/ErrorResponse'}
         "500": {$ref: '#/components/responses/ErrorResponse'}
