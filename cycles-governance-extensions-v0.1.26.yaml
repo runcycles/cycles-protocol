@@ -57,6 +57,53 @@ info:
          balances:read as a deprecated fallback for v0.1.26 to avoid key
          re-provisioning; fallback removed in v0.1.27.
 
+    PATH COVERAGE (NORMATIVE):
+      Only PATCH /v1/admin/policies/{policy_id} and PATCH /v1/admin/tenants/{tenant_id}
+      are re-declared in this companion spec because they need the extended
+      request bodies explicitly documented. The other base-spec paths are
+      affected implicitly via schema extension:
+
+      - POST /v1/admin/policies:
+          Accepts the four new fields from PolicyCreateRequestExtension
+          (action_quotas, risk_class_quotas, allowed_action_kinds,
+          denied_action_kinds). Operators can create a policy with full
+          v0.1.26 governance in a single call.
+
+      - GET /v1/admin/policies and GET /v1/admin/policies/{policy_id}:
+          Response bodies return the extended Policy schema including all
+          four new fields. Clients using strict response validation MUST
+          allow these additional fields.
+
+      - GET /v1/admin/tenants and GET /v1/admin/tenants/{tenant_id}:
+          Response bodies return the extended Tenant schema including
+          observe_mode. Same client validation guidance applies.
+
+      Admin tooling MUST treat these paths as carrying the extended fields
+      in v0.1.26 regardless of whether the companion spec explicitly declares
+      them. The merge recipe in cycles-spec-index.yaml produces a single
+      artifact with the extensions applied to all paths.
+
+    DEFAULT VALUE SEMANTICS (NORMATIVE):
+      On POLICY CREATION (POST /v1/admin/policies):
+        - action_quotas absent → stored as empty list []
+        - risk_class_quotas absent → stored as empty list []
+        - allowed_action_kinds absent → stored as empty list []
+        - denied_action_kinds absent → stored as empty list []
+        Empty lists mean "no governance rule of this type." A policy with
+        no quotas and no access control is valid — it contributes only its
+        existing caps/rate_limits behavior from v0.1.25.
+
+      On TENANT CREATION (POST /v1/admin/tenants):
+        - observe_mode absent → stored as ENFORCE
+        Existing tenants (pre-v0.1.26) are treated as observe_mode=ENFORCE
+        until explicitly updated.
+
+      ON READ (GET endpoints):
+        Servers MUST return the fields with their stored values. Absent
+        fields MUST be returned as empty lists or ENFORCE (for observe_mode),
+        not omitted, not null. This gives admin tooling a consistent shape
+        to parse.
+
     MECHANICAL MERGE WARNING:
       This companion spec re-declares PATCH /v1/admin/tenants/{tenant_id} and
       PATCH /v1/admin/policies/{policy_id}, which already exist in the governance
@@ -258,9 +305,18 @@ components:
           arrays in the same request. Clearing one (setting to []) while
           setting the other is allowed.
 
-        EVENTS: emits policy.updated with changed_fields listing all
-          modified fields (e.g., ["action_quotas", "risk_class_quotas",
-          "allowed_action_kinds"]).
+        EVENTS (NORMATIVE):
+          Emits policy.updated with changed_fields containing one or more
+          of the following exact string values:
+            - "action_quotas"
+            - "risk_class_quotas"
+            - "allowed_action_kinds"
+            - "denied_action_kinds"
+          Plus any base v0.1.25.7 fields that were also modified
+          (e.g., "caps", "priority", "status").
+          String values are lowercase snake_case matching the JSON field
+          names exactly. Audit queries and webhook subscribers MUST match
+          on these exact strings.
       properties:
         action_quotas:
           type: array
@@ -347,7 +403,11 @@ components:
             No backfill of previously observed-denied events.
           DISABLED is an alias for ENFORCE.
 
-        EVENTS: emits tenant.settings_changed with changed_fields: ["observe_mode"].
+        EVENTS (NORMATIVE):
+          Emits tenant.settings_changed with changed_fields containing
+          the exact string "observe_mode" (lowercase snake_case) when
+          the observe_mode field is modified. Audit queries and webhook
+          subscribers MUST match on this exact string.
       properties:
         observe_mode:
           type: string
@@ -419,7 +479,7 @@ components:
         - 'admin:webhooks:write'
         - 'admin:events:read'
         - 'admin:audit:read'
-        # NEW in v0.1.26 — RESERVED, not yet enforced:
+        # NEW in v0.1.26 — enforced with balances:read fallback (fallback removed in v0.1.27):
         - 'action_quotas:read'
 
 paths:
