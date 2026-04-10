@@ -206,15 +206,15 @@ documents:
 
 merge_recipes:
 
-  - id: runtime_merged
+  - id: protocol_merged
+    status: pre_built
     description: >-
-      Single merged OpenAPI file for the runtime enforcement plane.
+      Pre-built merged OpenAPI file for the runtime (protocol) plane.
       Suitable for: SDK generation, OpenAPI validator pipelines,
-      Swagger UI / Redoc hosting, Postman import.
+      Swagger UI / Redoc hosting, Postman import, runtime server validation.
       Contains: runtime_base + runtime_extension + action_kinds (schemas + paths).
       Does NOT contain governance plane (admin/tenant/policy/webhook management).
-      Governance is server-side tooling; most SDK authors don't need it.
-    output_file: cycles-openapi-runtime-merged.yaml
+    output_file: merged/cycles-openapi-protocol-merged.yaml
     sources:
       - document: runtime_base
         include: all
@@ -238,81 +238,70 @@ merge_recipes:
       - RiskClassQuota is defined once in action_kinds schemas
       - No path conflicts (action_kinds adds 3 new paths; runtime_base owns the rest)
     tooling:
-      openapi_merge: >-
-        npx openapi-merge-cli --config cycles-merge-config-runtime.json
-      redocly: >-
-        redocly bundle cycles-protocol-v0.yaml
-          --ext cycles-protocol-extensions-v0.1.26.yaml
-          --ext cycles-action-kinds-v0.1.26.yaml
-          -o cycles-openapi-runtime-merged.yaml
+      build_command: "make merge   # or: python scripts/merge_specs.py"
       manual: >-
-        cycles-openapi-runtime-merged.yaml is pre-built in each release.
-        See it alongside this index file.
+        merged/cycles-openapi-protocol-merged.yaml is pre-built and committed
+        in each release. Regenerate with `make merge` after changing any
+        source spec.
 
-  - id: full_merged
-    status: build_target
-    status_note: >-
-      cycles-openapi-full-merged.yaml is NOT pre-built in the v0.1.26 release.
-      It is a defined build target — the recipe below specifies exactly how
-      to produce it. Build it if your pipeline requires the full governance
-      API surface (tenant management, policy CRUD, webhooks, budget funding).
-      Most SDK authors only need the runtime_merged artifact above.
-      If demand warrants, a future release may include it as a pre-built file.
+  - id: admin_merged
+    status: pre_built
     description: >-
-      Single merged OpenAPI file covering all five source specs.
-      Suitable for: full API documentation, governance tooling codegen,
-      end-to-end validator pipelines.
-      Large (all five source specs combined). Most SDK authors should use
-      runtime_merged instead.
-    output_file: cycles-openapi-full-merged.yaml
+      Pre-built merged OpenAPI file for the admin (governance) plane.
+      Suitable for: admin tooling codegen, policy editors, operator
+      dashboards, governance API validators.
+      Contains: governance_base + governance_extension + action_kinds
+      + runtime_extension schemas (for DenyDetail, ObserveModeEnum, event
+      data payloads, and the extended ErrorCode / EventType enums that
+      admin event consumers and error handlers need).
+      Does NOT contain runtime reservation endpoints (reserve/commit/release);
+      those are in protocol_merged.
+    output_file: merged/cycles-openapi-admin-merged.yaml
     sources:
-      - document: runtime_base
-        include: all
       - document: governance_base
-        include: all
-      - document: action_kinds
-        include: all
-      - document: runtime_extension
         include: all
       - document: governance_extension
         include: all
         merge_strategy:
           schemas: >-
-            Merge PolicyExtension fields (action_quotas, risk_class_quotas,
-            allowed_action_kinds, denied_action_kinds) into the base Policy
-            schema so GET /v1/admin/policies and GET /v1/admin/policies/{policy_id}
-            return the extended shape.
-            Merge PolicyCreateRequestExtension fields into PolicyCreateRequest
-            so POST /v1/admin/policies accepts the new creation fields.
-            Merge TenantExtension.observe_mode into the base Tenant schema
-            so GET /v1/admin/tenants and GET /v1/admin/tenants/{tenant_id}
-            return the extended shape.
+            Merge PolicyExtension fields into base Policy schema; merge
+            PolicyCreateRequestExtension into PolicyCreateRequest; merge
+            TenantExtension.observe_mode into base Tenant. Enables GET/POST
+            endpoints to reflect v0.1.26 shapes without path redeclaration.
           patch_operations: >-
             Merge action_quotas, risk_class_quotas, allowed_action_kinds,
             denied_action_kinds into the existing updatePolicy PATCH body.
             Merge observe_mode into the existing updateTenant PATCH body.
-            Remove duplicate operationIds (updateTenantObserveMode →
-            merge into updateTenant; updatePolicyActionQuotas → merge into
-            updatePolicy).
           permissions: add action_quotas:read to Permission enum
+      - document: action_kinds
+        include: all
+      - document: runtime_extension
+        include: schemas_and_enum_extensions_only
+        merge_strategy:
+          purpose: >-
+            Admin tooling needs DenyDetail, ObserveModeEnum, event data
+            payload schemas (EventDataObservedDenied, EventDataObservedAllowed,
+            EventDataQuotaThresholdApproaching, EventDataQuotaCounterReset),
+            and the ErrorCode / EventType enum extensions. The runtime extension
+            has paths: {} so including it adds schemas only.
           error_codes: >-
-            Merge ACTION_QUOTA_EXCEEDED, ACTION_KIND_NOT_ALLOWED, and
-            ACTION_KIND_DENIED into the governance base ErrorCode enum.
+            Merge ACTION_QUOTA_EXCEEDED, ACTION_KIND_NOT_ALLOWED,
+            ACTION_KIND_DENIED from ErrorCodeExtension into the governance
+            base ErrorCode enum.
           event_types: >-
             Merge reservation.observed_denied, reservation.observed_allowed,
-            quota.threshold_approaching, and quota.counter_reset into the
-            governance base EventType enum.
+            quota.threshold_approaching, and quota.counter_reset from
+            EventTypeExtension into the governance base EventType enum.
           denied_event_population: >-
             v0.1.26 servers populate the base EventDataReservationDenied
             schema (v0.1.25.8 opened its reason_code and added deny_detail
-            + policy_id) directly. Runtime servers MUST emit the v0.1.26
-            reason codes (ACTION_QUOTA_EXCEEDED, ACTION_KIND_DENIED,
-            ACTION_KIND_NOT_ALLOWED) and populate deny_detail with the
-            structure defined by the runtime extension's DenyDetail schema.
+            + policy_id) directly. Runtime servers MUST emit v0.1.26 reason
+            codes and populate deny_detail per the DenyDetail schema defined
+            in runtime_extension.
     resolution_rules:
       - ErrorResponse is deduplicated (governance_base version is canonical)
       - ObserveModeEnum is defined once (runtime_extension version)
-      - PATCH path conflicts resolved by merging request bodies, not duplicating paths
+      - PATCH path conflicts resolved via allOf body merge (handled by merge script)
       - Policy schema: governance_base Policy + PolicyExtension fields (no conflict)
       - PolicyCreateRequest schema: governance_base + PolicyCreateRequestExtension
       - Tenant schema: governance_base Tenant + TenantExtension.observe_mode
@@ -320,12 +309,11 @@ merge_recipes:
       - Enforcement: action_quotas:read required on quota counter endpoint,
         balances:read accepted as fallback through v0.1.26 only
     tooling:
-      note: >-
-        Full merge requires conflict resolution on PATCH paths and enum deduplication.
-        Recommend Redocly or a custom Python merge script (see runtime_merged
-        merge script in the release as a starting point). No pre-built merge
-        config JSON files are included in this release — the resolution_rules
-        above define the required behavior for any merge tool implementation.
+      build_command: "make merge   # or: python scripts/merge_specs.py"
+      manual: >-
+        merged/cycles-openapi-admin-merged.yaml is pre-built and committed
+        in each release. Regenerate with `make merge` after changing any
+        source spec.
 
 # ---------------------------------------------------------------------------
 # PUBLICATION MODEL SUMMARY
@@ -340,39 +328,44 @@ publication_model_summary:
     - cycles-governance-extensions-v0.1.26.yaml  # governance extension
 
   pre_built_artifacts:
-    # These files ARE included in the v0.1.26 release alongside this index:
-    - cycles-openapi-runtime-merged.yaml  # codegen-ready runtime plane (pre-built)
-
-  build_target_artifacts:
-    # These files are NOT pre-built. Produce them using the merge recipes above:
-    - cycles-openapi-full-merged.yaml     # full reference — build target only
+    # These files ARE pre-built and committed in each v0.1.26 release:
+    - merged/cycles-openapi-protocol-merged.yaml  # runtime (protocol) plane — SDK codegen, runtime server validation
+    - merged/cycles-openapi-admin-merged.yaml     # admin (governance) plane — admin tooling, dashboards
 
   source_of_truth: companion-specs  # generated artifacts are derived, not canonical
 
   update_policy: >-
     When any companion spec changes:
       1. Update the companion spec (increment its version).
-      2. Update this index (increment spec_index version).
-      3. Regenerate pre-built merged artifacts.
-      4. Increment only the affected planes in current_versions above.
-    The base specs (runtime_base, governance_base) are stable for all v0.x releases.
-    Only the extension specs and action_kinds spec are expected to evolve.
+      2. Update this index if structural changes (document entries, merge recipes).
+      3. Regenerate pre-built merged artifacts: `make merge` or
+         `python scripts/merge_specs.py`.
+      4. Commit the regenerated merged/*.yaml files alongside the source change.
+    The base specs (runtime_base, governance_base) change rarely (patch bumps
+    only). Extension specs and action_kinds evolve with feature releases.
 
   sdk_generation_guidance: >-
-    For SDK generation, use cycles-openapi-runtime-merged.yaml (pre-built).
-    This contains the complete runtime API surface in a single resolved file:
-    all reservation/commit/release/decide/balance endpoints, all extension
-    schemas (DenyDetail, ObserveModeEnum, etc.), registry endpoints, quota
-    counter endpoint, and both ApiKeyAuth and AdminKeyAuth security schemes.
-    No post-processing needed.
+    For runtime / client SDK generation (Python, TypeScript, Go, etc.):
+      Use merged/cycles-openapi-protocol-merged.yaml.
+      Contains the complete runtime API surface: reserve/commit/release/decide/
+      balance endpoints, all runtime extension schemas (DenyDetail,
+      ObserveModeEnum, EventDataObservedDenied/Allowed, etc.), action kind
+      registry endpoints, quota counter endpoint + reset, and both
+      ApiKeyAuth and AdminKeyAuth security schemes. No post-processing needed.
+
+    For admin tooling generation (policy editors, dashboards, CLIs):
+      Use merged/cycles-openapi-admin-merged.yaml.
+      Contains the complete governance surface: tenant/budget/policy/api-key/
+      webhook management, v0.1.26 policy and tenant extensions, action kind
+      registry, quota counter observability, and the runtime extension
+      schemas admins need for event consumers and error handlers.
 
   validator_guidance: >-
     For request/response validation in production:
-      - Runtime servers: validate against cycles-openapi-runtime-merged.yaml
-        (pre-built, included in this release).
-      - Admin/governance servers: build cycles-openapi-full-merged.yaml
-        using the full_merged recipe above, then validate against it.
-        A pre-built version may be included in a future release if demand warrants.
+      - Runtime servers: validate against merged/cycles-openapi-protocol-merged.yaml
+      - Admin/governance servers: validate against merged/cycles-openapi-admin-merged.yaml
+    Both files are pre-built and committed in each release. Regenerate via
+    `make merge` if you modify source specs locally.
 
   human_reading_order:
     implementer_building_runtime_server:
@@ -383,8 +376,10 @@ publication_model_summary:
       - cycles-governance-admin-v0.1.25.yaml (foundation)
       - cycles-governance-extensions-v0.1.26.yaml (governance additions)
       - cycles-action-kinds-v0.1.26.yaml (quota rules used in policies)
-    sdk_author:
-      - cycles-openapi-runtime-merged.yaml (single merged file — start here)
+    sdk_author_runtime:
+      - merged/cycles-openapi-protocol-merged.yaml (start here)
+    sdk_author_admin:
+      - merged/cycles-openapi-admin-merged.yaml (start here)
     policy_operator:
       - cycles-action-kinds-v0.1.26.yaml (action kind taxonomy and quota rules)
       - cycles-governance-extensions-v0.1.26.yaml (how to attach quotas to policies)
