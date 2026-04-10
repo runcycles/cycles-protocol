@@ -7,9 +7,17 @@
 
 Cycles is an open protocol that ensures agents cannot authorize more spend than policy allows — even when dozens of them run concurrently.
 
-**Spec version:** v0.1.25 &middot; **API path:** `/v1` &middot; **License:** Apache 2.0
+**Spec suite:** v0.1.26 &middot; **Runtime base:** v0.1.25 &middot; **Governance base:** v0.1.25.8 &middot; **API path:** `/v1` &middot; **License:** Apache 2.0
 
-> **v0.1.25** adds Webhook Event Guidance: 40 event types, standard payload schema, HMAC-SHA256 signing, delivery protocol, and retry semantics. No new API endpoints — guidance is informational. See the [admin governance spec](https://github.com/runcycles/cycles-server-admin/blob/main/complete-budget-governance-v0.1.25.yaml) for webhook subscription endpoints.
+> **v0.1.26** adds action-level governance on top of the stable v0.1.25 runtime base:
+> - **Action kind registry** — 62 built-in kinds with risk classification and governance policy
+> - **Per-kind and risk-class quotas** — with burst protection (`per_minute_tumbling`) and threshold warnings
+> - **Access control lists** — `allowed_action_kinds` / `denied_action_kinds` on policies
+> - **Observe mode** — shadow rollout with `observed_denied` / `observed_allowed` events
+> - **Enriched deny context** — `DenyDetail` with quota violation info, blocked scope/policy, suggested fixes
+> - **Counter reset** — incident response endpoint for stuck per_run counters
+>
+> The suite ships as companion specs: [`cycles-protocol-v0.yaml`](cycles-protocol-v0.yaml) (runtime base), [`cycles-protocol-extensions-v0.1.26.yaml`](cycles-protocol-extensions-v0.1.26.yaml) (runtime extension), [`cycles-action-kinds-v0.1.26.yaml`](cycles-action-kinds-v0.1.26.yaml) (registry), [`cycles-governance-admin-v0.1.25.yaml`](cycles-governance-admin-v0.1.25.yaml) (admin base), and [`cycles-governance-extensions-v0.1.26.yaml`](cycles-governance-extensions-v0.1.26.yaml) (admin extension). See [`cycles-spec-index.yaml`](cycles-spec-index.yaml) for the composition manifest and merge recipes.
 
 ---
 

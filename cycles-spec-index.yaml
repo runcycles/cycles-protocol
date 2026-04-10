@@ -405,10 +405,11 @@ implementation_resources:
         Covers counter increment/decrement lifecycle and threshold detection.
     - file: impl/test-vectors.yaml
       description: >-
-        11 reference request/response pairs covering: happy path ALLOW,
+        12 reference request/response pairs covering: happy path ALLOW,
         ACTION_KIND_DENIED, ACTION_KIND_NOT_ALLOWED, risk-class quota deny,
         per-kind quota deny, budget exceeded, observe mode deny/allow,
-        threshold crossing, per-request observe override, burst protection.
+        threshold crossing, per-request observe override, burst protection,
+        and agent spawn quota (multi-agent safety).
 
 # ---------------------------------------------------------------------------
 # REGISTRY GOVERNANCE (future work)
