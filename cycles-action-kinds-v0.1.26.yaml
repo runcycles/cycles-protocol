@@ -935,11 +935,18 @@ paths:
 
         TENANCY (NORMATIVE):
           - AdminKeyAuth: can query any tenant (tenant_id REQUIRED).
-          - ApiKeyAuth with balances:read: own tenant only.
-            NOTE: use of balances:read here is intentional and temporary for
-            v0.1.26. The permission action_quotas:read is RESERVED in the
-            governance extensions spec for a future version that grants
-            finer access control.
+          - ApiKeyAuth: own tenant only. Requires action_quotas:read
+            permission (primary) or balances:read permission (deprecated
+            fallback for v0.1.26).
+
+        PERMISSION MODEL (NORMATIVE):
+          Servers MUST accept either:
+            - action_quotas:read (PRIMARY — preferred for all new grants)
+            - balances:read (DEPRECATED FALLBACK — v0.1.26 only, removed in v0.1.27)
+          When accepting the balances:read fallback, servers SHOULD include
+          a X-Cycles-Permission-Deprecated response header indicating the
+          key should be re-granted with action_quotas:read.
+          See PermissionExtension in cycles-governance-extensions-v0.1.26.yaml.
       security:
         - AdminKeyAuth: []
         - ApiKeyAuth: []

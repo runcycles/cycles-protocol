@@ -52,9 +52,10 @@ info:
          PATCH /v1/admin/tenants/{tenant_id}: extended body with observe_mode.
 
       4. PERMISSION EXTENSION
-         action_quotas:read reserved in Permission enum for v0.1.27+.
-         Not enforced in v0.1.26 — GET /v1/admin/action-quota-counters
-         currently uses balances:read (intentional, documented).
+         action_quotas:read added to Permission enum and ENFORCED in v0.1.26
+         on GET /v1/admin/action-quota-counters. Servers also accept
+         balances:read as a deprecated fallback for v0.1.26 to avoid key
+         re-provisioning; fallback removed in v0.1.27.
 
     MECHANICAL MERGE WARNING:
       This companion spec re-declares PATCH /v1/admin/tenants/{tenant_id} and
@@ -361,21 +362,34 @@ components:
     PermissionExtension:
       type: string
       description: >-
-        Extended Permission enum. Adds action_quotas:read as a RESERVED
-        placeholder for v0.1.27+.
+        Extended Permission enum. Adds action_quotas:read for quota
+        observability access control.
 
-        In v0.1.26, action_quotas:read is NOT enforced. The quota counter
-        endpoint (GET /v1/admin/action-quota-counters) uses balances:read.
-        This is intentional and temporary — reusing balances:read avoids
-        a permission migration for existing API keys.
+        ENFORCEMENT (NORMATIVE):
+          Servers MUST enforce action_quotas:read on the quota counter
+          endpoint (GET /v1/admin/action-quota-counters) starting in
+          v0.1.26.
 
-        FUTURE (v0.1.27+):
-          action_quotas:read will grant finer access to quota observability
-          endpoints independently of balances:read. Servers will accept either
-          for backward compatibility, then deprecate the balances:read fallback.
+          BACKWARD COMPATIBILITY FALLBACK:
+            For v0.1.26 only, servers MUST also accept balances:read as
+            a fallback permission on the counter endpoint. This gives
+            existing admin keys with balances:read zero-migration access
+            to the new endpoint. Servers accepting the balances:read
+            fallback SHOULD include a deprecation warning header
+            (e.g., X-Cycles-Permission-Deprecated: balances:read).
 
-        Servers MUST NOT enforce action_quotas:read in v0.1.26 — it is reserved
-        to prevent future name collision with custom permissions.
+          The balances:read fallback is DEPRECATED in v0.1.26 and will
+          be REMOVED in v0.1.27. Operators SHOULD migrate admin keys to
+          grant action_quotas:read explicitly before upgrading to v0.1.27.
+
+        GRANT SEMANTICS:
+          action_quotas:read grants READ access to quota counter state
+          (GET /v1/admin/action-quota-counters). It does NOT grant:
+            - Modification of quota rules (requires policies:write)
+            - Access to budget balances (requires balances:read)
+            - Access to reservation state (requires reservations:list)
+          Finer-grained quota permissions (action_quotas:write for
+          counter reset/override, etc.) MAY be added in future versions.
       enum:
         # All v0.1.25.7 permissions (unchanged):
         - 'reservations:create'

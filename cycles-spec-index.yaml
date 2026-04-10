@@ -166,7 +166,7 @@ documents:
       - PATCH /v1/admin/policies/{policy_id} — extended body
       - Tenant.observe_mode (shadow mode default)
       - PATCH /v1/admin/tenants/{tenant_id} — extended body
-      - action_quotas:read permission (reserved for v0.1.27+)
+      - action_quotas:read permission (enforced in v0.1.26 with balances:read fallback)
     integration_points:
       - action_kinds: >-
           PolicyExtension.action_quotas uses ActionQuota from action_kinds.
