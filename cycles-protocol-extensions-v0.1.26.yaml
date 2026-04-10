@@ -1,0 +1,660 @@
+openapi: 3.1.0
+info:
+  title: Cycles Protocol Extensions — Runtime Enforcement Plane
+  version: 0.1.26
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+  summary: >-
+    Additive extensions to cycles-protocol-v0.yaml (v0.1.25).
+    Adds enriched deny context (DenyDetail), observe mode with both
+    observed_denied and observed_allowed events, action-kind access control
+    (ACTION_KIND_NOT_ALLOWED, ACTION_KIND_DENIED), risk-class and per-kind
+    quota violation details, quota threshold warnings, and the full
+    normative reservation evaluation order.
+    Runtime enforcement plane only — no governance or registry content.
+  description: |-
+    EXTENSION CONTRACT (NORMATIVE):
+      Strict superset of cycles-protocol-v0.yaml v0.1.25.
+      No existing schema, endpoint, field meaning, or error code changed.
+      All new fields on existing schemas are OPTIONAL.
+      Clients built against v0.1.25 work unchanged.
+
+    BASE SPEC:
+      cycles-protocol-v0.yaml v0.1.25
+
+    COMPANION SPECS:
+      cycles-action-kinds-v0.1.26.yaml — ActionPolicyKeys, ActionQuotaWindow,
+        RiskClassQuota, ActionRiskClass (referenced but defined there)
+      cycles-governance-extensions-v0.1.26.yaml — Policy.action_quotas,
+        Policy.risk_class_quotas, Policy.allowed_action_kinds,
+        Policy.denied_action_kinds, Tenant.observe_mode (defined there)
+
+    WHAT THIS ADDS:
+
+      1. ENRICHED DENY CONTRACT
+         DenyDetail schema: reason_code, quota_violation, blocked_by_scope,
+         blocked_by_policy, suggested_fix, budget_remaining.
+         Added to DecisionResponse, ReservationCreateResponse, ErrorResponse.
+         New ErrorCodes: ACTION_QUOTA_EXCEEDED, ACTION_KIND_NOT_ALLOWED,
+         ACTION_KIND_DENIED.
+
+      2. OBSERVE MODE
+         ObserveModeEnum (DISABLED, OBSERVE, ENFORCE).
+         Added to ReservationCreateRequest as per-request override.
+         Tenant-level default defined in cycles-governance-extensions-v0.1.26.yaml.
+         New EventTypes: reservation.observed_denied, reservation.observed_allowed.
+         EventDataObservedDenied, EventDataObservedAllowed schemas.
+
+      3. ACTION EXTENSION
+         ActionExtension: adds policy_keys to Action objects for policy routing.
+         policy_keys is defined in cycles-action-kinds-v0.1.26.yaml.
+
+      4. RESERVATION EVALUATION ORDER
+         Full 5-step normative evaluation order: access control (allow/deny lists),
+         risk-class quotas, per-kind quotas, budget checks, atomic commit.
+
+      5. QUOTA THRESHOLD WARNINGS
+         New EventType: quota.threshold_approaching.
+         EventDataQuotaThresholdApproaching schema.
+         Emitted when quota counter crosses configured threshold_pct.
+
+    DRY_RUN VS OBSERVE_MODE — EXPLICIT PRECEDENCE (NORMATIVE):
+
+      RULE 1 — observe_mode=OBSERVE (any source) → dry-run semantics + event emission:
+        - If per-request observe_mode=OBSERVE: evaluate as dry_run, emit event.
+        - If tenant.observe_mode=OBSERVE (governance ext) and no per-request
+          override: same semantics apply.
+        - dry_run=true does NOT suppress event emission when observe_mode=OBSERVE.
+
+      RULE 2 — dry_run=true with observe_mode=ENFORCE or absent → dry-run only:
+        - Full reserve evaluation, no balance mutation, no event emitted.
+        - Preserves v0.1.25 dry_run semantics exactly.
+
+      RULE 3 — observe_mode=ENFORCE (default) → normal enforcement:
+        - Existing v0.1.25 reservation semantics in full.
+        - dry_run=true still functions as in v0.1.25.
+
+      SUMMARY:
+        observe_mode  | dry_run | Balance mutation | Event emitted
+        OBSERVE       | any     | NO               | YES (DENY: observed_denied;
+                      |         |                  |      ALLOW: observed_allowed)
+        ENFORCE/absent| true    | NO               | NO
+        ENFORCE/absent| false   | YES              | NO
+
+      API LAYERING:
+        observe_mode is the PRODUCT API (operator dashboards, shadow mode rollout).
+        dry_run is the PROTOCOL PRIMITIVE (SDK testing, CI validation).
+        Both are supported indefinitely. Neither is deprecated.
+
+    OBSERVE MODE SEMANTICS (NORMATIVE):
+      Effective observe mode: per-request override > tenant.observe_mode > ENFORCE.
+      When effective mode = OBSERVE:
+        - Server MUST evaluate full reserve path (access control + quota + budget).
+        - Server MUST NOT modify any balance or quota counter.
+        - Server MUST return 200 with decision (ALLOW/ALLOW_WITH_CAPS/DENY).
+        - reservation_id and expires_at_ms MUST be absent (same as dry_run).
+        - If decision=DENY: server MUST emit reservation.observed_denied event.
+        - If decision=ALLOW or ALLOW_WITH_CAPS: server MUST emit
+          reservation.observed_allowed event (subject to server-side sampling;
+          see EventDataObservedAllowed.sample_rate).
+        - affected_scopes MUST be populated regardless of decision.
+        - Quota threshold events (quota.threshold_approaching) are NOT emitted
+          in OBSERVE mode because counters are not incremented.
+
+    RESERVATION EVALUATION ORDER (NORMATIVE):
+      Policies evaluated in priority order (highest first). Only the
+      highest-priority matching policy's rules apply. The full evaluation
+      order within the reservation path is:
+
+      STEP 1 — ACTION KIND ACCESS CONTROL (allow/deny lists):
+        For the highest-priority matching policy:
+          a. If the policy has a non-empty denied_action_kinds and the request
+             action.kind is in the list: DENY immediately with
+             reason_code=ACTION_KIND_DENIED. No further evaluation.
+          b. If the policy has a non-empty allowed_action_kinds and the request
+             action.kind is NOT in the list: DENY immediately with
+             reason_code=ACTION_KIND_NOT_ALLOWED. No further evaluation.
+          c. If neither list applies (both empty/absent): proceed.
+        Access control is a hard gate. Denied kinds never reach quota or
+        budget checks. DenyDetail: quota_violation absent, blocked_by_policy
+        SHOULD be populated, suggested_fix SHOULD describe how to update
+        the allow/deny list.
+        allowed_action_kinds and denied_action_kinds are defined in
+        cycles-governance-extensions-v0.1.26.yaml (PolicyExtension).
+
+      STEP 2 — RISK-CLASS QUOTAS:
+        For the highest-priority matching policy's risk_class_quotas:
+          a. Server looks up the action kind's risk_class from the registry
+             (or the default side_effect for unregistered kinds).
+          b. If a risk-class quota matches (same risk_class, matching scope,
+             within window): check aggregate counter.
+          c. If aggregate counter >= max_calls: DENY with
+             reason_code=ACTION_QUOTA_EXCEEDED and
+             deny_detail.quota_violation populated with risk_class set.
+        risk_class_quotas are defined in cycles-governance-extensions-v0.1.26.yaml.
+        RiskClassQuota is defined in cycles-action-kinds-v0.1.26.yaml.
+
+      STEP 3 — PER-KIND ACTION QUOTAS:
+        For the highest-priority matching policy's action_quotas:
+          - Each matching rule's quota counter is checked.
+          - First violated rule produces DENY with reason ACTION_QUOTA_EXCEEDED
+            and deny_detail.quota_violation populated.
+          - If multiple rules violated, server SHOULD return the most restrictive
+            (lowest remaining headroom).
+
+      STEP 4 — BUDGET BALANCE CHECKS:
+        Existing v0.1.25 budget/overdraft/debt checks.
+        DENY reason_codes: BUDGET_EXCEEDED, OVERDRAFT_LIMIT_EXCEEDED,
+        DEBT_OUTSTANDING, BUDGET_FROZEN, BUDGET_CLOSED.
+
+      STEP 5 — ATOMIC COMMIT (on ALLOW):
+        Atomically: decrement budget balance, increment per-kind counter (if
+        applicable), increment risk-class counter (if applicable).
+        Check threshold crossings — emit quota.threshold_approaching if any
+        threshold_pct crossed.
+
+      MULTI-POLICY SEMANTICS:
+        Quota rules from multiple policies are NOT merged per action_kind;
+        only highest-priority matching policy's rules apply per kind.
+        Access control rules follow the same policy — only the
+        highest-priority matching policy's allow/deny lists apply.
+
+    CHANGELOG:
+      v0.1.26 (2026-04-09):
+        Split from monolithic cycles-protocol-extensions-v0.1.26-final.yaml.
+        Runtime enforcement plane content only. Registry and governance
+        content moved to dedicated companion specs.
+
+servers:
+  - url: https://api.cycles.local
+    description: Replace with your implementation endpoint
+
+tags:
+  - name: Extensions
+    description: Runtime enforcement plane extensions to cycles-protocol-v0.yaml v0.1.25
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Cycles-API-Key
+
+  schemas:
+
+    # -------------------------------------------------------------------------
+    # ENRICHED DENY CONTRACT
+    # -------------------------------------------------------------------------
+
+    ActionQuotaViolation:
+      type: object
+      description: >-
+        Structured detail about the quota rule that caused a DENY.
+        Present in DenyDetail.quota_violation when reason_code=ACTION_QUOTA_EXCEEDED.
+        ActionQuotaWindow is defined in cycles-action-kinds-v0.1.26.yaml.
+      required: [action_kind, window, used, limit, scope]
+      additionalProperties: false
+      properties:
+        action_kind:
+          type: string
+          maxLength: 64
+        window:
+          type: string
+          enum: [per_run, per_minute_tumbling, per_hour_tumbling, per_day_tumbling, per_tenant_per_day]
+          description: See cycles-action-kinds-v0.1.26.yaml ActionQuotaWindow.
+        window_key:
+          type: string
+          description: Specific window instance key (e.g. run_id for per_run).
+        used:
+          type: integer
+          format: int64
+        limit:
+          type: integer
+          format: int64
+        scope:
+          type: string
+          description: Canonical scope where the quota is enforced.
+        policy_id:
+          type: string
+        risk_class:
+          type: string
+          enum: [read_only, local_mutation, side_effect, external_side_effect, high_risk]
+          description: >-
+            Present when the violated quota is a risk-class-level quota
+            (RiskClassQuota in cycles-action-kinds-v0.1.26.yaml).
+            When present, action_kind is the specific kind that triggered
+            the violation, and risk_class identifies the aggregate quota
+            that was exceeded.
+
+    DenyDetail:
+      type: object
+      description: >-
+        Enriched deny context returned alongside DENY decisions and 409 errors.
+        Provides operator-grade information: which rule fired, what quota was hit,
+        and what to change.
+
+        POPULATION RULES:
+          - reason_code MUST be populated on every DENY.
+          - quota_violation MUST be populated when reason_code=ACTION_QUOTA_EXCEEDED.
+          - suggested_fix SHOULD be populated whenever the server can determine
+            a corrective action.
+          - blocked_by_policy SHOULD be populated when a named policy caused DENY.
+          - blocked_by_scope SHOULD be populated with the specific scope that
+            ran out of budget or quota.
+          - budget_remaining SHOULD be populated on BUDGET_EXCEEDED.
+      required: [reason_code]
+      additionalProperties: false
+      properties:
+        reason_code:
+          type: string
+          maxLength: 128
+          description: >-
+            Known values:
+              BUDGET_EXCEEDED, ACTION_QUOTA_EXCEEDED, OVERDRAFT_LIMIT_EXCEEDED,
+              DEBT_OUTSTANDING, BUDGET_FROZEN, BUDGET_CLOSED,
+              TENANT_SUSPENDED, POLICY_VIOLATION,
+              ACTION_KIND_NOT_ALLOWED, ACTION_KIND_DENIED.
+        quota_violation:
+          $ref: '#/components/schemas/ActionQuotaViolation'
+          description: Present only when reason_code=ACTION_QUOTA_EXCEEDED.
+        blocked_by_scope:
+          type: string
+          description: Most specific scope in the hierarchy that caused DENY.
+        blocked_by_policy:
+          type: string
+          maxLength: 256
+          description: Name or ID of the policy that blocked this request.
+        suggested_fix:
+          type: string
+          maxLength: 512
+          description: >-
+            Human-readable corrective action. Examples:
+              "Increase email quota from 2 to 5 per run in policy 'support-agent-defaults'"
+              "Fund tenant:acme budget by at least 500000 USD_MICROCENTS"
+              "Repay overdraft debt of 12000 USD_MICROCENTS before new reservations"
+        budget_remaining:
+          type: integer
+          format: int64
+          description: >-
+            Current remaining balance at the blocking scope (in the reservation unit).
+            Present on BUDGET_EXCEEDED. Can be negative in overdraft scenarios.
+
+    # -------------------------------------------------------------------------
+    # OBSERVE MODE
+    # -------------------------------------------------------------------------
+
+    ObserveModeEnum:
+      type: string
+      description: >-
+        Observation mode for reservation evaluation.
+        DISABLED: synonym for ENFORCE.
+        OBSERVE: full evaluation, no side effects, emits observed_denied on DENY
+                 and observed_allowed on ALLOW/ALLOW_WITH_CAPS.
+                 The preferred product-facing API for shadow mode rollout.
+        ENFORCE: normal enforcement (default). Preserves v0.1.25 semantics.
+      enum:
+        - DISABLED
+        - OBSERVE
+        - ENFORCE
+
+    # -------------------------------------------------------------------------
+    # EXTENSIONS TO EXISTING SCHEMAS
+    # -------------------------------------------------------------------------
+    # These schemas document additive fields on base spec schemas.
+    # Implementations MUST accept these fields on the corresponding objects.
+
+    # EXTENDS: Action (cycles-protocol-v0.yaml)
+    ActionExtension:
+      type: object
+      description: >-
+        Additive extension to Action. Adds optional policy_keys for routing.
+        policy_keys schema defined in cycles-action-kinds-v0.1.26.yaml.
+        Ignored by v0.1.25 servers — no breaking change.
+      properties:
+        policy_keys:
+          type: object
+          description: >-
+            Extra routing dimensions for policy matching. See ActionPolicyKeys
+            in cycles-action-kinds-v0.1.26.yaml for the full schema.
+            Fields: host, recipient_domain, resource_type, path_prefix, custom.
+
+    # EXTENDS: DecisionResponse (cycles-protocol-v0.yaml)
+    DecisionResponseExtension:
+      type: object
+      description: >-
+        Additive extension to DecisionResponse.
+        deny_detail MUST be populated when decision=DENY.
+        Absent on ALLOW and ALLOW_WITH_CAPS.
+      properties:
+        deny_detail:
+          $ref: '#/components/schemas/DenyDetail'
+
+    # EXTENDS: ReservationCreateResponse (cycles-protocol-v0.yaml)
+    ReservationCreateResponseExtension:
+      type: object
+      description: >-
+        Additive extension to ReservationCreateResponse.
+        deny_detail MUST be populated when decision=DENY in dry_run or
+        observe_mode=OBSERVE context.
+        On live 409 DENY: deny_detail appears in ErrorResponse.details.
+      properties:
+        deny_detail:
+          $ref: '#/components/schemas/DenyDetail'
+
+    # EXTENDS: ErrorResponse (cycles-protocol-v0.yaml)
+    ErrorResponseExtension:
+      type: object
+      description: >-
+        Additive extension to ErrorResponse.
+        When error=BUDGET_EXCEEDED, ACTION_QUOTA_EXCEEDED,
+        OVERDRAFT_LIMIT_EXCEEDED, or DEBT_OUTSTANDING, implementations
+        SHOULD include deny_detail in the details object (details.deny_detail).
+        The details field is already additionalProperties:true in the base spec.
+      properties:
+        details:
+          type: object
+          additionalProperties: true
+          properties:
+            deny_detail:
+              $ref: '#/components/schemas/DenyDetail'
+
+    # EXTENDS: ReservationCreateRequest (cycles-protocol-v0.yaml)
+    ReservationCreateRequestExtension:
+      type: object
+      description: >-
+        Additive extension to ReservationCreateRequest.
+        observe_mode overrides the tenant-level observe_mode for this request.
+        If absent, tenant.observe_mode governs (defined in governance extension).
+        See DRY_RUN VS OBSERVE_MODE precedence in info.description.
+      properties:
+        observe_mode:
+          $ref: '#/components/schemas/ObserveModeEnum'
+
+    # EXTENDS: ErrorCode enum (cycles-protocol-v0.yaml)
+    ErrorCodeExtension:
+      type: string
+      description: >-
+        Extended ErrorCode enum. Adds ACTION_QUOTA_EXCEEDED,
+        ACTION_KIND_NOT_ALLOWED, and ACTION_KIND_DENIED.
+        All v0.1.25 codes unchanged.
+        Implementations MUST add these three codes to the ErrorCode enum.
+      enum:
+        - INVALID_REQUEST
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - NOT_FOUND
+        - BUDGET_EXCEEDED
+        - BUDGET_FROZEN
+        - BUDGET_CLOSED
+        - RESERVATION_EXPIRED
+        - RESERVATION_FINALIZED
+        - IDEMPOTENCY_MISMATCH
+        - UNIT_MISMATCH
+        - OVERDRAFT_LIMIT_EXCEEDED
+        - DEBT_OUTSTANDING
+        - MAX_EXTENSIONS_EXCEEDED
+        - INTERNAL_ERROR
+        # NEW in v0.1.26:
+        - ACTION_QUOTA_EXCEEDED
+        - ACTION_KIND_NOT_ALLOWED
+        - ACTION_KIND_DENIED
+
+    # EXTENDS: EventType enum (governance spec)
+    # NOTE ON PURITY: The EventType enum is defined in the governance spec, but
+    # reservation.observed_denied is a runtime-plane event triggered by the
+    # reservation enforcement path. It logically belongs here in the protocol
+    # extension. The full enum is reproduced for completeness because OpenAPI
+    # does not support additive enum extension; implementers only need to add
+    # reservation.observed_denied to the existing enum in practice.
+    EventTypeExtension:
+      type: string
+      description: >-
+        Extended EventType enum. Adds reservation.observed_denied,
+        reservation.observed_allowed, and quota.threshold_approaching.
+        All 40 v0.1.25 types unchanged.
+      enum:
+        - budget.created
+        - budget.updated
+        - budget.funded
+        - budget.debited
+        - budget.reset
+        - budget.debt_repaid
+        - budget.frozen
+        - budget.unfrozen
+        - budget.closed
+        - budget.threshold_crossed
+        - budget.exhausted
+        - budget.over_limit_entered
+        - budget.over_limit_exited
+        - budget.debt_incurred
+        - budget.burn_rate_anomaly
+        - reservation.denied
+        - reservation.denial_rate_spike
+        - reservation.expired
+        - reservation.expiry_rate_spike
+        - reservation.commit_overage
+        - tenant.created
+        - tenant.updated
+        - tenant.suspended
+        - tenant.reactivated
+        - tenant.closed
+        - tenant.settings_changed
+        - api_key.created
+        - api_key.revoked
+        - api_key.expired
+        - api_key.permissions_changed
+        - api_key.auth_failed
+        - api_key.auth_failure_rate_spike
+        - policy.created
+        - policy.updated
+        - policy.deleted
+        - system.store_connection_lost
+        - system.store_connection_restored
+        - system.high_latency
+        - system.webhook_delivery_failed
+        - system.webhook_test
+        # NEW in v0.1.26:
+        - reservation.observed_denied
+        - reservation.observed_allowed
+        - quota.threshold_approaching
+
+    EventDataObservedDenied:
+      type: object
+      description: >-
+        Payload for reservation.observed_denied events.
+        Emitted when effective observe_mode=OBSERVE and evaluation returns DENY.
+        Carries shadow-evaluation / observe-mode context: deny_detail, action,
+        subject, estimated_amount, would_have_blocked_at.
+
+        DISTINCT FROM reservation.denied — AND WHY:
+          reservation.denied drives production alerting and denial rate-spike
+          detection. Mixing shadow-mode denials would add noise during rollout
+          and make spike detection unreliable. Separate event types preserve
+          clean signal in both streams.
+
+        CORRELATION WITH reservation.denied:
+          The server MUST populate the Event envelope's top-level correlation_id
+          field using a deterministic hash over at least
+          (tenant_id, scope, action_kind, window_key, reason_code).
+          Servers MAY include policy_id to reduce collisions across distinct
+          denial causes in the same scope and window.
+          correlation_id is NOT duplicated inside this payload — it belongs
+          only on the envelope. Dashboard consumers reading event.correlation_id
+          can JOIN observed_denied and reservation.denied streams without
+          merging the event types.
+
+        DEDUPLICATION: consumers MUST deduplicate on event_id.
+      required: [scope, deny_detail, observe_mode]
+      properties:
+        scope:
+          type: string
+        unit:
+          type: string
+          enum: [USD_MICROCENTS, TOKENS, CREDITS, RISK_POINTS]
+        deny_detail:
+          $ref: '#/components/schemas/DenyDetail'
+        action:
+          type: object
+          description: Action that was observed-denied (from the reservation request).
+          properties:
+            kind:
+              type: string
+            name:
+              type: string
+            policy_keys:
+              type: object
+              description: See ActionPolicyKeys in cycles-action-kinds-v0.1.26.yaml.
+              additionalProperties: true
+        subject:
+          type: object
+          additionalProperties: true
+        estimated_amount:
+          type: integer
+          format: int64
+        observe_mode:
+          $ref: '#/components/schemas/ObserveModeEnum'
+          description: Always OBSERVE for this event type.
+        would_have_blocked_at:
+          type: string
+          description: Same as deny_detail.blocked_by_scope.
+        # NOTE ON correlation_id:
+        # NOT a payload field. See CORRELATION WITH reservation.denied above.
+        # Read event.correlation_id (envelope), not a payload field.
+
+    EventDataObservedAllowed:
+      type: object
+      description: >-
+        Payload for reservation.observed_allowed events.
+        Emitted when effective observe_mode=OBSERVE and evaluation returns
+        ALLOW or ALLOW_WITH_CAPS.
+
+        DISTINCT FROM normal ALLOW — AND WHY:
+          Normal enforcement does not emit events on ALLOW (only on DENY
+          and lifecycle transitions). Observe mode needs ALLOW events to
+          measure shadow rollout coverage: "how many requests would have
+          succeeded under the new policy?" Without this event, operators
+          can count shadow denials but have no denominator for denial rate.
+
+        VOLUME CONSIDERATIONS:
+          ALLOW events may be high-volume. Servers SHOULD support sampling
+          via a server-side configuration (e.g., observe_allow_sample_rate).
+          When sampling, the event payload MUST include the sample_rate so
+          consumers can extrapolate. If not sampling, sample_rate is absent
+          or 1.0.
+
+        DEDUPLICATION: consumers MUST deduplicate on event_id.
+      required: [scope, decision, observe_mode]
+      properties:
+        scope:
+          type: string
+        decision:
+          type: string
+          enum: [ALLOW, ALLOW_WITH_CAPS]
+          description: The decision that was evaluated (never DENY for this event type).
+        unit:
+          type: string
+          enum: [USD_MICROCENTS, TOKENS, CREDITS, RISK_POINTS]
+        action:
+          type: object
+          description: Action that was observed-allowed.
+          properties:
+            kind:
+              type: string
+            name:
+              type: string
+            policy_keys:
+              type: object
+              description: See ActionPolicyKeys in cycles-action-kinds-v0.1.26.yaml.
+              additionalProperties: true
+        subject:
+          type: object
+          additionalProperties: true
+        estimated_amount:
+          type: integer
+          format: int64
+        observe_mode:
+          $ref: '#/components/schemas/ObserveModeEnum'
+          description: Always OBSERVE for this event type.
+        caps_applied:
+          type: object
+          description: >-
+            Present when decision=ALLOW_WITH_CAPS. Describes what caps
+            would have been applied (same structure as base spec caps).
+          additionalProperties: true
+        sample_rate:
+          type: number
+          format: double
+          exclusiveMinimum: 0.0
+          maximum: 1.0
+          description: >-
+            Sampling rate. 1.0 = every ALLOW emits an event. 0.1 = 10%
+            of ALLOWs emit events. Absent = 1.0 (no sampling).
+            Consumers SHOULD multiply event counts by 1/sample_rate for
+            accurate totals.
+
+    EventDataQuotaThresholdApproaching:
+      type: object
+      description: >-
+        Payload for quota.threshold_approaching events.
+        Emitted when a quota counter crosses a configured threshold percentage.
+        Analogous to budget.threshold_crossed for budgets.
+
+        EMISSION RULES (NORMATIVE):
+          - Emitted at most ONCE per (scope, action_kind/risk_class, window,
+            window_key, threshold_pct) combination per threshold crossing.
+          - "Crossing" means: previous used/limit ratio was below threshold_pct,
+            and after this increment it is at or above threshold_pct.
+          - Server MUST NOT re-emit for the same window_key after the
+            threshold has already been crossed (no repeated alerts within
+            the same hour/day/minute/run).
+          - If the counter resets (new window bucket), the threshold resets.
+
+        OBSERVE MODE: When observe_mode=OBSERVE, counters are NOT incremented,
+        so threshold events are NOT emitted. Threshold events are only
+        meaningful in ENFORCE mode where counters actually move.
+
+        DEDUPLICATION: consumers MUST deduplicate on event_id.
+      required: [scope, action_kind, window, used, limit, threshold_pct]
+      properties:
+        scope:
+          type: string
+        action_kind:
+          type: string
+          maxLength: 64
+          description: >-
+            The action kind, or "__risk__" for risk-class quotas.
+        risk_class:
+          type: string
+          enum: [read_only, local_mutation, side_effect, external_side_effect, high_risk]
+          description: Present for risk-class quota threshold crossings.
+        window:
+          type: string
+          enum: [per_run, per_minute_tumbling, per_hour_tumbling, per_day_tumbling, per_tenant_per_day]
+        window_key:
+          type: string
+          description: Specific window instance (run_id, UTC hour, etc.).
+        used:
+          type: integer
+          format: int64
+          description: Counter value at time of threshold crossing.
+        limit:
+          type: integer
+          format: int64
+        threshold_pct:
+          type: number
+          format: double
+          minimum: 0.01
+          maximum: 0.99
+          description: >-
+            The configured threshold percentage that was crossed (e.g. 0.80).
+            Matches ActionQuota.threshold_pct / RiskClassQuota.threshold_pct.
+        policy_id:
+          type: string
+        tenant_id:
+          type: string
+
+# No new paths — all runtime paths are in cycles-protocol-v0.yaml.
+# Registry and counter paths are in cycles-action-kinds-v0.1.26.yaml.
+# Governance PATCH extensions are in cycles-governance-extensions-v0.1.26.yaml.
+paths: {}

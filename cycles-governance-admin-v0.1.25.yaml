@@ -1,0 +1,4843 @@
+openapi: 3.1.0
+info:
+  title: Complete Budget Governance Admin API
+  version: 0.1.25.7
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+  summary: >-
+    Complete budget governance protocol covering tenant management, authentication, 
+    and runtime enforcement (aligned with Cycles Protocol v0.1.24).
+  description: |-
+    PURPOSE:
+      This specification defines a complete, interoperable budget governance system
+      with four integrated pillars:
+
+      1. TENANT & BUDGET MANAGEMENT (Configuration Plane)
+         - Tenant lifecycle: registration, hierarchy, metadata
+         - Budget lifecycle: creation, allocation, funding, expiry
+         - Policy configuration: caps, limits, quotas
+         - API key provisioning and management
+
+      2. AUTHENTICATION & AUTHORIZATION (Identity Plane)
+         - API key validation and tenant resolution
+         - Permission and scope enforcement
+         - Key lifecycle: creation, rotation, revocation
+         - Audit logging and access tracking
+
+      3. RUNTIME ENFORCEMENT (Reservation Plane)
+         - Budget reservations and commits (from Cycles Protocol v0.1.24)
+         - Real-time enforcement with overdraft support
+         - Balance queries and monitoring
+
+      4. EVENTS & WEBHOOKS (Observability Plane)
+         - Structured event emission for all state changes
+         - Webhook subscription management with scope filtering
+         - Push-based alerting for budget thresholds and anomalies
+         - Delivery tracking with retry and dead-letter support
+      
+    DESIGN PRINCIPLES:
+      - Interoperability: Standard schemas enable tool ecosystem
+      - Security-first: Explicit trust boundaries and validation
+      - Operational clarity: All workflows have defined endpoints
+      - Backward compatibility: Extends Cycles v0.1.24 without breaking changes
+
+    DEPLOYMENT MODELS:
+      - Single-service: All four pillars in one deployment
+      - Split-plane: Separate admin/auth services from runtime enforcement
+      - Federated: Multiple runtime enforcement instances, shared admin plane
+
+    CHANGELOG:
+      v0.1.25 (2026-03-31):
+        - Added Pillar 4: Events & Webhooks (Observability Plane).
+        - Added 29 new schemas:
+            * Core event model: EventCategory, EventType (40 types across 6 categories), Event.
+            * Event data payloads (13 schemas): EventDataBudgetLifecycle, EventDataBudgetThreshold,
+              EventDataBudgetOverLimit, EventDataBudgetDebtIncurred, EventDataBurnRateAnomaly,
+              EventDataReservationDenied, EventDataReservationExpired, EventDataRateSpike,
+              EventDataCommitOverage, EventDataTenantLifecycle, EventDataApiKey, EventDataPolicy,
+              EventDataSystem.
+            * Webhook management (13 schemas): WebhookSubscription, WebhookThresholdConfig,
+              WebhookRetryPolicy, WebhookCreateRequest, WebhookCreateResponse, WebhookUpdateRequest,
+              WebhookListResponse, WebhookDelivery, WebhookDeliveryListResponse, WebhookTestResponse,
+              EventListResponse.
+            * Missing schemas from v0.1.24 (2): ReservationTtlOverride, RateLimits (were referenced
+              by PATCH /v1/admin/policies/{policy_id} but never defined).
+        - Added 7 new paths (10 operations):
+            * POST   /v1/admin/webhooks — Create webhook subscription
+            * GET    /v1/admin/webhooks — List webhook subscriptions
+            * GET    /v1/admin/webhooks/{subscription_id} — Get subscription details
+            * PATCH  /v1/admin/webhooks/{subscription_id} — Update subscription
+            * DELETE /v1/admin/webhooks/{subscription_id} — Delete subscription
+            * POST   /v1/admin/webhooks/{subscription_id}/test — Send test event
+            * GET    /v1/admin/webhooks/{subscription_id}/deliveries — List delivery attempts
+            * GET    /v1/admin/events — Query event stream
+            * GET    /v1/admin/events/{event_id} — Get single event
+            * POST   /v1/admin/webhooks/{subscription_id}/replay — Replay historical events
+        - Added 40 event types across 6 categories:
+            * budget (15): created, updated, funded, debited, reset, debt_repaid, frozen, unfrozen,
+              closed, threshold_crossed, exhausted, over_limit_entered, over_limit_exited,
+              debt_incurred, burn_rate_anomaly.
+            * reservation (5): denied, denial_rate_spike, expired, expiry_rate_spike, commit_overage.
+            * tenant (6): created, updated, suspended, reactivated, closed, settings_changed.
+            * api_key (6): created, revoked, expired, permissions_changed, auth_failed,
+              auth_failure_rate_spike.
+            * policy (3): created, updated, deleted.
+            * system (5): store_connection_lost, store_connection_restored, high_latency,
+              webhook_delivery_failed, webhook_test.
+        - Added 4 new ErrorCode values: WEBHOOK_NOT_FOUND, WEBHOOK_URL_INVALID, EVENT_NOT_FOUND,
+          REPLAY_IN_PROGRESS.
+        - Added Webhooks and Events tags for Pillar 4 endpoints.
+        - Design decisions:
+            * Implementation-agnostic naming (system.store_* not system.redis_*).
+            * Extensible event types: consumers MUST ignore unrecognized types; custom.* prefix reserved.
+            * Category-level wildcard subscriptions (e.g., subscribe to all budget.* including future types).
+            * At-least-once delivery semantics with event_id for consumer deduplication.
+            * HMAC-SHA256 payload signing via X-Cycles-Signature header.
+            * Auto-disable after consecutive failures with manual re-enable via PATCH.
+        - Bug fixes (pre-existing in v0.1.24):
+            * Added missing security block (AdminKeyAuth) to PATCH /v1/admin/budgets.
+            * Fixed 3 broken $refs using #/components/responses/ErrorResponse (should be inline
+              response definitions): PATCH /v1/admin/budgets 404/409, PATCH /v1/admin/policies 404.
+            * Added missing ReservationTtlOverride and RateLimits schemas (referenced by
+              PATCH /v1/admin/policies/{policy_id} but never defined).
+        - Added per-tenant webhook self-service: 8 new tenant-scoped endpoints at /v1/webhooks
+          and /v1/events using ApiKeyAuth. Tenants can manage their own webhooks and query
+          their own events. Restricted to budget.*, reservation.*, and tenant.* event types
+          (26 of 40). Admin-only: api_key.*, policy.*, system.*.
+        - Added webhook endpoint IP allowlisting: WebhookSecurityConfig schema with blocked
+          CIDR ranges (RFC 1918 + loopback + link-local blocked by default), allowed URL
+          patterns (glob), and allow_http flag. Admin endpoint GET/PUT /v1/admin/config/webhook-security.
+        - Added granular admin permissions: 12 new namespaced permissions
+          (admin:tenants:read/write, admin:budgets:read/write, etc.). Existing admin:read
+          and admin:write retained as wildcards for backward compatibility.
+        - Added 3 new tenant API key permissions: webhooks:read, webhooks:write, events:read.
+        - Backward compatibility: All changes are purely additive. No schemas, paths, methods,
+          fields, enum values, or response codes were removed. Clients built against v0.1.24
+          work unchanged against v0.1.25.
+
+      v0.1.25.7 (2026-04-09):
+        - Backward compatibility fix: admin:read and admin:write now act as wildcards
+          at the server level. admin:write satisfies any *:write permission requirement
+          (budgets:write, policies:write, webhooks:write). admin:read satisfies any
+          *:read requirement (budgets:read, policies:read, events:read, etc.).
+          This ensures pre-v0.1.25.6 keys with admin:write continue to work without
+          migration. admin:read does NOT satisfy *:write.
+        - Added 401 responses to all 36 auth-gated endpoints that were missing them.
+          Every endpoint with a security scheme now documents 401.
+        - Centralized FROZEN semantics in BudgetLedger.status: now explicitly states
+          "no new reservations, commits, or funding operations" (was missing funding).
+        - Clarified webhook/event permissions are opt-in: webhooks:read, webhooks:write,
+          events:read are NOT in the default tenant key permission set.
+        - Clarified createApiKey provisions tenant-scoped keys only. The admin key
+          (X-Admin-API-Key) is server-configured, not provisioned through this endpoint.
+        - Added PATCH /v1/admin/api-keys/{key_id} for updating key permissions,
+          scope_filter, name, description, metadata without secret rotation.
+          Emits api_key.permissions_changed on permission/scope_filter changes.
+          400 on invalid permission names, 409 on revoked/expired keys.
+        - Extracted reusable Permission enum schema. ApiKey.permissions,
+          ApiKeyCreateRequest.permissions, and PATCH api-keys request body all
+          reference Permission via $ref for consistent codegen and validation.
+        - Permission schema documents wildcard semantics (admin:read/admin:write)
+          as normative — not just in changelog.
+        - Clarified admin permissions on tenant keys: accepted for backward
+          compatibility but SHOULD NOT be assigned to new tenant keys.
+        - Fixed 401 description precision: admin-only endpoints say "admin API key",
+          tenant-only say "API key", dual-auth say "API key / admin key".
+        - Fixed stale schema header comment (v0.1.25.6 → v0.1.25.7).
+
+      v0.1.25.6 (2026-04-08):
+        - Budget freeze/unfreeze: Added dedicated action endpoints for operational
+          status transitions. BudgetLedger.status already included FROZEN, events
+          budget.frozen/budget.unfrozen already existed, and fund() already blocked
+          on frozen budgets — but there was no API to transition status.
+            * POST /v1/admin/budgets/freeze — transitions ACTIVE → FROZEN (AdminKeyAuth)
+            * POST /v1/admin/budgets/unfreeze — transitions FROZEN → ACTIVE (AdminKeyAuth)
+            * Query params: scope (required), unit (required)
+            * Optional request body: reason, metadata
+            * Responses: 200 (BudgetLedger), 400, 401, 404, 409 (invalid transition)
+            * 409 cases: already frozen, already active, budget closed
+        - Admin fund: Extended POST /v1/admin/budgets/fund with dual-auth.
+            * AdminKeyAuth now accepted as alternative security scheme.
+            * When using AdminKeyAuth: tenant_id query parameter is REQUIRED.
+            * When using ApiKeyAuth: existing behavior unchanged (tenant_id ignored,
+              uses authenticated tenant).
+            * Added 400 response for missing tenant_id with AdminKeyAuth.
+            * Added 403 response for scope_filter denial (ApiKeyAuth callers).
+        - Added 1 new schema: BudgetStatusTransitionRequest (reason, metadata).
+        - Added 4 new tenant API key permissions: budgets:read, budgets:write,
+          policies:read, policies:write. Budget/policy tenant endpoints now require
+          explicit permissions (403 if missing), consistent with webhooks/events model.
+        - Added 403 responses to POST /v1/admin/budgets, POST /v1/admin/policies,
+          PATCH /v1/admin/policies/{policy_id}, POST /v1/admin/budgets/fund for
+          permission and scope_filter denial.
+        - Added 403 responses and PERMISSIONS documentation to all tenant webhook
+          self-service endpoints (GET/PATCH/DELETE/POST /v1/webhooks/...) and
+          GET /v1/events for permission consistency with budgets/policies.
+        - Freeze/unfreeze endpoint descriptions now explicitly document event emission
+          (budget.frozen, budget.unfrozen).
+        - Updated AdminKeyAuth description to include fund in allowlist.
+        - Backward compatibility: All changes are purely additive. Keys created with
+          default permissions include the new budget/policy permissions automatically.
+          Keys created before v0.1.25.6 with explicitly specified permission sets may
+          need migration if they do not include budgets:read/write or policies:read/write.
+          Servers SHOULD apply fallback semantics (grant budget/policy access to pre-existing
+          keys that lack explicit permission strings) or migrate persisted keys at startup.
+
+      v0.1.25.5 (2026-04-08):
+        - Dashboard support: Added dual-auth allowlist for admin dashboard reads.
+            * GET /v1/admin/budgets and GET /v1/admin/policies now accept AdminKeyAuth
+              as an alternative security scheme for read access. When using AdminKeyAuth,
+              the tenant_id query parameter is required for scoping (400 if missing).
+            * GET /v1/admin/budgets/lookup does not require tenant_id — budget is
+              uniquely identified by (scope, unit) pair.
+        - Added tenant_id query parameter to GET /v1/admin/policies (was missing;
+          GET /v1/admin/budgets already had it).
+        - Added 3 new endpoints:
+            * GET /v1/admin/budgets/lookup — exact single-budget retrieval by scope + unit.
+            * GET /v1/admin/overview — server-aggregated operational dashboard payload
+              with entity counts, top-offender arrays, and recent event summaries.
+            * GET /v1/auth/introspect — returns effective capabilities for the
+              authenticated credential (AdminKeyAuth only in v1).
+        - Added 2 new schemas: AdminOverviewResponse (strict: all fields required,
+          additionalProperties: false on nested objects), AuthIntrospectResponse
+          (all capability booleans required).
+        - Added Dashboard tag for overview and introspect endpoints.
+        - Added 400/401/403 error responses on all new and modified endpoints.
+        - Documented dual-auth allowlist semantics in AdminKeyAuth security scheme.
+        - Backward compatibility: All changes are purely additive. Existing ApiKeyAuth
+          callers are unaffected.
+
+      v0.1.24 (2026-03-24):
+        - Initial release of the Complete Budget Governance System API.
+        - Three integrated pillars: Tenant & Budget Management, Authentication &
+          Authorization, Runtime Enforcement.
+        - 25 schemas, 13 paths, 19 operations.
+        - Aligned with Cycles Protocol v0.1.24 for runtime enforcement schemas.
+        - Tenant lifecycle (ACTIVE/SUSPENDED/CLOSED), budget ledgers with overdraft,
+          policy-based caps and rate limits, API key provisioning with permissions,
+          audit logging, cursor-based pagination.
+
+servers:
+  - url: https://api.cycles.local
+    description: Replace with your implementation endpoint
+
+tags:
+  - name: Tenants
+    description: "Pillar 1: Tenant registration and lifecycle management"
+  - name: Budgets
+    description: "Pillar 1: Budget ledger creation, allocation, and funding"
+  - name: Policies
+    description: "Pillar 1: Policy and cap configuration"
+  - name: API Keys
+    description: "Pillar 2: API key provisioning and management"
+  - name: Authentication
+    description: "Pillar 2: Key validation and tenant resolution"
+  - name: Audit
+    description: "Pillar 2: Access logging and compliance"
+  - name: Reservations
+    description: "Pillar 3: Runtime budget enforcement (from Cycles v0.1.24)"
+  - name: Balances
+    description: "Pillar 3: Balance queries and monitoring"
+  - name: Webhooks
+    description: "Pillar 4: Webhook subscription management (admin and tenant self-service)"
+  - name: Events
+    description: "Pillar 4: Event types, delivery tracking, and replay"
+  - name: Dashboard
+    description: "Admin dashboard: operational overview and auth introspection"
+
+components:
+  securitySchemes:
+    AdminKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Admin-API-Key
+      description: >-
+        Administrative API key with full system access. Also accepted as an
+        alternative to ApiKeyAuth on an explicit allowlist of endpoints
+        (GET /v1/admin/budgets, GET /v1/admin/budgets/lookup, GET /v1/admin/policies,
+        POST /v1/admin/budgets/fund).
+        When using AdminKeyAuth on list or fund endpoints, the tenant_id query
+        parameter is required for scoping (400 if missing).
+        GET /v1/admin/budgets/lookup does NOT require tenant_id because
+        the budget is uniquely identified by the (scope, unit) pair. The allowlist
+        uses exact method:path matching — no prefix matching, no wildcards — so
+        new endpoints do not accidentally inherit admin-accessible status.
+
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Cycles-API-Key
+      description: Tenant-scoped API key for runtime operations (consistent with Cycles Protocol)
+
+  schemas:
+    # ========================================================================
+    # SHARED SCHEMAS (aligned with Cycles Protocol v0.1.24)
+    # ========================================================================
+    
+    UnitEnum:
+      type: string
+      enum: [USD_MICROCENTS, TOKENS, CREDITS, RISK_POINTS]
+      description: Standard budget units from Cycles Protocol v0.1.24
+    
+    Amount:
+      type: object
+      required: [unit, amount]
+      additionalProperties: false
+      description: >-
+        Amount with explicit unit. Identical to Cycles Protocol v0.1.24.
+        This ensures structural alignment between governance and runtime.
+      properties:
+        unit:
+          $ref: '#/components/schemas/UnitEnum'
+        amount:
+          type: integer
+          format: int64
+          minimum: 0
+    
+    CommitOveragePolicy:
+      type: string
+      enum: [REJECT, ALLOW_IF_AVAILABLE, ALLOW_WITH_OVERDRAFT]
+      description: >-
+        How commits handle actual > reserved (from Cycles Protocol v0.1.24).
+        
+        REJECT: Fail if actual > reserved
+        ALLOW_IF_AVAILABLE: Charge delta from remaining budget if available
+        ALLOW_WITH_OVERDRAFT: Create debt up to overdraft_limit if budget exhausted
+        
+        This policy can be set at:
+        - Tenant level (default for all scopes)
+        - Budget ledger level (override for specific scope)
+        - Policy level (pattern-based override)
+        - Reservation level (per-request override)
+    
+    Caps:
+      type: object
+      additionalProperties: false
+      description: >-
+        Soft-landing constraints. Identical to Cycles Protocol v0.1.24 Caps schema.
+      properties:
+        max_tokens:
+          type: integer
+          minimum: 0
+        max_steps_remaining:
+          type: integer
+          minimum: 0
+        tool_allowlist:
+          type: array
+          items:
+            type: string
+            maxLength: 256
+        tool_denylist:
+          type: array
+          items:
+            type: string
+            maxLength: 256
+        cooldown_ms:
+          type: integer
+          minimum: 0
+    
+    # ========================================================================
+    # PILLAR 1: TENANT & BUDGET MANAGEMENT SCHEMAS
+    # ========================================================================
+    
+    Tenant:
+      type: object
+      description: >-
+        Tenant is the top-level isolation boundary. All budgets, keys, and 
+        reservations are scoped to a tenant.
+      required: [tenant_id, name, status, created_at]
+      additionalProperties: false
+      properties:
+        tenant_id:
+          type: string
+          pattern: '^[a-z0-9-]+$'
+          minLength: 3
+          maxLength: 64
+          description: >-
+            Globally unique tenant identifier. Immutable after creation.
+            Recommended format: kebab-case, e.g., "acme-corp", "demo-tenant"
+        name:
+          type: string
+          maxLength: 256
+          description: Human-readable tenant name
+        status:
+          type: string
+          enum: [ACTIVE, SUSPENDED, CLOSED]
+          description: >-
+            ACTIVE: Normal operations permitted
+            SUSPENDED: Read-only, no new reservations
+            CLOSED: Archived, no operations permitted
+        parent_tenant_id:
+          type: string
+          description: >-
+            Optional parent tenant for hierarchical organizations.
+            Enables budget delegation and consolidated billing.
+        default_commit_overage_policy:
+          $ref: '#/components/schemas/CommitOveragePolicy'
+          description: >-
+            Default commit overage policy for all reservations in this tenant.
+            Can be overridden at budget ledger, policy, or reservation level.
+            Default: ALLOW_IF_AVAILABLE
+        default_reservation_ttl_ms:
+          type: integer
+          minimum: 1000
+          maximum: 86400000
+          default: 60000
+          description: >-
+            Default TTL for reservations when not specified.
+            Range: 1s - 24h. Default: 60s
+        max_reservation_ttl_ms:
+          type: integer
+          minimum: 1000
+          maximum: 86400000
+          default: 3600000
+          description: >-
+            Maximum allowed TTL for reservations. Requests exceeding this are capped.
+            Default: 1h
+        max_reservation_extensions:
+          type: integer
+          minimum: 0
+          default: 10
+          description: >-
+            Maximum number of TTL extensions allowed per reservation.
+            Prevents infinite zombie reservations. Default: 10
+        reservation_expiry_policy:
+          type: string
+          enum: [AUTO_RELEASE, MANUAL_CLEANUP, GRACE_ONLY]
+          default: AUTO_RELEASE
+          description: >-
+            AUTO_RELEASE: Expired reservations auto-release after grace period
+            MANUAL_CLEANUP: Require explicit release or cleanup job
+            GRACE_ONLY: Allow commits during grace, then mark EXPIRED
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          maxProperties: 32
+          description: Custom key-value pairs for integration
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        suspended_at:
+          type: string
+          format: date-time
+        closed_at:
+          type: string
+          format: date-time
+    
+    TenantCreateRequest:
+      type: object
+      required: [tenant_id, name]
+      additionalProperties: false
+      properties:
+        tenant_id:
+          type: string
+          pattern: '^[a-z0-9-]+$'
+          minLength: 3
+          maxLength: 64
+        name:
+          type: string
+          maxLength: 256
+        parent_tenant_id:
+          type: string
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        default_commit_overage_policy:
+          $ref: '#/components/schemas/CommitOveragePolicy'
+        default_reservation_ttl_ms:
+          type: integer
+          minimum: 1000
+          maximum: 86400000
+          description: Default TTL for reservations (default 60000ms)
+        max_reservation_ttl_ms:
+          type: integer
+          minimum: 1000
+          maximum: 86400000
+          description: Maximum allowed TTL for reservations (default 3600000ms)
+        max_reservation_extensions:
+          type: integer
+          minimum: 0
+          description: Maximum TTL extensions per reservation (default 10)
+        reservation_expiry_policy:
+          type: string
+          enum: [AUTO_RELEASE, MANUAL_CLEANUP, GRACE_ONLY]
+          description: How expired reservations are handled (default AUTO_RELEASE)
+
+    TenantListResponse:
+      type: object
+      required: [tenants]
+      properties:
+        tenants:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tenant'
+        next_cursor:
+          type: string
+        has_more:
+          type: boolean
+    
+    BudgetLedger:
+      type: object
+      description: >-
+        Budget ledger tracks allocated, remaining, reserved, spent, and debt 
+        for a specific (scope, unit) pair. This is the source of truth for 
+        balance queries.
+        
+        SCOPE HIERARCHY SEMANTICS:
+        - Each scope is independent (no automatic propagation)
+        - Parent scopes do NOT automatically aggregate child scope charges
+        - Hierarchical validation: if "tenant:acme/workspace:eng" has a budget,
+          both "tenant:acme" and "tenant:acme/workspace:eng" must exist
+        - Atomic guarantee: Operations on a scope do NOT affect parent/child scopes
+          unless explicitly specified via multi-scope reservation
+      required: [ledger_id, scope, unit, allocated, remaining, status, created_at]
+      additionalProperties: false
+      properties:
+        ledger_id:
+          type: string
+          description: Unique identifier for this ledger
+        scope:
+          type: string
+          description: >-
+            Canonical scope identifier, e.g., "tenant:acme-corp",
+            "workspace:eng", "agent:summarizer"
+        scope_path:
+          type: string
+          description: >-
+            Full hierarchical path, e.g., "tenant:acme-corp/workspace:eng/agent:summarizer"
+        unit:
+          $ref: '#/components/schemas/UnitEnum'
+        allocated:
+          $ref: '#/components/schemas/Amount'
+          description: >-
+            Total budget cap for this scope. Must have same unit as ledger.
+        remaining:
+          $ref: '#/components/schemas/Amount'
+          description: >-
+            Available for new reservations (can be negative with overdraft).
+            Must have same unit as ledger.
+        reserved:
+          $ref: '#/components/schemas/Amount'
+          description: >-
+            Currently locked by active reservations. Must have same unit as ledger.
+        spent:
+          $ref: '#/components/schemas/Amount'
+          description: >-
+            Successfully committed spend. Must have same unit as ledger.
+        debt:
+          $ref: '#/components/schemas/Amount'
+          description: >-
+            Overdraft amount from ALLOW_WITH_OVERDRAFT commits.
+            Must have same unit as ledger.
+        overdraft_limit:
+          $ref: '#/components/schemas/Amount'
+          description: >-
+            Maximum allowed debt (0 = no overdraft). Must have same unit as ledger.
+        is_over_limit:
+          type: boolean
+          description: True when debt > overdraft_limit
+        commit_overage_policy:
+          $ref: '#/components/schemas/CommitOveragePolicy'
+          description: >-
+            Default commit overage policy for reservations against this scope.
+            Overrides tenant default. Can be overridden by policy or per-reservation.
+            If not set, inherits from tenant.
+        status:
+          type: string
+          enum: [ACTIVE, FROZEN, CLOSED]
+          description: >-
+            ACTIVE: Normal operations
+            FROZEN: No new reservations, commits, or funding operations.
+            Property updates (overdraft_limit, commit_overage_policy, metadata) are still allowed.
+            CLOSED: Archived
+        rollover_policy:
+          type: string
+          enum: [NONE, CARRY_FORWARD, CAP_AT_ALLOCATED]
+          description: >-
+            How unused budget is handled at period boundaries
+        period_start:
+          type: string
+          format: date-time
+          description: Start of current budget period
+        period_end:
+          type: string
+          format: date-time
+          description: End of current budget period
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    
+    BudgetCreateRequest:
+      type: object
+      required: [scope, unit, allocated]
+      additionalProperties: false
+      properties:
+        scope:
+          type: string
+          description: Canonical scope identifier
+        unit:
+          $ref: '#/components/schemas/UnitEnum'
+        allocated:
+          $ref: '#/components/schemas/Amount'
+          description: Initial allocation (must match unit)
+        overdraft_limit:
+          $ref: '#/components/schemas/Amount'
+          description: Maximum allowed debt (must match unit, default 0)
+        commit_overage_policy:
+          $ref: '#/components/schemas/CommitOveragePolicy'
+          description: >-
+            Default commit overage policy for this scope.
+            If not set, inherits from tenant.
+        rollover_policy:
+          type: string
+          enum: [NONE, CARRY_FORWARD, CAP_AT_ALLOCATED]
+          default: NONE
+        period_start:
+          type: string
+          format: date-time
+        period_end:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+    
+    BudgetStatusTransitionRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Request body for budget freeze/unfreeze operations.
+        All fields are optional — an empty body (or no body) is valid.
+      properties:
+        reason:
+          type: string
+          maxLength: 512
+          description: Human-readable justification for audit trail
+        metadata:
+          type: object
+          additionalProperties: true
+
+    BudgetFundingRequest:
+      type: object
+      required: [operation, amount]
+      additionalProperties: false
+      properties:
+        operation:
+          type: string
+          enum: [CREDIT, DEBIT, RESET, REPAY_DEBT]
+          description: >-
+            CREDIT: Add funds to allocated and remaining
+            DEBIT: Remove funds (fails if would cause remaining < 0)
+            RESET: Set allocated to exact amount, adjust remaining
+            REPAY_DEBT: Reduce debt by amount (use remaining if needed)
+        amount:
+          $ref: '#/components/schemas/Amount'
+          description: Amount to credit/debit/reset (must match ledger unit)
+        reason:
+          type: string
+          maxLength: 512
+          description: Human-readable justification for audit trail
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 256
+        metadata:
+          type: object
+          additionalProperties: true
+    
+    BudgetFundingResponse:
+      type: object
+      required: [operation, previous_allocated, new_allocated, previous_remaining, new_remaining]
+      properties:
+        operation:
+          type: string
+        previous_allocated:
+          $ref: '#/components/schemas/Amount'
+        new_allocated:
+          $ref: '#/components/schemas/Amount'
+        previous_remaining:
+          $ref: '#/components/schemas/Amount'
+        new_remaining:
+          $ref: '#/components/schemas/Amount'
+        previous_debt:
+          $ref: '#/components/schemas/Amount'
+        new_debt:
+          $ref: '#/components/schemas/Amount'
+        timestamp:
+          type: string
+          format: date-time
+    
+    BudgetListResponse:
+      type: object
+      required: [ledgers]
+      properties:
+        ledgers:
+          type: array
+          items:
+            $ref: '#/components/schemas/BudgetLedger'
+        next_cursor:
+          type: string
+        has_more:
+          type: boolean
+    
+    Policy:
+      type: object
+      description: >-
+        Policy defines caps, limits, and behavioral rules for scopes.
+        Policies are evaluated during reservation and commit operations.
+      required: [policy_id, scope_pattern, status, created_at]
+      additionalProperties: false
+      properties:
+        policy_id:
+          type: string
+          description: Unique policy identifier
+        name:
+          type: string
+          maxLength: 256
+        description:
+          type: string
+          maxLength: 1024
+        scope_pattern:
+          type: string
+          description: >-
+            Pattern for matching scopes. Examples:
+            - "tenant:acme-corp" (exact match)
+            - "tenant:acme-corp/*" (all descendant scopes)
+            - "agent:*" (all agents across all tenants)
+        priority:
+          type: integer
+          minimum: 0
+          description: Higher priority policies evaluated first
+        caps:
+          $ref: '#/components/schemas/Caps'
+          description: >-
+            Soft-landing constraints from Cycles v0.1.24.
+            Identical schema for consistency.
+        commit_overage_policy:
+          $ref: '#/components/schemas/CommitOveragePolicy'
+          description: >-
+            Override commit overage policy for matching scopes.
+            Overrides tenant and budget ledger defaults.
+        reservation_ttl_override:
+          type: object
+          additionalProperties: false
+          description: TTL governance for matching scopes
+          properties:
+            default_ttl_ms:
+              type: integer
+              minimum: 1000
+              maximum: 86400000
+            max_ttl_ms:
+              type: integer
+              minimum: 1000
+              maximum: 86400000
+            max_extensions:
+              type: integer
+              minimum: 0
+        rate_limits:
+          type: object
+          additionalProperties: false
+          description: Request rate limits per scope
+          properties:
+            max_reservations_per_minute:
+              type: integer
+              minimum: 1
+            max_commits_per_minute:
+              type: integer
+              minimum: 1
+        status:
+          type: string
+          enum: [ACTIVE, DISABLED]
+        effective_from:
+          type: string
+          format: date-time
+        effective_until:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    
+    PolicyCreateRequest:
+      type: object
+      required: [name, scope_pattern]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        scope_pattern:
+          type: string
+        priority:
+          type: integer
+          default: 0
+        caps:
+          $ref: '#/components/schemas/Caps'
+        commit_overage_policy:
+          $ref: '#/components/schemas/CommitOveragePolicy'
+        reservation_ttl_override:
+          type: object
+          additionalProperties: false
+          properties:
+            default_ttl_ms:
+              type: integer
+            max_ttl_ms:
+              type: integer
+            max_extensions:
+              type: integer
+        rate_limits:
+          type: object
+        effective_from:
+          type: string
+          format: date-time
+        effective_until:
+          type: string
+          format: date-time
+    
+    PolicyListResponse:
+      type: object
+      required: [policies]
+      properties:
+        policies:
+          type: array
+          items:
+            $ref: '#/components/schemas/Policy'
+        next_cursor:
+          type: string
+        has_more:
+          type: boolean
+
+    ReservationTtlOverride:
+      type: object
+      additionalProperties: false
+      description: >-
+        TTL governance overrides for matching scopes.
+        Used in Policy and policy update operations.
+      properties:
+        default_ttl_ms:
+          type: integer
+          minimum: 1000
+          maximum: 86400000
+          description: Default TTL for reservations when not specified per-request
+        max_ttl_ms:
+          type: integer
+          minimum: 1000
+          maximum: 86400000
+          description: Maximum allowed TTL; requests exceeding this are capped
+        max_extensions:
+          type: integer
+          minimum: 0
+          description: Maximum TTL extensions per reservation
+
+    RateLimits:
+      type: object
+      additionalProperties: false
+      description: >-
+        Request rate limits per scope.
+        Used in Policy and policy update operations.
+      properties:
+        max_reservations_per_minute:
+          type: integer
+          minimum: 1
+          description: Maximum reserve requests per minute for matching scopes
+        max_commits_per_minute:
+          type: integer
+          minimum: 1
+          description: Maximum commit requests per minute for matching scopes
+
+    # ========================================================================
+    # PILLAR 2: AUTHENTICATION & AUTHORIZATION SCHEMAS
+    # ========================================================================
+
+    Permission:
+      type: string
+      description: >-
+        API key permission value. Tenant-scoped keys SHOULD only carry tenant
+        permissions (reservations:create/commit/release/extend/list, balances:read,
+        budgets:read/write, policies:read/write, webhooks:read/write, events:read).
+        Admin permissions (admin:read, admin:write, and granular admin permissions
+        like admin:tenants:read, admin:budgets:write) are reserved for backward
+        compatibility with pre-v0.1.25.6 keys and SHOULD NOT be assigned to new
+        tenant keys.
+
+        WILDCARD SEMANTICS (v0.1.25.7):
+        - admin:write satisfies any *:write requirement (budgets:write,
+          policies:write, webhooks:write, etc.)
+        - admin:read satisfies any *:read requirement (budgets:read,
+          policies:read, events:read, balances:read, etc.)
+        - admin:read does NOT satisfy *:write.
+      enum:
+        # Tenant runtime permissions
+        - 'reservations:create'
+        - 'reservations:commit'
+        - 'reservations:release'
+        - 'reservations:extend'
+        - 'reservations:list'
+        - 'balances:read'
+        - 'budgets:read'
+        - 'budgets:write'
+        - 'policies:read'
+        - 'policies:write'
+        - 'webhooks:read'
+        - 'webhooks:write'
+        - 'events:read'
+        # Admin wildcard permissions (backward compatible)
+        - 'admin:read'
+        - 'admin:write'
+        # Granular admin permissions
+        - 'admin:tenants:read'
+        - 'admin:tenants:write'
+        - 'admin:budgets:read'
+        - 'admin:budgets:write'
+        - 'admin:policies:read'
+        - 'admin:policies:write'
+        - 'admin:apikeys:read'
+        - 'admin:apikeys:write'
+        - 'admin:webhooks:read'
+        - 'admin:webhooks:write'
+        - 'admin:events:read'
+        - 'admin:audit:read'
+
+    ApiKey:
+      type: object
+      description: >-
+        API key binds authentication credentials to a tenant and defines
+        permissions. Keys are the trust boundary for tenant derivation.
+      required: [key_id, tenant_id, key_prefix, status, created_at, expires_at]
+      additionalProperties: false
+      properties:
+        key_id:
+          type: string
+          description: Unique key identifier (UUID)
+        tenant_id:
+          type: string
+          description: Tenant this key belongs to
+        key_prefix:
+          type: string
+          description: >-
+            Visible prefix for key identification (e.g., "cyc_live_abc123").
+            Full key is never returned after creation.
+        name:
+          type: string
+          maxLength: 256
+          description: Human-readable key name
+        description:
+          type: string
+          maxLength: 1024
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Permission'
+          description: >-
+            Granular permissions. Default for tenant keys:
+            [reservations:create, reservations:commit, reservations:release,
+            reservations:extend, reservations:list, balances:read,
+            budgets:read, budgets:write, policies:read, policies:write].
+            Webhook/event self-service permissions (webhooks:read, webhooks:write,
+            events:read) are NOT included by default and must be explicitly granted.
+            See Permission schema for wildcard semantics and tenant vs admin guidance.
+        scope_filter:
+          type: array
+          items:
+            type: string
+          description: >-
+            Optional restriction to specific scopes.
+            Example: ["workspace:eng", "agent:*"] limits key to eng workspace
+        status:
+          type: string
+          enum: [ACTIVE, REVOKED, EXPIRED]
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: string
+          format: date-time
+        revoked_reason:
+          type: string
+          maxLength: 512
+        metadata:
+          type: object
+          additionalProperties: true
+    
+    ApiKeyCreateRequest:
+      type: object
+      required: [tenant_id, name]
+      additionalProperties: false
+      properties:
+        tenant_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Permission'
+        scope_filter:
+          type: array
+          items:
+            type: string
+        expires_at:
+          type: string
+          format: date-time
+          description: Optional expiry (recommended for security)
+        metadata:
+          type: object
+    
+    ApiKeyCreateResponse:
+      type: object
+      required: [key_id, key_secret, key_prefix, tenant_id, created_at, expires_at]
+      properties:
+        key_id:
+          type: string
+        key_secret:
+          type: string
+          description: >-
+            CRITICAL: This is the only time the full key is returned.
+            Store securely. Cannot be retrieved again.
+        key_prefix:
+          type: string
+        tenant_id:
+          type: string
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Permission'
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+    
+    ApiKeyListResponse:
+      type: object
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApiKey'
+        next_cursor:
+          type: string
+        has_more:
+          type: boolean
+    
+    ApiKeyValidationRequest:
+      type: object
+      required: [key_secret]
+      properties:
+        key_secret:
+          type: string
+          description: The full API key to validate
+    
+    ApiKeyValidationResponse:
+      type: object
+      required: [valid, tenant_id]
+      properties:
+        valid:
+          type: boolean
+        tenant_id:
+          type: string
+        key_id:
+          type: string
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Permission'
+        scope_filter:
+          type: array
+          items:
+            type: string
+        expires_at:
+          type: string
+          format: date-time
+        reason:
+          type: string
+          description: Present if valid=false (e.g., "REVOKED", "EXPIRED")
+    
+    AuditLogEntry:
+      type: object
+      description: >-
+        Audit log captures all authenticated operations for compliance
+        and security monitoring.
+      required: [log_id, timestamp, tenant_id, operation, status]
+      properties:
+        log_id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        tenant_id:
+          type: string
+        key_id:
+          type: string
+        user_agent:
+          type: string
+        source_ip:
+          type: string
+        operation:
+          type: string
+          description: >-
+            Operation performed, e.g., "createBudget", "revokeApiKey",
+            "testWebhookSubscription"
+        resource_type:
+          type: string
+          description: >-
+            Type of resource acted upon. Standard values: tenant, budget,
+            api_key, policy, webhook, config.
+        resource_id:
+          type: string
+          description: >-
+            Identifier of the resource acted upon (e.g., ledger ID, key ID,
+            subscription ID, tenant ID).
+        request_id:
+          type: string
+        status:
+          type: integer
+          description: HTTP status code
+        error_code:
+          type: string
+        subject:
+          type: object
+          description: Subject from request (if applicable)
+        action:
+          type: object
+          description: Action from request (if applicable)
+        amount:
+          type: object
+          description: Amount from request (if applicable)
+        metadata:
+          type: object
+          additionalProperties: true
+    
+    AuditLogListResponse:
+      type: object
+      required: [logs, has_more]
+      properties:
+        logs:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditLogEntry'
+        next_cursor:
+          type: string
+        has_more:
+          type: boolean
+    
+    # ========================================================================
+    # PILLAR 3: RUNTIME ENFORCEMENT SCHEMAS (from Cycles v0.1.24)
+    # ========================================================================
+    # Note: These schemas are imported from Cycles Protocol v0.1.24
+    # They are referenced here for completeness but defined in cycles-protocol-v0.yaml
+    
+    # Amount, Subject, Action, Caps, Balance, StandardMetrics
+    # ReservationCreateRequest, CommitRequest, ReleaseRequest, ReservationExtendRequest
+    # ReservationCreateResponse, CommitResponse, ReleaseResponse, ReservationExtendResponse
+    # ReservationSummary, ReservationListResponse
+    # ErrorCode, ErrorResponse
+    
+    ErrorCode:
+      type: string
+      enum:
+        # Cycles v0.1.24 codes
+        - INVALID_REQUEST
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - NOT_FOUND
+        - BUDGET_EXCEEDED
+        - RESERVATION_EXPIRED
+        - RESERVATION_FINALIZED
+        - IDEMPOTENCY_MISMATCH
+        - UNIT_MISMATCH
+        - OVERDRAFT_LIMIT_EXCEEDED
+        - DEBT_OUTSTANDING
+        - INTERNAL_ERROR
+        # New governance codes
+        - TENANT_NOT_FOUND
+        - TENANT_SUSPENDED
+        - TENANT_CLOSED
+        - BUDGET_NOT_FOUND
+        - BUDGET_FROZEN
+        - POLICY_VIOLATION
+        - INSUFFICIENT_PERMISSIONS
+        - KEY_REVOKED
+        - KEY_EXPIRED
+        - DUPLICATE_RESOURCE
+        - BUDGET_CLOSED
+        # Webhook & event governance codes
+        - WEBHOOK_NOT_FOUND
+        - WEBHOOK_URL_INVALID
+        - EVENT_NOT_FOUND
+        - REPLAY_IN_PROGRESS
+    
+    ErrorResponse:
+      type: object
+      required: [error, message, request_id]
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorCode'
+        message:
+          type: string
+        request_id:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+
+    # ========================================================================
+    # PILLAR 4: EVENTS & WEBHOOKS SCHEMAS
+    # ========================================================================
+
+    EventCategory:
+      type: string
+      enum:
+        - budget
+        - tenant
+        - api_key
+        - policy
+        - reservation
+        - system
+      description: >-
+        Top-level event category. Used for filtering webhook subscriptions.
+
+    EventType:
+      type: string
+      description: >-
+        Structured event type in the format "{category}.{action}".
+        Categories group related events; actions describe the specific state change.
+
+        EXTENSIBILITY:
+        - New event types MAY be added in future versions without a breaking change.
+        - Consumers MUST ignore unrecognized event types gracefully.
+        - Custom event types MUST use a "custom." prefix (e.g., "custom.billing.invoice_sent").
+      enum:
+        # --- Budget lifecycle events (admin operations) ---
+        - budget.created                # New budget ledger established
+        - budget.updated                # Budget ledger properties modified (overdraft_limit, overage_policy)
+        - budget.funded                 # CREDIT operation — funds added
+        - budget.debited                # DEBIT operation — funds removed
+        - budget.reset                  # RESET operation — allocated set to new amount
+        - budget.debt_repaid            # REPAY_DEBT operation completed
+        - budget.frozen                 # Budget status → FROZEN
+        - budget.unfrozen               # Budget status → ACTIVE from FROZEN
+        - budget.closed                 # Budget status → CLOSED (irreversible)
+
+        # --- Budget runtime events (threshold and anomaly) ---
+        - budget.threshold_crossed      # Utilization crossed a configured threshold (e.g., 80%, 95%)
+        - budget.exhausted              # Remaining = 0; all future reservations will be denied
+        - budget.over_limit_entered     # is_over_limit flipped to true (debt > overdraft_limit)
+        - budget.over_limit_exited      # Debt repaid below overdraft_limit; is_over_limit cleared
+        - budget.debt_incurred          # Commit created new debt via ALLOW_WITH_OVERDRAFT policy
+        - budget.burn_rate_anomaly      # Spend rate exceeded baseline by configured multiplier
+
+        # --- Reservation events (runtime) ---
+        - reservation.denied            # Reserve returned DENY decision
+        - reservation.denial_rate_spike # Denial rate exceeded threshold over rolling window
+        - reservation.expired           # Reservation TTL expired without commit or release
+        - reservation.expiry_rate_spike # Expiry rate exceeded threshold over rolling window
+        - reservation.commit_overage    # Committed actual > estimated amount
+
+        # --- Tenant lifecycle events ---
+        - tenant.created                # New tenant registered
+        - tenant.updated                # Tenant properties modified (name, metadata, defaults)
+        - tenant.suspended              # Tenant status → SUSPENDED
+        - tenant.reactivated            # Tenant status → ACTIVE from SUSPENDED
+        - tenant.closed                 # Tenant status → CLOSED (irreversible)
+        - tenant.settings_changed       # Default overage policy, TTL, or overdraft limit changed
+
+        # --- API key events ---
+        - api_key.created               # New API key provisioned
+        - api_key.revoked               # Key revoked (manual or automated)
+        - api_key.expired               # Key reached expiry date
+        - api_key.permissions_changed   # Key permissions modified
+        - api_key.auth_failed           # Authentication attempt with invalid or revoked key
+        - api_key.auth_failure_rate_spike # Auth failure rate exceeded threshold
+
+        # --- Policy events ---
+        - policy.created                # New policy added
+        - policy.updated                # Policy rules modified
+        - policy.deleted                # Policy removed
+
+        # --- System events ---
+        - system.store_connection_lost     # Backing store connection lost
+        - system.store_connection_restored # Backing store connection recovered
+        - system.high_latency              # p99 operation latency exceeded threshold
+        - system.webhook_delivery_failed   # Webhook delivery failed after all retries (meta-alert)
+        - system.webhook_test              # Synthetic test event (only via /test endpoint, never emitted by system)
+
+    Event:
+      type: object
+      description: >-
+        Immutable event record. Every state change in the system produces an event.
+        Events are the source of truth for webhook dispatch and audit reconstruction.
+
+        ORDERING:
+        - Events are ordered by timestamp within a tenant.
+        - Cross-tenant ordering is NOT guaranteed.
+
+        RETENTION:
+        - Events follow the same retention policy as audit logs.
+        - Recommended: 90 days hot, 1 year cold storage.
+      required: [event_id, event_type, category, timestamp, tenant_id, source]
+      additionalProperties: false
+      properties:
+        event_id:
+          type: string
+          description: Globally unique event identifier (e.g., "evt_01abc...")
+        event_type:
+          $ref: '#/components/schemas/EventType'
+        category:
+          $ref: '#/components/schemas/EventCategory'
+        timestamp:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp of when the event occurred
+        tenant_id:
+          type: string
+          description: >-
+            Tenant context for this event. System events use "__system__" as tenant_id.
+        scope:
+          type: string
+          description: >-
+            Full scope path affected, if applicable.
+            E.g., "tenant:acme-corp/workspace:prod/agent:support-bot"
+        actor:
+          type: object
+          additionalProperties: false
+          description: Who or what caused this event
+          properties:
+            type:
+              type: string
+              enum: [admin, api_key, system, scheduler]
+              description: >-
+                admin: Triggered by admin API key
+                api_key: Triggered by tenant API key (runtime operation)
+                system: Triggered by internal process (e.g., expiry sweep, anomaly detector)
+                scheduler: Triggered by scheduled task
+            key_id:
+              type: string
+              description: API key ID that triggered the event (if applicable)
+            source_ip:
+              type: string
+              description: Source IP of the request (if applicable)
+        source:
+          type: string
+          description: >-
+            Service that emitted the event.
+            E.g., "cycles-server", "cycles-admin", "expiry-sweeper", "anomaly-detector"
+        data:
+          type: object
+          additionalProperties: true
+          description: >-
+            Event-specific payload. Schema varies by event_type.
+            See EventData* schemas for per-type definitions.
+        correlation_id:
+          type: string
+          description: >-
+            Links related events (e.g., a reservation.denied and the budget.exhausted
+            that caused it). Useful for event chain reconstruction.
+        request_id:
+          type: string
+          description: >-
+            X-Request-Id from the originating HTTP request, if triggered by an API call.
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Operator-defined key-value pairs for custom tagging
+
+    # --- Event data schemas (per-category payloads) ---
+
+    EventDataBudgetLifecycle:
+      type: object
+      description: >-
+        Payload for budget lifecycle events (budget.created, budget.funded,
+        budget.debited, budget.reset, budget.debt_repaid, budget.frozen,
+        budget.unfrozen, budget.closed, budget.updated).
+      properties:
+        ledger_id:
+          type: string
+        scope:
+          type: string
+        unit:
+          $ref: '#/components/schemas/UnitEnum'
+        operation:
+          type: string
+          enum: [CREDIT, DEBIT, RESET, REPAY_DEBT, STATUS_CHANGE, CREATE, UPDATE]
+        previous_state:
+          type: object
+          description: Snapshot of affected fields before the change
+          properties:
+            allocated:
+              type: integer
+              format: int64
+            remaining:
+              type: integer
+              format: int64
+            debt:
+              type: integer
+              format: int64
+            status:
+              type: string
+        new_state:
+          type: object
+          description: Snapshot of affected fields after the change
+          properties:
+            allocated:
+              type: integer
+              format: int64
+            remaining:
+              type: integer
+              format: int64
+            debt:
+              type: integer
+              format: int64
+            status:
+              type: string
+        reason:
+          type: string
+          description: Human-readable justification from the funding/update request
+
+    EventDataBudgetThreshold:
+      type: object
+      description: >-
+        Payload for budget.threshold_crossed, budget.exhausted events.
+      properties:
+        scope:
+          type: string
+        unit:
+          $ref: '#/components/schemas/UnitEnum'
+        threshold:
+          type: number
+          format: double
+          description: The threshold value crossed (e.g., 0.80, 0.95, 1.0)
+        utilization:
+          type: number
+          format: double
+          description: >-
+            Current utilization ratio: (spent + reserved) / allocated.
+            May exceed 1.0 with overdraft.
+        allocated:
+          type: integer
+          format: int64
+        remaining:
+          type: integer
+          format: int64
+        spent:
+          type: integer
+          format: int64
+        reserved:
+          type: integer
+          format: int64
+        direction:
+          type: string
+          enum: [rising, falling]
+          description: >-
+            Whether utilization is increasing (rising) or decreasing (falling).
+            Prevents duplicate alerts: threshold_crossed fires only once per
+            direction crossing.
+
+    EventDataBudgetOverLimit:
+      type: object
+      description: >-
+        Payload for budget.over_limit_entered, budget.over_limit_exited events.
+      properties:
+        scope:
+          type: string
+        unit:
+          $ref: '#/components/schemas/UnitEnum'
+        debt:
+          type: integer
+          format: int64
+        overdraft_limit:
+          type: integer
+          format: int64
+        is_over_limit:
+          type: boolean
+        debt_utilization:
+          type: number
+          format: double
+          description: "Ratio: debt / overdraft_limit"
+
+    EventDataBudgetDebtIncurred:
+      type: object
+      description: >-
+        Payload for budget.debt_incurred events.
+      properties:
+        scope:
+          type: string
+        unit:
+          $ref: '#/components/schemas/UnitEnum'
+        reservation_id:
+          type: string
+        debt_incurred:
+          type: integer
+          format: int64
+          description: Amount of new debt created by this commit
+        total_debt:
+          type: integer
+          format: int64
+        overdraft_limit:
+          type: integer
+          format: int64
+        overage_policy:
+          $ref: '#/components/schemas/CommitOveragePolicy'
+
+    EventDataBurnRateAnomaly:
+      type: object
+      description: >-
+        Payload for budget.burn_rate_anomaly events.
+      properties:
+        scope:
+          type: string
+        unit:
+          $ref: '#/components/schemas/UnitEnum'
+        current_rate:
+          type: number
+          format: double
+          description: Current spend rate (units per minute)
+        baseline_rate:
+          type: number
+          format: double
+          description: Historical baseline spend rate (units per minute)
+        multiplier:
+          type: number
+          format: double
+          description: "Ratio: current_rate / baseline_rate"
+        window_seconds:
+          type: integer
+          description: Rolling window used for rate calculation
+        projected_exhaustion_minutes:
+          type: number
+          format: double
+          description: Estimated minutes until budget exhaustion at current rate
+
+    EventDataReservationDenied:
+      type: object
+      description: >-
+        Payload for reservation.denied events.
+      properties:
+        scope:
+          type: string
+        unit:
+          $ref: '#/components/schemas/UnitEnum'
+        reason_code:
+          type: string
+          enum: [BUDGET_EXCEEDED, OVERDRAFT_LIMIT_EXCEEDED, DEBT_OUTSTANDING, BUDGET_FROZEN, BUDGET_CLOSED]
+        requested_amount:
+          type: integer
+          format: int64
+        remaining:
+          type: integer
+          format: int64
+        action:
+          type: object
+          description: The action that was denied (from the reservation request)
+        subject:
+          type: object
+          description: The subject context (from the reservation request)
+
+    EventDataReservationExpired:
+      type: object
+      description: >-
+        Payload for reservation.expired events.
+      properties:
+        reservation_id:
+          type: string
+        scope:
+          type: string
+        unit:
+          $ref: '#/components/schemas/UnitEnum'
+        estimated_amount:
+          type: integer
+          format: int64
+          description: Amount that was reserved and never committed
+        created_at:
+          type: string
+          format: date-time
+        expired_at:
+          type: string
+          format: date-time
+        ttl_ms:
+          type: integer
+        extensions_used:
+          type: integer
+
+    EventDataRateSpike:
+      type: object
+      description: >-
+        Payload for reservation.denial_rate_spike, reservation.expiry_rate_spike,
+        and api_key.auth_failure_rate_spike events.
+      properties:
+        metric:
+          type: string
+          enum: [denial_rate, expiry_rate, auth_failure_rate]
+        current_rate:
+          type: number
+          format: double
+          description: Current rate (events per minute)
+        threshold_rate:
+          type: number
+          format: double
+          description: Configured threshold that was exceeded
+        window_seconds:
+          type: integer
+          description: Rolling window used for rate calculation
+        sample_count:
+          type: integer
+          description: Number of events observed in the window
+
+    EventDataCommitOverage:
+      type: object
+      description: >-
+        Payload for reservation.commit_overage events.
+      properties:
+        reservation_id:
+          type: string
+        scope:
+          type: string
+        unit:
+          $ref: '#/components/schemas/UnitEnum'
+        estimated_amount:
+          type: integer
+          format: int64
+        actual_amount:
+          type: integer
+          format: int64
+        overage:
+          type: integer
+          format: int64
+          description: "Difference: actual_amount - estimated_amount"
+        overage_policy:
+          $ref: '#/components/schemas/CommitOveragePolicy'
+        debt_incurred:
+          type: integer
+          format: int64
+          description: Debt created as a result (0 if policy was REJECT or ALLOW_IF_AVAILABLE)
+
+    EventDataTenantLifecycle:
+      type: object
+      description: >-
+        Payload for tenant.created, tenant.updated, tenant.suspended,
+        tenant.reactivated, tenant.closed, tenant.settings_changed events.
+      properties:
+        tenant_id:
+          type: string
+        previous_status:
+          type: string
+          enum: [ACTIVE, SUSPENDED, CLOSED]
+        new_status:
+          type: string
+          enum: [ACTIVE, SUSPENDED, CLOSED]
+        changed_fields:
+          type: array
+          items:
+            type: string
+          description: >-
+            List of fields that were modified (e.g., ["name", "default_commit_overage_policy"]).
+            Empty for create events.
+
+    EventDataApiKey:
+      type: object
+      description: >-
+        Payload for api_key.created, api_key.revoked, api_key.expired,
+        api_key.permissions_changed, api_key.auth_failed events.
+      properties:
+        key_id:
+          type: string
+          description: API key identifier (never the raw key value)
+        key_name:
+          type: string
+        previous_status:
+          type: string
+          enum: [ACTIVE, REVOKED, EXPIRED]
+        new_status:
+          type: string
+          enum: [ACTIVE, REVOKED, EXPIRED]
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Permission'
+          description: Current permissions on the key
+        failure_reason:
+          type: string
+          description: >-
+            For auth_failed events: why authentication failed
+            (e.g., "key_not_found", "key_revoked", "key_expired", "invalid_format")
+        source_ip:
+          type: string
+          description: Source IP of the failed auth attempt
+
+    EventDataPolicy:
+      type: object
+      description: >-
+        Payload for policy.created, policy.updated, policy.deleted events.
+      properties:
+        policy_id:
+          type: string
+        name:
+          type: string
+        scope_pattern:
+          type: string
+        changed_fields:
+          type: array
+          items:
+            type: string
+
+    EventDataSystem:
+      type: object
+      description: >-
+        Payload for system.store_connection_lost, system.store_connection_restored,
+        system.high_latency, system.webhook_delivery_failed, and system.webhook_test events.
+      properties:
+        component:
+          type: string
+          description: >-
+            Affected component (e.g., "store", "webhook_dispatcher",
+            "expiry_sweeper", "anomaly_detector")
+        message:
+          type: string
+          description: Human-readable description of the system event
+        severity:
+          type: string
+          enum: [info, warning, critical]
+        details:
+          type: object
+          additionalProperties: true
+          description: Component-specific diagnostic data
+
+    # --- Webhook schemas ---
+
+    WebhookSubscription:
+      type: object
+      description: >-
+        A webhook subscription defines a target URL and the events it should receive.
+        Subscriptions are scoped to a tenant (or __system__ for system events).
+
+        DELIVERY SEMANTICS:
+        - At-least-once: Events may be delivered more than once; use event_id for deduplication.
+        - Ordered within tenant: Events for the same tenant are dispatched in order.
+        - Non-blocking: Webhook delivery does not block the operation that produced the event.
+
+        SECURITY:
+        - Payloads are signed with HMAC-SHA256 using the subscription's signing_secret.
+        - Signature is sent in the X-Cycles-Signature header.
+        - Consumers SHOULD verify the signature before processing.
+
+        FAILURE HANDLING:
+        - On non-2xx response: retry with exponential backoff (1s, 2s, 4s, ... up to max_retries).
+        - After max_retries exhausted: mark delivery as FAILED, emit system.webhook_delivery_failed event.
+        - After consecutive_failures exceeds disable_after_failures: status → DISABLED automatically.
+        - Disabled subscriptions can be re-enabled via PATCH.
+      required: [subscription_id, tenant_id, url, event_types, status, created_at]
+      additionalProperties: false
+      properties:
+        subscription_id:
+          type: string
+          description: Unique identifier (e.g., "whsub_01abc...")
+        tenant_id:
+          type: string
+          description: >-
+            Tenant this subscription belongs to.
+            Use "__system__" for system-wide events (requires admin key).
+        name:
+          type: string
+          maxLength: 256
+          description: Human-readable name for this subscription
+        description:
+          type: string
+          maxLength: 1024
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+          description: >-
+            HTTPS endpoint to receive webhook POST requests.
+            MUST be HTTPS in production (HTTP allowed only when server is in dev mode).
+        event_types:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventType'
+          minItems: 1
+          description: >-
+            Event types this subscription receives. At least one required.
+            Use category wildcards for broad subscriptions (see event_categories).
+        event_categories:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventCategory'
+          description: >-
+            Subscribe to all events in these categories. Additive with event_types.
+            E.g., ["budget"] subscribes to all budget.* events, including future ones.
+        scope_filter:
+          type: string
+          description: >-
+            Optional scope pattern to narrow event matching.
+            Supports wildcards: "tenant:acme-corp/*" matches all scopes under acme-corp.
+            If omitted, matches all scopes within the tenant.
+        thresholds:
+          $ref: '#/components/schemas/WebhookThresholdConfig'
+        signing_secret:
+          type: string
+          writeOnly: true
+          description: >-
+            HMAC-SHA256 secret for payload signing. Write-only — never returned in GET responses.
+            If not provided on creation, the server generates one and returns it once in the
+            create response.
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          description: >-
+            Custom HTTP headers to include in webhook requests.
+            Useful for authentication with the receiving endpoint
+            (e.g., {"Authorization": "Bearer tok_..."}).
+            Header values are stored encrypted. Write-only — values are masked in GET responses.
+        status:
+          type: string
+          enum: [ACTIVE, PAUSED, DISABLED]
+          description: >-
+            ACTIVE: Delivering events normally
+            PAUSED: Temporarily stopped (manual). Events during pause are NOT queued.
+            DISABLED: Stopped by system due to consecutive failures. Events NOT queued.
+        retry_policy:
+          $ref: '#/components/schemas/WebhookRetryPolicy'
+        disable_after_failures:
+          type: integer
+          minimum: 1
+          default: 10
+          description: >-
+            Number of consecutive delivery failures before auto-disabling.
+            Reset to 0 on any successful delivery.
+        consecutive_failures:
+          type: integer
+          readOnly: true
+          description: Current count of consecutive delivery failures
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        last_triggered_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Timestamp of last event dispatched to this subscription
+        last_success_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Timestamp of last successful delivery (2xx response)
+        last_failure_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Timestamp of last failed delivery
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Operator-defined key-value pairs for custom tagging and filtering
+
+    WebhookThresholdConfig:
+      type: object
+      description: >-
+        Configuration for threshold-based events (budget.threshold_crossed,
+        budget.burn_rate_anomaly). Only relevant when subscribed to these event types.
+      additionalProperties: false
+      properties:
+        budget_utilization:
+          type: array
+          items:
+            type: number
+            format: double
+            minimum: 0.0
+            maximum: 1.0
+          description: >-
+            Utilization thresholds that trigger budget.threshold_crossed events.
+            E.g., [0.80, 0.95] fires at 80% and 95% utilization.
+            Default if omitted: [0.80, 0.95, 1.0]
+        burn_rate_multiplier:
+          type: number
+          format: double
+          minimum: 1.5
+          default: 3.0
+          description: >-
+            Multiplier over baseline burn rate that triggers budget.burn_rate_anomaly.
+            E.g., 3.0 means alert when current rate is 3x the rolling average.
+        burn_rate_window_seconds:
+          type: integer
+          minimum: 60
+          maximum: 86400
+          default: 300
+          description: >-
+            Rolling window (seconds) for burn rate calculation.
+            Default: 300 (5 minutes).
+        denial_rate_threshold:
+          type: number
+          format: double
+          minimum: 0.0
+          maximum: 1.0
+          default: 0.10
+          description: >-
+            Fraction of reservations denied over window that triggers
+            reservation.denial_rate_spike. E.g., 0.10 = 10%.
+        expiry_rate_threshold:
+          type: number
+          format: double
+          minimum: 0.0
+          maximum: 1.0
+          default: 0.05
+          description: >-
+            Fraction of reservations expired over window that triggers
+            reservation.expiry_rate_spike. E.g., 0.05 = 5%.
+        auth_failure_rate_threshold:
+          type: number
+          format: double
+          minimum: 0.0
+          maximum: 1.0
+          default: 0.10
+          description: >-
+            Fraction of auth attempts failing over window that triggers
+            api_key.auth_failure_rate_spike.
+        rate_window_seconds:
+          type: integer
+          minimum: 60
+          maximum: 86400
+          default: 300
+          description: >-
+            Rolling window (seconds) for rate spike detection.
+            Applies to denial_rate, expiry_rate, and auth_failure_rate thresholds.
+            Default: 300 (5 minutes).
+
+    WebhookRetryPolicy:
+      type: object
+      description: >-
+        Retry configuration for failed webhook deliveries.
+      additionalProperties: false
+      properties:
+        max_retries:
+          type: integer
+          minimum: 0
+          maximum: 10
+          default: 5
+          description: Maximum retry attempts after initial failure
+        initial_delay_ms:
+          type: integer
+          minimum: 100
+          maximum: 60000
+          default: 1000
+          description: Delay before first retry (milliseconds)
+        backoff_multiplier:
+          type: number
+          format: double
+          minimum: 1.0
+          maximum: 10.0
+          default: 2.0
+          description: Multiplier applied to delay after each retry
+        max_delay_ms:
+          type: integer
+          minimum: 1000
+          maximum: 3600000
+          default: 60000
+          description: Maximum delay between retries (milliseconds)
+
+    WebhookCreateRequest:
+      type: object
+      required: [url, event_types]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          maxLength: 256
+        description:
+          type: string
+          maxLength: 1024
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+        event_types:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventType'
+          minItems: 1
+        event_categories:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventCategory'
+        scope_filter:
+          type: string
+        thresholds:
+          $ref: '#/components/schemas/WebhookThresholdConfig'
+        signing_secret:
+          type: string
+          description: >-
+            Optional. If omitted, server generates a cryptographically random secret.
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+        retry_policy:
+          $ref: '#/components/schemas/WebhookRetryPolicy'
+        disable_after_failures:
+          type: integer
+          minimum: 1
+          default: 10
+        metadata:
+          type: object
+          additionalProperties: true
+
+    WebhookCreateResponse:
+      type: object
+      description: >-
+        Response after creating a webhook subscription.
+        IMPORTANT: signing_secret is returned ONLY in this response.
+        Store it securely — it cannot be retrieved later.
+      required: [subscription]
+      properties:
+        subscription:
+          $ref: '#/components/schemas/WebhookSubscription'
+        signing_secret:
+          type: string
+          description: >-
+            The signing secret for this webhook. Only returned once on creation.
+            Use this to verify X-Cycles-Signature headers on incoming webhook payloads.
+
+    WebhookUpdateRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Partial update. Only provided fields are modified.
+        To rotate the signing secret, provide a new value.
+      properties:
+        name:
+          type: string
+          maxLength: 256
+        description:
+          type: string
+          maxLength: 1024
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+        event_types:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventType'
+          minItems: 1
+        event_categories:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventCategory'
+        scope_filter:
+          type: string
+        thresholds:
+          $ref: '#/components/schemas/WebhookThresholdConfig'
+        signing_secret:
+          type: string
+          description: Provide a new value to rotate the signing secret
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+        retry_policy:
+          $ref: '#/components/schemas/WebhookRetryPolicy'
+        disable_after_failures:
+          type: integer
+          minimum: 1
+        status:
+          type: string
+          enum: [ACTIVE, PAUSED]
+          description: >-
+            Set to ACTIVE to re-enable a DISABLED or PAUSED subscription.
+            Set to PAUSED to temporarily stop delivery.
+        metadata:
+          type: object
+          additionalProperties: true
+
+    WebhookListResponse:
+      type: object
+      required: [subscriptions, has_more]
+      properties:
+        subscriptions:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookSubscription'
+        next_cursor:
+          type: string
+        has_more:
+          type: boolean
+
+    WebhookDelivery:
+      type: object
+      description: >-
+        Record of a single webhook delivery attempt. Used for debugging
+        and monitoring delivery health.
+      required: [delivery_id, subscription_id, event_id, status, attempted_at]
+      additionalProperties: false
+      properties:
+        delivery_id:
+          type: string
+        subscription_id:
+          type: string
+        event_id:
+          type: string
+        event_type:
+          $ref: '#/components/schemas/EventType'
+        status:
+          type: string
+          enum: [PENDING, SUCCESS, FAILED, RETRYING]
+          description: >-
+            PENDING: Queued, not yet attempted
+            SUCCESS: Delivered successfully (2xx response)
+            FAILED: All retries exhausted
+            RETRYING: Failed, retry scheduled
+        attempted_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        attempts:
+          type: integer
+          description: Number of delivery attempts (including retries)
+        response_status:
+          type: integer
+          description: HTTP status code from the last delivery attempt
+        response_time_ms:
+          type: integer
+          description: Response latency of the last delivery attempt
+        error_message:
+          type: string
+          description: Error details if delivery failed
+        next_retry_at:
+          type: string
+          format: date-time
+          description: Scheduled time for next retry (if status is RETRYING)
+
+    WebhookDeliveryListResponse:
+      type: object
+      required: [deliveries, has_more]
+      properties:
+        deliveries:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookDelivery'
+        next_cursor:
+          type: string
+        has_more:
+          type: boolean
+
+    WebhookTestResponse:
+      type: object
+      description: Result of sending a test event to the webhook endpoint
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        response_status:
+          type: integer
+          description: HTTP status code from the endpoint
+        response_time_ms:
+          type: integer
+        error_message:
+          type: string
+          description: Error details if the test failed
+        event_id:
+          type: string
+          description: ID of the test event that was sent
+
+    WebhookSecurityConfig:
+      type: object
+      description: >-
+        Server-level security configuration for webhook URL validation.
+        Applied to all webhook create and update operations.
+        Prevents SSRF by blocking private/internal IP ranges by default.
+      additionalProperties: false
+      properties:
+        blocked_cidr_ranges:
+          type: array
+          items:
+            type: string
+          default: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "169.254.0.0/16", "::1/128", "fc00::/7"]
+          description: >-
+            CIDR ranges that webhook URLs may NOT resolve to.
+            Default blocks all RFC 1918 private ranges, loopback, link-local, and IPv6 private.
+            Server resolves webhook URL hostnames and checks resolved IPs against this list.
+        allowed_url_patterns:
+          type: array
+          items:
+            type: string
+          description: >-
+            Glob patterns for allowed webhook URLs (e.g., "https://*.example.com/*").
+            If non-empty, only URLs matching at least one pattern are allowed.
+            If empty, all non-blocked URLs are allowed.
+        allow_http:
+          type: boolean
+          default: false
+          description: >-
+            Allow HTTP (non-HTTPS) webhook URLs.
+            MUST only be enabled in development/test environments.
+            Production deployments SHOULD keep this false.
+
+    EventListResponse:
+      type: object
+      required: [events, has_more]
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/Event'
+        next_cursor:
+          type: string
+        has_more:
+          type: boolean
+
+    # ========================================================================
+    # DASHBOARD SCHEMAS (v0.1.25.7)
+    # ========================================================================
+
+    AdminOverviewResponse:
+      type: object
+      required: [as_of, event_window_seconds, tenant_counts, budget_counts, over_limit_scopes, debt_scopes, webhook_counts, failing_webhooks, event_counts, recent_denials, recent_expiries]
+      description: >-
+        Server-aggregated operational dashboard payload. Single-request overview
+        for the admin dashboard — avoids client-side aggregation across paginated endpoints.
+      properties:
+        as_of:
+          type: string
+          format: date-time
+          description: Timestamp when this snapshot was computed
+        event_window_seconds:
+          type: integer
+          description: Time window (in seconds) used for event_counts, recent_denials, and recent_expiries
+        tenant_counts:
+          type: object
+          required: [total, active, suspended, closed]
+          additionalProperties: false
+          properties:
+            total: { type: integer }
+            active: { type: integer }
+            suspended: { type: integer }
+            closed: { type: integer }
+        budget_counts:
+          type: object
+          required: [total, active, frozen, closed, over_limit, with_debt, by_unit]
+          additionalProperties: false
+          properties:
+            total: { type: integer }
+            active: { type: integer }
+            frozen: { type: integer }
+            closed: { type: integer }
+            over_limit: { type: integer }
+            with_debt: { type: integer }
+            by_unit:
+              type: object
+              additionalProperties: { type: integer }
+              description: Budget count per UnitEnum value
+        over_limit_scopes:
+          type: array
+          maxItems: 10
+          description: Top 10 budgets where is_over_limit is true
+          items:
+            type: object
+            required: [scope, unit, allocated, remaining, debt]
+            additionalProperties: false
+            properties:
+              scope: { type: string }
+              unit: { $ref: '#/components/schemas/UnitEnum' }
+              allocated: { type: integer }
+              remaining: { type: integer }
+              debt: { type: integer }
+        debt_scopes:
+          type: array
+          maxItems: 10
+          description: Top 10 budgets with debt > 0
+          items:
+            type: object
+            required: [scope, unit, debt, overdraft_limit]
+            additionalProperties: false
+            properties:
+              scope: { type: string }
+              unit: { $ref: '#/components/schemas/UnitEnum' }
+              debt: { type: integer }
+              overdraft_limit: { type: integer }
+        webhook_counts:
+          type: object
+          required: [total, active, disabled, with_failures]
+          additionalProperties: false
+          properties:
+            total: { type: integer }
+            active: { type: integer }
+            disabled: { type: integer }
+            with_failures: { type: integer }
+        failing_webhooks:
+          type: array
+          maxItems: 10
+          description: Top 10 webhook subscriptions with consecutive failures > 0
+          items:
+            type: object
+            required: [subscription_id, url, consecutive_failures]
+            additionalProperties: false
+            properties:
+              subscription_id: { type: string }
+              url: { type: string }
+              consecutive_failures: { type: integer }
+              last_failure_at: { type: string, format: date-time }
+        event_counts:
+          type: object
+          required: [total_recent, by_category]
+          additionalProperties: false
+          properties:
+            total_recent:
+              type: integer
+              description: Total events within event_window_seconds
+            by_category:
+              type: object
+              additionalProperties: { type: integer }
+              description: Event count per EventCategory within the window
+        recent_denials:
+          type: array
+          maxItems: 10
+          description: Most recent reservation.denied events within the window
+          items:
+            $ref: '#/components/schemas/Event'
+        recent_expiries:
+          type: array
+          maxItems: 10
+          description: Most recent reservation.expired events within the window
+          items:
+            $ref: '#/components/schemas/Event'
+
+    AuthIntrospectResponse:
+      type: object
+      required: [authenticated, auth_type, permissions, capabilities]
+      description: >-
+        Returns effective capabilities for the authenticated credential.
+        V1 supports AdminKeyAuth only; ApiKeyAuth support deferred to a future version.
+      properties:
+        authenticated:
+          type: boolean
+          description: Always true (request would have been rejected if not authenticated)
+        auth_type:
+          type: string
+          enum: [admin]
+          description: Type of credential used (v1 admin only; future api_key)
+        permissions:
+          type: array
+          items: { type: string }
+          description: >-
+            Raw effective permission strings. For admin keys this is ["*"]
+            (unconstrained). For future API key support, this will contain
+            concrete Permission enum values. Uses plain string (not Permission
+            $ref) because "*" is not a defined Permission enum value.
+        capabilities:
+          type: object
+          description: Derived boolean capabilities for dashboard UI. All fields are always present (explicit false, never omitted).
+          required: [view_overview, view_budgets, view_events, view_webhooks, view_audit, view_tenants, view_api_keys, view_policies]
+          properties:
+            view_overview: { type: boolean }
+            view_budgets: { type: boolean }
+            view_events: { type: boolean }
+            view_webhooks: { type: boolean }
+            view_audit: { type: boolean }
+            view_tenants: { type: boolean }
+            view_api_keys: { type: boolean }
+            view_policies: { type: boolean }
+
+# ============================================================================
+# API ENDPOINTS
+# ============================================================================
+
+paths:
+  # ==========================================================================
+  # PILLAR 1: TENANT & BUDGET MANAGEMENT
+  # ==========================================================================
+  
+  /v1/admin/tenants:
+    post:
+      tags: [Tenants]
+      operationId: createTenant
+      summary: Create a new tenant
+      description: >-
+        Registers a new tenant in the system. This is typically the first
+        operation in onboarding a new organization.
+        
+        AUTHORIZATION:
+        - Requires admin key (X-Admin-API-Key)
+        
+        IDEMPOTENCY:
+        - Safe to retry with same tenant_id. Returns existing tenant if already created.
+      security:
+        - AdminKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TenantCreateRequest'
+      responses:
+        '201':
+          description: Tenant created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+        '200':
+          description: Tenant already exists (idempotent)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Tenant ID conflicts with different tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    
+    get:
+      tags: [Tenants]
+      operationId: listTenants
+      summary: List all tenants
+      description: >-
+        Returns paginated list of all tenants. Useful for admin dashboards
+        and tenant discovery.
+      security:
+        - AdminKeyAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [ACTIVE, SUSPENDED, CLOSED]
+        - name: parent_tenant_id
+          in: query
+          schema:
+            type: string
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: Tenant list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantListResponse'
+  
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/admin/tenants/{tenant_id}:
+    get:
+      tags: [Tenants]
+      operationId: getTenant
+      summary: Get tenant details
+      description: Returns the full tenant configuration including status, defaults, and metadata.
+      security:
+        - AdminKeyAuth: []
+      parameters:
+        - name: tenant_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Tenant details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Tenant not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    
+    patch:
+      tags: [Tenants]
+      operationId: updateTenant
+      summary: Update tenant properties
+      description: >-
+        Modify tenant metadata, status, or hierarchy.
+        
+        STATUS TRANSITIONS:
+        - ACTIVE → SUSPENDED: Blocks new reservations, existing active reservations can still commit/release
+        - SUSPENDED → ACTIVE: Resume normal operations
+        - * → CLOSED: Irreversible, archives tenant
+      security:
+        - AdminKeyAuth: []
+      parameters:
+        - name: tenant_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                status:
+                  type: string
+                  enum: [ACTIVE, SUSPENDED, CLOSED]
+                metadata:
+                  type: object
+                default_commit_overage_policy:
+                  $ref: '#/components/schemas/CommitOveragePolicy'
+                default_reservation_ttl_ms:
+                  type: integer
+                  minimum: 1000
+                  maximum: 86400000
+                  description: Default TTL for reservations when not specified per-request
+                max_reservation_ttl_ms:
+                  type: integer
+                  minimum: 1000
+                  maximum: 86400000
+                  description: Maximum allowed TTL; requests exceeding this are capped
+                max_reservation_extensions:
+                  type: integer
+                  minimum: 0
+                  description: Maximum TTL extensions per reservation
+      responses:
+        '200':
+          description: Tenant updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+  
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/admin/budgets:
+    post:
+      tags: [Budgets]
+      operationId: createBudget
+      summary: Create a budget ledger for a scope
+      description: >-
+        Initializes a new budget ledger for a (scope, unit) pair.
+        This must be done before any reservations can be made against the scope.
+        
+        AUTHORIZATION:
+        - Tenant can create budgets for their own scopes only
+        - Uses ApiKeyAuth (X-Cycles-API-Key) - tenant manages own budgets
+        
+        SCOPE VALIDATION:
+        - Scope must match pattern: tenant:* or tenant:*/workspace:* etc.
+        - Tenant must exist and be ACTIVE
+        - Cannot create duplicate (scope, unit) ledgers
+        
+        INITIAL STATE:
+        - allocated = requested amount
+        - remaining = allocated
+        - reserved = spent = debt = 0
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BudgetCreateRequest'
+      responses:
+        '201':
+          description: Budget created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetLedger'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          description: Invalid scope or tenant not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: API key lacks budgets:write permission or scope_filter denies access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Budget already exists for this (scope, unit)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      tags: [Budgets]
+      operationId: listBudgets
+      summary: List budget ledgers
+      description: >-
+        Query budget ledgers by tenant, scope pattern, or status.
+        Returns all units for matching scopes.
+
+        AUTHORIZATION:
+        - ApiKeyAuth: Tenant can list their own budgets only (scoped by authenticated tenant)
+        - AdminKeyAuth: Accepted as alternative for read access (v0.1.25.5 dual-auth allowlist).
+          When using AdminKeyAuth, tenant_id query parameter is REQUIRED for scoping.
+      security:
+        - ApiKeyAuth: []
+        - AdminKeyAuth: []
+      parameters:
+        - name: tenant_id
+          in: query
+          required: false
+          description: >-
+            When using ApiKeyAuth: ignored — the authenticated tenant from the
+            API key is always used for scoping.
+            When using AdminKeyAuth: REQUIRED — specifies which tenant's budgets to list.
+            Returns 400 if missing when using AdminKeyAuth.
+          schema:
+            type: string
+        - name: scope_prefix
+          in: query
+          schema:
+            type: string
+          description: Filter by scope prefix, e.g., "tenant:acme-corp/workspace:eng"
+        - name: unit
+          in: query
+          schema:
+            type: string
+            enum: [USD_MICROCENTS, TOKENS, CREDITS, RISK_POINTS]
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [ACTIVE, FROZEN, CLOSED]
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Budget list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetListResponse'
+        '400':
+          description: Missing tenant_id when using AdminKeyAuth
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid API key / admin key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: API key lacks budgets:read permission or scope_filter denies access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    patch:
+      tags: [Budgets]
+      operationId: updateBudget
+      summary: Update budget properties
+      description: >-
+        Update overdraft_limit, commit_overage_policy, or metadata on an existing budget.
+        Recalculates is_over_limit after overdraft_limit changes.
+      security:
+        - AdminKeyAuth: []
+      parameters:
+        - name: scope
+          in: query
+          required: true
+          description: Canonical scope identifier, e.g., "tenant:acme" or "tenant:acme/workspace:prod"
+          schema: {type: string}
+        - name: unit
+          in: query
+          required: true
+          schema: {$ref: '#/components/schemas/UnitEnum'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                overdraft_limit:
+                  $ref: '#/components/schemas/Amount'
+                  description: New maximum allowed debt (amount >= 0, must match budget unit)
+                commit_overage_policy:
+                  $ref: '#/components/schemas/CommitOveragePolicy'
+                metadata:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '200':
+          description: Budget updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetLedger'
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Budget not found for the given scope and unit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Conflict (e.g., concurrent modification)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/admin/budgets/freeze:
+    post:
+      tags: [Budgets]
+      operationId: freezeBudget
+      summary: Freeze a budget (ACTIVE → FROZEN)
+      description: >-
+        Transitions a budget from ACTIVE to FROZEN. Frozen budgets block all
+        fund operations and new reservations, but can still be updated
+        (overdraft_limit, commit_overage_policy, metadata).
+
+        AUTHORIZATION:
+        - Requires admin key (X-Admin-API-Key)
+
+        TRANSITION RULES:
+        - ACTIVE → FROZEN: Allowed
+        - FROZEN → FROZEN: 409 (already frozen)
+        - CLOSED → FROZEN: 409 (closed is irreversible)
+
+        EVENTS:
+        - Emits budget.frozen event on successful transition.
+      security:
+        - AdminKeyAuth: []
+      parameters:
+        - name: scope
+          in: query
+          required: true
+          description: Canonical scope identifier
+          schema:
+            type: string
+        - name: unit
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/UnitEnum'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BudgetStatusTransitionRequest'
+      responses:
+        '200':
+          description: Budget frozen
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetLedger'
+        '400':
+          description: Invalid request body (e.g., unknown fields, reason too long)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Budget not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Invalid transition (already frozen or closed)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/admin/budgets/unfreeze:
+    post:
+      tags: [Budgets]
+      operationId: unfreezeBudget
+      summary: Unfreeze a budget (FROZEN → ACTIVE)
+      description: >-
+        Transitions a budget from FROZEN back to ACTIVE, resuming normal operations.
+
+        AUTHORIZATION:
+        - Requires admin key (X-Admin-API-Key)
+
+        TRANSITION RULES:
+        - FROZEN → ACTIVE: Allowed
+        - ACTIVE → ACTIVE: 409 (already active)
+        - CLOSED → ACTIVE: 409 (closed is irreversible)
+
+        EVENTS:
+        - Emits budget.unfrozen event on successful transition.
+      security:
+        - AdminKeyAuth: []
+      parameters:
+        - name: scope
+          in: query
+          required: true
+          description: Canonical scope identifier
+          schema:
+            type: string
+        - name: unit
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/UnitEnum'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BudgetStatusTransitionRequest'
+      responses:
+        '200':
+          description: Budget unfrozen
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetLedger'
+        '400':
+          description: Invalid request body (e.g., unknown fields, reason too long)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Budget not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Invalid transition (already active or closed)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/admin/budgets/fund:
+    post:
+      tags: [Budgets]
+      operationId: fundBudget
+      summary: Credit, debit, or adjust budget allocation
+      description: >-
+        Modifies budget allocation and remaining balance outside the
+        reservation flow. Common operations:
+
+        AUTHORIZATION:
+        - ApiKeyAuth: Tenant can fund their own budgets only (scoped by authenticated tenant)
+        - AdminKeyAuth: Accepted as alternative (v0.1.25.6 dual-auth).
+          When using AdminKeyAuth, tenant_id query parameter is REQUIRED for scoping.
+
+        CREDIT (top-up):
+        - allocated += amount
+        - remaining += amount
+        - Use for: monthly allocations, bonus credits
+
+        DEBIT (drain):
+        - allocated -= amount
+        - remaining -= amount (fails if would go negative)
+        - Use for: downgrades, refunds, policy enforcement
+
+        RESET (reallocate):
+        - allocated = amount
+        - remaining = amount - reserved - spent - debt
+        - Use for: period rollovers, plan changes
+
+        REPAY_DEBT:
+        - debt -= amount (use remaining if debt < amount)
+        - Use for: manual debt reconciliation
+
+        IDEMPOTENCY:
+        - Required idempotency_key prevents double-funding
+        - Replayed requests return original response
+      security:
+        - ApiKeyAuth: []
+        - AdminKeyAuth: []
+      parameters:
+        - name: tenant_id
+          in: query
+          required: false
+          description: >-
+            When using ApiKeyAuth: ignored — the authenticated tenant from the
+            API key is always used for scoping.
+            When using AdminKeyAuth: REQUIRED — specifies which tenant's budget to fund.
+            Returns 400 if missing when using AdminKeyAuth.
+          schema:
+            type: string
+        - name: scope
+          in: query
+          required: true
+          description: Canonical scope identifier, e.g., "tenant:acme" or "tenant:acme/workspace:prod"
+          schema:
+            type: string
+        - name: unit
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [USD_MICROCENTS, TOKENS, CREDITS, RISK_POINTS]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BudgetFundingRequest'
+      responses:
+        '200':
+          description: Funding operation completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetFundingResponse'
+        '400':
+          description: Missing tenant_id when using AdminKeyAuth
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid API key / admin key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: API key lacks budgets:write permission or scope_filter denies access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Budget ledger not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Idempotency mismatch, insufficient funds for DEBIT, or budget is frozen/closed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  
+  /v1/admin/budgets/lookup:
+    get:
+      tags: [Budgets]
+      operationId: lookupBudget
+      summary: Look up a single budget by exact scope and unit
+      description: >-
+        Returns a single budget ledger matching the exact (scope, unit) pair.
+        Unlike listBudgets which uses scope_prefix (prefix match), this endpoint
+        performs exact scope matching — the budget is uniquely identified by
+        the (scope, unit) pair.
+
+        AUTHORIZATION:
+        - ApiKeyAuth: scope_filter is enforced; only accessible if scope matches key's filter.
+        - AdminKeyAuth: Accepted as alternative (v0.1.25.5 dual-auth allowlist).
+          No tenant_id required — the budget is uniquely identified by (scope, unit).
+      security:
+        - ApiKeyAuth: []
+        - AdminKeyAuth: []
+      parameters:
+        - name: scope
+          in: query
+          required: true
+          description: Exact canonical scope identifier, e.g., "tenant:acme/workspace:prod"
+          schema:
+            type: string
+        - name: unit
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/UnitEnum'
+      responses:
+        '200':
+          description: Budget ledger found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetLedger'
+        '401':
+          description: Missing or invalid API key / admin key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: API key lacks budgets:read permission or scope_filter denies access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: No budget exists for this (scope, unit) pair
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/admin/policies:
+    post:
+      tags: [Policies]
+      operationId: createPolicy
+      summary: Create a policy with caps and limits
+      description: >-
+        Defines caps (soft-landing constraints) and rate limits for scopes.
+        Policies are evaluated during reservation requests.
+        
+        AUTHORIZATION:
+        - Tenant can create policies for their own scopes only
+        
+        SCOPE PATTERNS:
+        - "tenant:acme-corp" (exact match)
+        - "tenant:acme-corp/*" (all descendants)
+        - "agent:*" (all agents system-wide)
+        - "*/agent:summarizer" (agent across all tenants)
+        
+        PRIORITY:
+        - Higher priority policies override lower priority
+        - If multiple policies match, highest priority wins
+        
+        EFFECTIVE DATES:
+        - Optional time-bounded policies
+        - Useful for temporary restrictions or trials
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyCreateRequest'
+      responses:
+        '201':
+          description: Policy created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Policy'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: API key lacks policies:write permission or scope_filter denies access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      tags: [Policies]
+      operationId: listPolicies
+      summary: List policies
+      description: >-
+        AUTHORIZATION:
+        - ApiKeyAuth: Tenant can list their own policies only (scoped by authenticated tenant)
+        - AdminKeyAuth: Accepted as alternative for read access (v0.1.25.5 dual-auth allowlist).
+          When using AdminKeyAuth, tenant_id query parameter is REQUIRED for scoping.
+      security:
+        - ApiKeyAuth: []
+        - AdminKeyAuth: []
+      parameters:
+        - name: tenant_id
+          in: query
+          required: false
+          description: >-
+            When using ApiKeyAuth: ignored — the authenticated tenant from the
+            API key is always used for scoping.
+            When using AdminKeyAuth: REQUIRED — specifies which tenant's policies to list.
+            Returns 400 if missing when using AdminKeyAuth.
+          schema:
+            type: string
+        - name: scope_pattern
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [ACTIVE, DISABLED]
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Policy list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyListResponse'
+        '400':
+          description: Missing tenant_id when using AdminKeyAuth
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid API key / admin key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: API key lacks policies:read permission or scope_filter denies access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/admin/policies/{policy_id}:
+    patch:
+      tags: [Policies]
+      operationId: updatePolicy
+      summary: Update policy properties
+      description: >-
+        Update any mutable field on an existing policy.
+        Tenant scoping enforced: only the owning tenant can update.
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: policy_id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: {type: string}
+                description: {type: string}
+                priority: {type: integer}
+                caps: {$ref: '#/components/schemas/Caps'}
+                commit_overage_policy: {$ref: '#/components/schemas/CommitOveragePolicy'}
+                reservation_ttl_override: {$ref: '#/components/schemas/ReservationTtlOverride'}
+                rate_limits: {$ref: '#/components/schemas/RateLimits'}
+                effective_from: {type: string, format: date-time}
+                effective_until: {type: string, format: date-time}
+                status: {type: string, enum: [ACTIVE, DISABLED]}
+      responses:
+        '200':
+          description: Policy updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Policy'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: API key lacks policies:write permission or scope_filter denies access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Policy not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==========================================================================
+  # PILLAR 2: AUTHENTICATION & AUTHORIZATION
+  # ==========================================================================
+  
+  /v1/admin/api-keys:
+    post:
+      tags: [API Keys]
+      operationId: createApiKey
+      summary: Create an API key for a tenant
+      description: >-
+        Provisions a new API key bound to a tenant. This is the only time
+        the full key secret is returned. Store it securely.
+        
+        KEY FORMAT:
+        - Prefix: cyc_live_{random} or cyc_test_{random}
+        - Random part: 32 characters, cryptographically random
+        - Stored as: bcrypt hash of full key
+        
+        PERMISSIONS:
+        - Default for tenant keys: [reservations:create, reservations:commit,
+          reservations:release, reservations:extend, reservations:list,
+          balances:read, budgets:read, budgets:write, policies:read,
+          policies:write]
+        - Webhook/event self-service requires explicit opt-in:
+          webhooks:read, webhooks:write, events:read are NOT in the default set.
+        - This endpoint provisions tenant-scoped API keys only. The admin key
+          (X-Admin-API-Key) is configured at the server level, not provisioned
+          through this endpoint.
+        - Admin permissions (admin:read, admin:write, and granular admin
+          permissions like admin:tenants:read) are accepted for backward
+          compatibility but SHOULD NOT be assigned to new tenant keys.
+          Use the granular tenant permissions instead.
+        - Can be restricted to specific scopes via scope_filter
+        
+        EXPIRY:
+        - Recommended: 90 days for security
+        - Can be set indefinitely but not recommended
+        - Expired keys auto-fail validation
+      security:
+        - AdminKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiKeyCreateRequest'
+      responses:
+        '201':
+          description: API key created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeyCreateResponse'
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          description: Invalid tenant or permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    
+    get:
+      tags: [API Keys]
+      operationId: listApiKeys
+      summary: List API keys
+      description: >-
+        Returns keys for a tenant. Full key secrets are never returned,
+        only prefixes and metadata.
+      security:
+        - AdminKeyAuth: []
+      parameters:
+        - name: tenant_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [ACTIVE, REVOKED, EXPIRED]
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: API key list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeyListResponse'
+  
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/admin/api-keys/{key_id}:
+    patch:
+      tags: [API Keys]
+      operationId: updateApiKey
+      summary: Update API key properties
+      description: >-
+        Partial update — only provided fields are modified. Allows changing
+        permissions, scope restrictions, and metadata without rotating the
+        key secret.
+
+        MUTABLE FIELDS:
+        - permissions: Replace the full permission set
+        - scope_filter: Replace scope restrictions
+        - name, description, metadata: Update display/tagging info
+
+        IMMUTABLE FIELDS:
+        - tenant_id, key_id, key_prefix, key_hash, expires_at, status
+        - To change expiry: revoke and recreate
+        - To change tenant: revoke and recreate
+
+        EVENTS:
+        - Emits api_key.permissions_changed when permissions or scope_filter change.
+      security:
+        - AdminKeyAuth: []
+      parameters:
+        - name: key_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name:
+                  type: string
+                  maxLength: 256
+                description:
+                  type: string
+                  maxLength: 1024
+                permissions:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Permission'
+                scope_filter:
+                  type: array
+                  items:
+                    type: string
+                metadata:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '200':
+          description: Key updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKey'
+        '400':
+          description: Invalid request (e.g., unrecognized permission name, unknown fields)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Key not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Key is revoked or expired (cannot modify)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags: [API Keys]
+      operationId: revokeApiKey
+      summary: Revoke an API key
+      description: >-
+        Immediately revokes a key. The key will fail validation from this
+        point forward. Active reservations using this key can still be
+        committed/released, but no new operations are permitted.
+        
+        REVOCATION IS PERMANENT:
+        - Cannot be undone
+        - Revoked keys remain in database for audit trail
+        - Status transitions: ACTIVE → REVOKED
+      security:
+        - AdminKeyAuth: []
+      parameters:
+        - name: key_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: reason
+          in: query
+          schema:
+            type: string
+            maxLength: 512
+      responses:
+        '200':
+          description: Key revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKey'
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Key not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  
+  /v1/auth/validate:
+    post:
+      tags: [Authentication]
+      operationId: validateApiKey
+      summary: Validate an API key and resolve tenant
+      description: >-
+        Internal endpoint used by runtime enforcement layer to validate
+        keys and derive effective tenant.
+        
+        VALIDATION CHECKS:
+        1. Key exists in database
+        2. Key hash matches
+        3. Status is ACTIVE (not REVOKED or EXPIRED)
+        4. Current time < expires_at
+        5. Tenant is ACTIVE (not SUSPENDED or CLOSED)
+        
+        RESPONSE:
+        - If valid: returns tenant_id, permissions, scope_filter
+        - If invalid: returns valid=false with reason
+        
+        CACHING:
+        - Results should be cached with short TTL (60s)
+        - Invalidate cache on key revocation
+      security:
+        - AdminKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiKeyValidationRequest'
+      responses:
+        '200':
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeyValidationResponse'
+
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/auth/introspect:
+    get:
+      tags: [Dashboard]
+      operationId: introspectAuth
+      summary: Introspect authenticated credential and return effective capabilities
+      description: >-
+        Returns the effective permissions and derived capabilities for the
+        authenticated credential. Used by the admin dashboard to determine
+        which pages/features the current user can access.
+
+        V1 SCOPE:
+        - AdminKeyAuth only. The dashboard is admin-key only.
+        - ApiKeyAuth support deferred to a future version (tenant console).
+
+        CAPABILITIES:
+        - Derived from raw permissions — the frontend uses booleans for UI gating.
+        - For admin key: all capabilities are true (permissions = ["*"]).
+        - For future API key support: capabilities are derived from the key's
+          actual permission set using the documented mapping.
+      security:
+        - AdminKeyAuth: []
+      responses:
+        '200':
+          description: Authentication introspection result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthIntrospectResponse'
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/admin/audit/logs:
+    get:
+      tags: [Audit]
+      operationId: listAuditLogs
+      summary: Query audit logs
+      description: >-
+        Returns audit trail of all authenticated operations.
+        Essential for compliance (SOC2, GDPR, etc.).
+        
+        RETENTION:
+        - Recommended: 90 days hot, 1 year cold storage
+        - Critical for security incident investigation
+        
+        FILTERING:
+        - By tenant, key, time range, operation, status
+        - Supports complex queries for forensics
+      security:
+        - AdminKeyAuth: []
+      parameters:
+        - name: tenant_id
+          in: query
+          schema:
+            type: string
+        - name: key_id
+          in: query
+          schema:
+            type: string
+        - name: operation
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: integer
+        - name: resource_type
+          in: query
+          description: Filter by resource type (e.g., budget, tenant, api_key, policy, webhook, config)
+          schema:
+            type: string
+        - name: resource_id
+          in: query
+          description: Filter by resource ID (e.g., ledger ID, key ID, subscription ID)
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Audit log entries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditLogListResponse'
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==========================================================================
+  # DASHBOARD: OPERATIONAL OVERVIEW
+  # ==========================================================================
+
+  /v1/admin/overview:
+    get:
+      tags: [Dashboard]
+      operationId: getAdminOverview
+      summary: Get server-aggregated operational dashboard overview
+      description: >-
+        Returns a single-request operational health snapshot for the admin dashboard.
+        Includes entity counts (tenants, budgets, webhooks), top-offender arrays
+        (over-limit budgets, debt scopes, failing webhooks), and recent event
+        summaries (denials, expiries) — all within a server-defined time window (default 1 hour, returned as event_window_seconds).
+
+        DESIGN:
+        - Aggregation is performed server-side through existing repositories.
+        - Top-offender arrays are capped at 10 items each.
+        - Recent events use a 1-hour window (event_window_seconds: 3600).
+        - No client-side pagination or aggregation needed.
+
+        PERFORMANCE:
+        - Pages through all tenants, budgets, and webhooks for accurate counts.
+        - For large deployments (100+ tenants), consider caching with short TTL.
+      security:
+        - AdminKeyAuth: []
+      responses:
+        '200':
+          description: Operational overview snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminOverviewResponse'
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==========================================================================
+  # PILLAR 4: EVENTS & WEBHOOKS
+  # ==========================================================================
+
+  /v1/admin/webhooks:
+    post:
+      tags: [Webhooks]
+      operationId: createWebhookSubscription
+      summary: Create a webhook subscription
+      description: >-
+        Registers a new webhook endpoint to receive events.
+
+        The signing_secret is returned ONLY in this response — store it securely.
+        If not provided in the request, the server generates a cryptographically
+        random secret.
+
+        TENANT SCOPING:
+        - Provide tenant_id in query to scope the subscription to a specific tenant.
+        - Omit tenant_id to create a system-wide subscription (receives events from all tenants).
+        - System-wide subscriptions still respect scope_filter if provided.
+
+        AUTHORIZATION:
+        - Requires admin key (X-Admin-API-Key)
+      security:
+        - AdminKeyAuth: []
+      parameters:
+        - name: tenant_id
+          in: query
+          description: Scope subscription to a specific tenant. Omit for system-wide.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookCreateRequest'
+      responses:
+        '201':
+          description: Subscription created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookCreateResponse'
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          description: Invalid request (e.g., non-HTTPS URL in production mode, invalid event type)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Tenant not found (if tenant_id provided)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      tags: [Webhooks]
+      operationId: listWebhookSubscriptions
+      summary: List webhook subscriptions
+      description: >-
+        Returns paginated list of webhook subscriptions.
+        Filter by tenant, status, or event type.
+      security:
+        - AdminKeyAuth: []
+      parameters:
+        - name: tenant_id
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [ACTIVE, PAUSED, DISABLED]
+        - name: event_type
+          in: query
+          description: Filter to subscriptions that include this event type
+          schema:
+            $ref: '#/components/schemas/EventType'
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: Subscription list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookListResponse'
+
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/admin/webhooks/{subscription_id}:
+    get:
+      tags: [Webhooks]
+      operationId: getWebhookSubscription
+      summary: Get webhook subscription details
+      description: >-
+        Returns full subscription configuration and delivery health metrics.
+        signing_secret and custom header values are masked in the response.
+      security:
+        - AdminKeyAuth: []
+      parameters:
+        - name: subscription_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Subscription details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookSubscription'
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Subscription not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      tags: [Webhooks]
+      operationId: updateWebhookSubscription
+      summary: Update webhook subscription
+      description: >-
+        Partial update — only provided fields are modified.
+
+        COMMON OPERATIONS:
+        - Re-enable a DISABLED subscription: set status to ACTIVE (resets consecutive_failures)
+        - Pause delivery: set status to PAUSED
+        - Rotate signing secret: provide new signing_secret value
+        - Change event types: provide new event_types array (replaces, does not merge)
+      security:
+        - AdminKeyAuth: []
+      parameters:
+        - name: subscription_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookUpdateRequest'
+      responses:
+        '200':
+          description: Subscription updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookSubscription'
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          description: Invalid update
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Subscription not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags: [Webhooks]
+      operationId: deleteWebhookSubscription
+      summary: Delete webhook subscription
+      description: >-
+        Permanently removes the subscription. Pending deliveries are cancelled.
+        This operation is irreversible.
+      security:
+        - AdminKeyAuth: []
+      parameters:
+        - name: subscription_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Subscription deleted
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Subscription not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/admin/webhooks/{subscription_id}/test:
+    post:
+      tags: [Webhooks]
+      operationId: testWebhookSubscription
+      summary: Send a test event to the webhook endpoint
+      description: >-
+        Sends a synthetic test event to the subscription's URL to verify connectivity
+        and authentication. The test event has event_type "system.webhook_test" and
+        is signed with the subscription's signing_secret.
+
+        BEHAVIOR:
+        - Does NOT count toward consecutive_failures.
+        - Does NOT affect subscription status.
+        - Returns the HTTP response status and timing from the endpoint.
+      security:
+        - AdminKeyAuth: []
+      parameters:
+        - name: subscription_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Test result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookTestResponse'
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Subscription not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/admin/webhooks/{subscription_id}/deliveries:
+    get:
+      tags: [Webhooks]
+      operationId: listWebhookDeliveries
+      summary: List delivery attempts for a subscription
+      description: >-
+        Returns paginated delivery history for debugging webhook issues.
+        Includes response status, timing, and error details for each attempt.
+      security:
+        - AdminKeyAuth: []
+      parameters:
+        - name: subscription_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: status
+          in: query
+          description: Filter by delivery status
+          schema:
+            type: string
+            enum: [PENDING, SUCCESS, FAILED, RETRYING]
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: Delivery list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookDeliveryListResponse'
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Subscription not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/admin/events:
+    get:
+      tags: [Events]
+      operationId: listEvents
+      summary: Query the event stream
+      description: >-
+        Returns paginated events with filtering by type, category, tenant, scope,
+        and time range. This is the canonical event log — all events that triggered
+        (or would have triggered) webhooks are queryable here.
+
+        USE CASES:
+        - Debug why a webhook fired (or didn't fire)
+        - Reconstruct event history for a scope
+        - Build custom integrations without webhooks (poll-based)
+        - Audit trail supplement (events are more granular than audit logs)
+
+        RETENTION:
+        - Same as audit log retention (recommended: 90 days hot, 1 year cold).
+      security:
+        - AdminKeyAuth: []
+      parameters:
+        - name: tenant_id
+          in: query
+          schema:
+            type: string
+        - name: event_type
+          in: query
+          description: Filter by specific event type
+          schema:
+            $ref: '#/components/schemas/EventType'
+        - name: category
+          in: query
+          description: Filter by event category
+          schema:
+            $ref: '#/components/schemas/EventCategory'
+        - name: scope
+          in: query
+          description: Filter by scope path (prefix match)
+          schema:
+            type: string
+        - name: correlation_id
+          in: query
+          description: Filter by correlation ID to find related events
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: Event list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventListResponse'
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/admin/events/{event_id}:
+    get:
+      tags: [Events]
+      operationId: getEvent
+      summary: Get a single event by ID
+      description: >-
+        Returns the full event record including data payload.
+        Useful for inspecting the exact payload that was (or would be) delivered to webhooks.
+      security:
+        - AdminKeyAuth: []
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Event details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Event not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/admin/webhooks/{subscription_id}/replay:
+    post:
+      tags: [Webhooks]
+      operationId: replayEvents
+      summary: Replay events to a webhook subscription
+      description: >-
+        Re-delivers historical events to the subscription's endpoint.
+        Useful for recovering from outages or backfilling a new subscription.
+
+        BEHAVIOR:
+        - Events are delivered in chronological order.
+        - Each delivery is tracked as a new WebhookDelivery with source "replay".
+        - Replay respects the subscription's retry policy.
+        - Concurrent replays to the same subscription are NOT allowed.
+
+        LIMITS:
+        - Maximum 1000 events per replay request.
+        - Use from/to to control the replay window.
+      security:
+        - AdminKeyAuth: []
+      parameters:
+        - name: subscription_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from:
+                  type: string
+                  format: date-time
+                  description: Start of replay window (inclusive)
+                to:
+                  type: string
+                  format: date-time
+                  description: End of replay window (inclusive)
+                event_types:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/EventType'
+                  description: >-
+                    Optional filter — only replay these event types.
+                    If omitted, replays all event types the subscription is subscribed to.
+                max_events:
+                  type: integer
+                  minimum: 1
+                  maximum: 1000
+                  default: 100
+                  description: Maximum number of events to replay
+      responses:
+        '202':
+          description: Replay accepted (processing asynchronously)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  replay_id:
+                    type: string
+                    description: Unique ID for this replay operation
+                  events_queued:
+                    type: integer
+                    description: Number of events queued for replay
+                  estimated_completion_seconds:
+                    type: integer
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          description: Invalid replay request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Subscription not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Replay already in progress for this subscription
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/admin/config/webhook-security:
+    get:
+      tags: [Webhooks]
+      operationId: getWebhookSecurityConfig
+      summary: Get webhook security configuration
+      description: >-
+        Returns the current server-level webhook security configuration
+        including blocked CIDR ranges and allowed URL patterns.
+      security:
+        - AdminKeyAuth: []
+      responses:
+        '200':
+          description: Current webhook security config
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookSecurityConfig'
+
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags: [Webhooks]
+      operationId: updateWebhookSecurityConfig
+      summary: Update webhook security configuration
+      description: >-
+        Replaces the server-level webhook security configuration.
+        Changes take effect immediately for all subsequent webhook create/update operations.
+        Existing webhook subscriptions are NOT retroactively validated.
+
+        CAUTION: Removing blocked CIDR ranges may expose the server to SSRF attacks.
+      security:
+        - AdminKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookSecurityConfig'
+      responses:
+        '200':
+          description: Config updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookSecurityConfig'
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          description: Invalid configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # --------------------------------------------------------------------------
+  # PILLAR 4: TENANT WEBHOOK SELF-SERVICE
+  # --------------------------------------------------------------------------
+
+  /v1/webhooks:
+    post:
+      tags: [Webhooks]
+      operationId: createTenantWebhook
+      summary: Create a webhook for the authenticated tenant
+      description: >-
+        Tenant-scoped webhook creation. The subscription is automatically scoped
+        to the authenticated tenant. Tenants can only subscribe to tenant-accessible
+        event types: budget.*, reservation.*, tenant.* (26 of 40 types).
+
+        api_key.*, policy.*, and system.* events require admin access.
+
+        PERMISSIONS:
+        - Requires webhooks:write permission on the API key.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookCreateRequest'
+      responses:
+        '201':
+          description: Subscription created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookCreateResponse'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          description: Invalid request (non-HTTPS URL, restricted event type, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: API key lacks webhooks:write permission
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      tags: [Webhooks]
+      operationId: listTenantWebhooks
+      summary: List webhooks for the authenticated tenant
+      description: >-
+        Returns only webhooks belonging to the authenticated tenant.
+
+        PERMISSIONS:
+        - Requires webhooks:read permission on the API key.
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [ACTIVE, PAUSED, DISABLED]
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: Subscription list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookListResponse'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: API key lacks webhooks:read permission
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/webhooks/{subscription_id}:
+    get:
+      tags: [Webhooks]
+      operationId: getTenantWebhook
+      summary: Get a tenant's webhook subscription
+      description: >-
+        Returns webhook details. Returns 404 if subscription belongs to a different tenant.
+
+        PERMISSIONS:
+        - Requires webhooks:read permission on the API key.
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: subscription_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Subscription details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookSubscription'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: API key lacks webhooks:read permission
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Subscription not found or belongs to different tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      tags: [Webhooks]
+      operationId: updateTenantWebhook
+      summary: Update a tenant's webhook subscription
+      description: >-
+        Partial update — only provided fields are modified. Restricted to tenant-accessible event types.
+
+        PERMISSIONS:
+        - Requires webhooks:write permission on the API key.
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: subscription_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookUpdateRequest'
+      responses:
+        '200':
+          description: Subscription updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookSubscription'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          description: Invalid update (restricted event type, invalid URL, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: API key lacks webhooks:write permission
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Subscription not found or belongs to different tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags: [Webhooks]
+      operationId: deleteTenantWebhook
+      summary: Delete a tenant's webhook subscription
+      description: >-
+        Permanently removes the subscription. Pending deliveries for this subscription will fail.
+
+        PERMISSIONS:
+        - Requires webhooks:write permission on the API key.
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: subscription_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Subscription deleted
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: API key lacks webhooks:write permission
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Subscription not found or belongs to different tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/webhooks/{subscription_id}/test:
+    post:
+      tags: [Webhooks]
+      operationId: testTenantWebhook
+      summary: Send a test event to a tenant's webhook
+      description: >-
+        Sends a synthetic system.webhook_test event. Does not count toward consecutive failures.
+
+        PERMISSIONS:
+        - Requires webhooks:write permission on the API key.
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: subscription_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Test result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookTestResponse'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: API key lacks webhooks:write permission
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Subscription not found or belongs to different tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/webhooks/{subscription_id}/deliveries:
+    get:
+      tags: [Webhooks]
+      operationId: listTenantWebhookDeliveries
+      summary: List delivery attempts for a tenant's webhook
+      description: >-
+        Returns delivery history with status, response codes, and error details.
+        Supports filtering by status and date range.
+
+        PERMISSIONS:
+        - Requires webhooks:read permission on the API key.
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: subscription_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, SUCCESS, FAILED, RETRYING]
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: Delivery list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookDeliveryListResponse'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: API key lacks webhooks:read permission
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Subscription not found or belongs to different tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/events:
+    get:
+      tags: [Events]
+      operationId: listTenantEvents
+      summary: Query events for the authenticated tenant
+      description: >-
+        Returns events scoped to the authenticated tenant only.
+        Only tenant-accessible event types are returned (budget.*, reservation.*, tenant.*).
+
+        PERMISSIONS:
+        - Requires events:read permission on the API key.
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: event_type
+          in: query
+          schema:
+            $ref: '#/components/schemas/EventType'
+        - name: category
+          in: query
+          schema:
+            $ref: '#/components/schemas/EventCategory'
+        - name: scope
+          in: query
+          schema:
+            type: string
+        - name: correlation_id
+          in: query
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: Event list (tenant-scoped)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventListResponse'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: API key lacks events:read permission
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==========================================================================
+  # PILLAR 3: RUNTIME ENFORCEMENT (from Cycles v0.1.24)
+  # ==========================================================================
+  # Note: These endpoints are imported from Cycles Protocol v0.1.24
+  # They are included here for reference but fully defined in cycles-protocol-v0.yaml
+  
+  /v1/reservations:
+    post:
+      tags: [Reservations]
+      operationId: createReservation
+      summary: Create budget reservation (Cycles v0.1.24)
+      description: >-
+        See Cycles Protocol v0.1.24 specification.
+        
+        GOVERNANCE INTEGRATION:
+        1. Validates X-Cycles-API-Key via /v1/auth/validate
+        2. Derives effective tenant from key
+        3. Validates Subject.tenant matches effective tenant (403 if mismatch)
+        4. Checks tenant status (blocks if SUSPENDED or CLOSED)
+        5. Checks budget ledger exists for scope
+        6. Applies matching policies (caps, rate limits)
+        7. Executes Cycles reservation logic (reserve.lua)
+        8. Logs operation to audit trail
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Reservation created (see Cycles v0.1.24)
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Tenant mismatch, suspended, or insufficient permissions
+        '409':
+          description: Budget exceeded, debt outstanding, or over-limit
+  
+  /v1/reservations/{reservation_id}/commit:
+    post:
+      tags: [Reservations]
+      operationId: commitReservation
+      summary: Commit actual spend (Cycles v0.1.24)
+      description: >-
+        See Cycles Protocol v0.1.24 specification.
+
+        GOVERNANCE INTEGRATION:
+        - Validates key and tenant as in reservation
+        - Supports ALLOW_WITH_OVERDRAFT policy
+        - Creates debt if overdraft_limit configured
+        - Logs commit to audit trail
+      parameters:
+        - name: reservation_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Commit succeeded (see Cycles v0.1.24)
+  
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/balances:
+    get:
+      tags: [Balances]
+      operationId: getBalances
+      summary: Query budget balances (Cycles v0.1.24)
+      description: >-
+        See Cycles Protocol v0.1.24 specification.
+        
+        GOVERNANCE INTEGRATION:
+        - Returns full ledger state including debt, overdraft_limit, is_over_limit
+        - Scoped to effective tenant
+        - Supports scope filtering via query params
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: tenant_id
+          in: query
+          schema:
+            type: string
+        - name: scope_prefix
+          in: query
+          schema:
+            type: string
+          description: Filter by scope prefix
+        - name: unit
+          in: query
+          schema:
+            type: string
+            enum: [USD_MICROCENTS, TOKENS, CREDITS, RISK_POINTS]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 100
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Balance data (see Cycles v0.1.24)
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'

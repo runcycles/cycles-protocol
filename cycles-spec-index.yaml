@@ -1,0 +1,372 @@
+# ===========================================================================
+# Cycles Protocol — Specification Family Index
+# ===========================================================================
+# This manifest is the single source of truth for the Cycles spec suite.
+# It tells implementers which documents are canonical, what each owns,
+# how they depend on each other, and how to assemble merged artifacts
+# for tooling (SDK generators, validators, linters).
+#
+# This file is NOT an OpenAPI document. It is a composition manifest.
+# Format is intentionally simple YAML — parseable by CI scripts, readable
+# by humans, and not requiring an OpenAPI parser.
+# ===========================================================================
+
+spec_family:
+  name: Cycles Protocol
+  description: >-
+    Budget authority, action quotas, and runtime governance for autonomous agents.
+  publication_model: companion-specs
+  publication_model_rationale: >-
+    The spec family uses a "companion spec" publication model rather than a
+    single monolithic OpenAPI file. Each document owns a distinct concern
+    (runtime enforcement, governance, registry) and can be versioned and
+    evolved independently. Cross-spec references are descriptive (prose)
+    rather than mechanical ($ref) to preserve companion-spec portability.
+
+    The tradeoff: human readers and implementers can read each file in
+    isolation; SDK generators and validator pipelines need a merged artifact.
+    The merge_recipes section below defines how to produce those artifacts.
+  current_versions:
+    base_runtime: "0.1.25"
+    base_governance: "0.1.25.7"
+    extension_runtime: "0.1.26"
+    extension_governance: "0.1.26"
+    action_kinds: "0.1.26"
+    spec_index: "0.1.26"
+
+# ---------------------------------------------------------------------------
+# CANONICAL DOCUMENTS
+# ---------------------------------------------------------------------------
+# role values:
+#   base       — stable base spec; changes only on major cycles protocol revisions
+#   extension  — additive companion to a base spec; versioned with extension releases
+#   companion  — standalone spec with integration points; versioned independently
+# ---------------------------------------------------------------------------
+
+documents:
+
+  - id: runtime_base
+    file: cycles-protocol-v0.yaml
+    version: "0.1.25"
+    role: base
+    title: Cycles Budget Authority API
+    plane: runtime-enforcement
+    owns:
+      - Reserve / commit / release lifecycle
+      - Idempotency and concurrency invariants
+      - Canonical scope derivation
+      - dry_run shadow mode
+      - Overdraft / debt model
+      - /v1/decide, /v1/reservations, /v1/balances, /v1/events
+    depends_on: []
+    readers:
+      - All implementers (required reading)
+      - SDK authors (primary source for client generation)
+      - Protocol reviewers
+
+  - id: governance_base
+    file: cycles-governance-admin-v0.1.25.yaml
+    version: "0.1.25.7"
+    role: base
+    title: Complete Budget Governance Admin API
+    plane: governance-admin
+    owns:
+      - Tenant lifecycle and hierarchy
+      - Budget ledger creation, allocation, and funding
+      - Policy caps and rate limits
+      - API key provisioning and permissions
+      - Webhook subscriptions and event delivery
+      - /v1/admin/* endpoints
+    depends_on:
+      - runtime_base  # shares Amount, Subject, Action, Balance schemas
+    readers:
+      - Platform/operator teams (required reading)
+      - Admin tooling authors
+      - Compliance and audit tooling
+
+  - id: action_kinds
+    file: cycles-action-kinds-v0.1.26.yaml
+    version: "0.1.26"
+    role: companion
+    title: Cycles Action Kind Registry
+    plane: registry-and-quota-primitives
+    owns:
+      - Canonical action kind taxonomy (44 built-in kinds)
+      - ActionRiskClass, ActionKind, ActionKindRegistry
+      - ActionPolicyKeys (request-side routing dimensions)
+      - ActionQuota, ActionQuotaWindow, ActionQuotaState (quota primitives)
+      - RiskClassQuota (risk-class-level aggregate quota primitive)
+      - per_minute_tumbling window (burst protection)
+      - threshold_pct on ActionQuota and RiskClassQuota (quota threshold warnings)
+      - Registry endpoints: GET /v1/action-kinds, GET /v1/action-kinds/{kind}
+      - Counter debug endpoint: GET /v1/admin/action-quota-counters
+    integration_points:
+      - runtime_base: >-
+          Quota counters are incremented atomically within reserve.lua.
+          Subject.dimensions.run_id required for per_run quotas.
+      - governance_base: >-
+          ActionQuota is used by Policy.action_quotas (governance extension).
+          Admin auth/permissions for counter endpoint defined in governance base.
+    depends_on: []  # no schema imports from other specs
+    readers:
+      - MCP gateway implementers (action kind normalization)
+      - Policy authors (quota rule design)
+      - Operator teams (counter debugging)
+      - SDK authors (action kind validation on the client side)
+    versioning_note: >-
+      Version-aligned with the spec suite (v0.1.26) for coherent releases.
+      Within a release, the action-kinds spec can evolve independently of
+      the runtime and governance specs. Adding new built-in action kinds or
+      changing quota schema = minor bump within the suite version.
+      Breaking registry API changes = major version (cycles-action-kinds-v1.yaml).
+
+  - id: runtime_extension
+    file: cycles-protocol-extensions-v0.1.26.yaml
+    version: "0.1.26"
+    role: extension
+    extends: runtime_base
+    title: Cycles Protocol Extensions — Runtime Enforcement Plane
+    plane: runtime-enforcement
+    owns:
+      - DenyDetail (enriched deny context)
+      - ActionQuotaViolation (quota violation detail in deny responses)
+      - ObserveModeEnum (DISABLED / OBSERVE / ENFORCE)
+      - ACTION_QUOTA_EXCEEDED, ACTION_KIND_NOT_ALLOWED, ACTION_KIND_DENIED error codes
+      - reservation.observed_denied event type and EventDataObservedDenied
+      - reservation.observed_allowed event type and EventDataObservedAllowed
+      - quota.threshold_approaching event type and EventDataQuotaThresholdApproaching
+      - Full RESERVATION EVALUATION ORDER normative text (access control → risk-class quotas → per-kind quotas → budget)
+      - Additive fields on Action, DecisionResponse, ReservationCreateRequest,
+        ReservationCreateResponse, ErrorResponse
+      - No new runtime paths (all paths owned by runtime_base)
+    integration_points:
+      - action_kinds: >-
+          ActionQuotaViolation references ActionQuotaWindow enum values
+          (mirrored inline for companion-spec portability).
+          ActionPolicyKeys is described by reference (not $ref).
+    depends_on:
+      - runtime_base  # extends its schemas
+    readers:
+      - SDK authors (required for v0.1.26 client support)
+      - Runtime implementers (required for v0.1.26 server support)
+
+  - id: governance_extension
+    file: cycles-governance-extensions-v0.1.26.yaml
+    version: "0.1.26"
+    role: extension
+    extends: governance_base
+    title: Cycles Governance Extensions — Admin Plane
+    plane: governance-admin
+    owns:
+      - Policy.action_quotas (per-kind action count quota rules on policies)
+      - Policy.risk_class_quotas (risk-class-level aggregate quotas on policies)
+      - Policy.allowed_action_kinds (action kind allowlist — access control)
+      - Policy.denied_action_kinds (action kind denylist — access control)
+      - PolicyCreateRequest extensions (same fields)
+      - PATCH /v1/admin/policies/{policy_id} — extended body
+      - Tenant.observe_mode (shadow mode default)
+      - PATCH /v1/admin/tenants/{tenant_id} — extended body
+      - action_quotas:read permission (reserved for v0.1.27+)
+    integration_points:
+      - action_kinds: >-
+          PolicyExtension.action_quotas uses ActionQuota from action_kinds.
+          Described by reference (not $ref) for companion-spec portability.
+      - runtime_extension: >-
+          ObserveModeEnum values mirrored inline in TenantExtension and
+          TenantPatchExtension. Canonical definition in runtime_extension.
+    depends_on:
+      - governance_base  # extends its schemas
+    mechanical_merge_warning: >-
+      This file re-declares PATCH /v1/admin/tenants/{tenant_id} and
+      PATCH /v1/admin/policies/{policy_id}. OperationIds are distinct
+      (updateTenantObserveMode, updatePolicyActionQuotas) so no intra-file
+      collision, but bundling with governance_base produces duplicate
+      path+method entries. Use the merge recipe below to produce a
+      clean single document.
+    readers:
+      - Platform/operator teams (required for v0.1.26 admin API support)
+      - Admin tooling authors
+
+# ---------------------------------------------------------------------------
+# MERGE RECIPES
+# ---------------------------------------------------------------------------
+# Defines how to produce merged artifacts from the companion spec suite.
+# Merged artifacts are NOT canonical — the companion specs above are canonical.
+# Merged artifacts are generated for tooling (codegen, validators, linters).
+# They MUST be regenerated when any source spec changes.
+# ---------------------------------------------------------------------------
+
+merge_recipes:
+
+  - id: runtime_merged
+    description: >-
+      Single merged OpenAPI file for the runtime enforcement plane.
+      Suitable for: SDK generation, OpenAPI validator pipelines,
+      Swagger UI / Redoc hosting, Postman import.
+      Contains: runtime_base + runtime_extension + action_kinds (schemas + paths).
+      Does NOT contain governance plane (admin/tenant/policy/webhook management).
+      Governance is server-side tooling; most SDK authors don't need it.
+    output_file: cycles-openapi-runtime-merged.yaml
+    sources:
+      - document: runtime_base
+        include: all
+      - document: action_kinds
+        include: all
+      - document: runtime_extension
+        include: all
+        merge_strategy:
+          schemas: add to components/schemas (no conflicts)
+          error_codes: merge ACTION_QUOTA_EXCEEDED, ACTION_KIND_NOT_ALLOWED, ACTION_KIND_DENIED into ErrorCode enum
+          event_types: merge reservation.observed_denied, reservation.observed_allowed, quota.threshold_approaching into EventType enum
+          action_field: add policy_keys to Action schema
+          decision_response: add deny_detail to DecisionResponse
+          reservation_create_request: add observe_mode to ReservationCreateRequest
+          reservation_create_response: add deny_detail to ReservationCreateResponse
+          error_response: add details.deny_detail guidance
+    resolution_rules:
+      - ObserveModeEnum is defined once in runtime_extension schemas
+      - ActionQuotaViolation references ActionQuotaWindow from action_kinds
+      - ActionRiskClass is defined once in action_kinds schemas
+      - RiskClassQuota is defined once in action_kinds schemas
+      - No path conflicts (action_kinds adds 3 new paths; runtime_base owns the rest)
+    tooling:
+      openapi_merge: >-
+        npx openapi-merge-cli --config cycles-merge-config-runtime.json
+      redocly: >-
+        redocly bundle cycles-protocol-v0.yaml
+          --ext cycles-protocol-extensions-v0.1.26.yaml
+          --ext cycles-action-kinds-v0.1.26.yaml
+          -o cycles-openapi-runtime-merged.yaml
+      manual: >-
+        cycles-openapi-runtime-merged.yaml is pre-built in each release.
+        See it alongside this index file.
+
+  - id: full_merged
+    status: build_target
+    status_note: >-
+      cycles-openapi-full-merged.yaml is NOT pre-built in the v0.1.26 release.
+      It is a defined build target — the recipe below specifies exactly how
+      to produce it. Build it if your pipeline requires the full governance
+      API surface (tenant management, policy CRUD, webhooks, budget funding).
+      Most SDK authors only need the runtime_merged artifact above.
+      If demand warrants, a future release may include it as a pre-built file.
+    description: >-
+      Single merged OpenAPI file covering all five source specs.
+      Suitable for: full API documentation, governance tooling codegen,
+      end-to-end validator pipelines.
+      Large (all five source specs combined). Most SDK authors should use
+      runtime_merged instead.
+    output_file: cycles-openapi-full-merged.yaml
+    sources:
+      - document: runtime_base
+        include: all
+      - document: governance_base
+        include: all
+      - document: action_kinds
+        include: all
+      - document: runtime_extension
+        include: all
+      - document: governance_extension
+        include: all
+        merge_strategy:
+          patch_operations: >-
+            Merge action_quotas, risk_class_quotas, allowed_action_kinds,
+            denied_action_kinds into the existing updatePolicy PATCH body.
+            Merge observe_mode into the existing updateTenant PATCH body.
+            Remove duplicate operationIds (updateTenantObserveMode →
+            merge into updateTenant; updatePolicyActionQuotas → merge into
+            updatePolicy).
+          permissions: add action_quotas:read to Permission enum
+    resolution_rules:
+      - ErrorResponse is deduplicated (governance_base version is canonical)
+      - ObserveModeEnum is defined once (runtime_extension version)
+      - PATCH path conflicts resolved by merging request bodies, not duplicating paths
+      - Permission enum: governance_base values + action_quotas:read from extension
+    tooling:
+      note: >-
+        Full merge requires conflict resolution on PATCH paths and enum deduplication.
+        Recommend Redocly or a custom Python merge script (see runtime_merged
+        merge script in the release as a starting point). No pre-built merge
+        config JSON files are included in this release — the resolution_rules
+        above define the required behavior for any merge tool implementation.
+
+# ---------------------------------------------------------------------------
+# PUBLICATION MODEL SUMMARY
+# ---------------------------------------------------------------------------
+
+publication_model_summary:
+  canonical_sources:
+    - cycles-protocol-v0.yaml             # runtime base — never changes for v0.x
+    - cycles-governance-admin-v0.1.25.yaml  # governance base
+    - cycles-action-kinds-v0.1.26.yaml     # registry + quota primitives
+    - cycles-protocol-extensions-v0.1.26.yaml  # runtime extension
+    - cycles-governance-extensions-v0.1.26.yaml  # governance extension
+
+  pre_built_artifacts:
+    # These files ARE included in the v0.1.26 release alongside this index:
+    - cycles-openapi-runtime-merged.yaml  # codegen-ready runtime plane (pre-built)
+
+  build_target_artifacts:
+    # These files are NOT pre-built. Produce them using the merge recipes above:
+    - cycles-openapi-full-merged.yaml     # full reference — build target only
+
+  source_of_truth: companion-specs  # generated artifacts are derived, not canonical
+
+  update_policy: >-
+    When any companion spec changes:
+      1. Update the companion spec (increment its version).
+      2. Update this index (increment spec_index version).
+      3. Regenerate pre-built merged artifacts.
+      4. Increment only the affected planes in current_versions above.
+    The base specs (runtime_base, governance_base) are stable for all v0.x releases.
+    Only the extension specs and action_kinds spec are expected to evolve.
+
+  sdk_generation_guidance: >-
+    For SDK generation, use cycles-openapi-runtime-merged.yaml (pre-built).
+    This contains the complete runtime API surface in a single resolved file:
+    all reservation/commit/release/decide/balance endpoints, all extension
+    schemas (DenyDetail, ObserveModeEnum, etc.), registry endpoints, quota
+    counter endpoint, and both ApiKeyAuth and AdminKeyAuth security schemes.
+    No post-processing needed.
+
+  validator_guidance: >-
+    For request/response validation in production:
+      - Runtime servers: validate against cycles-openapi-runtime-merged.yaml
+        (pre-built, included in this release).
+      - Admin/governance servers: build cycles-openapi-full-merged.yaml
+        using the full_merged recipe above, then validate against it.
+        A pre-built version may be included in a future release if demand warrants.
+
+  human_reading_order:
+    implementer_building_runtime_server:
+      - cycles-protocol-v0.yaml (foundation)
+      - cycles-protocol-extensions-v0.1.26.yaml (runtime additions)
+      - cycles-action-kinds-v0.1.26.yaml (quota primitives and registry)
+    implementer_building_admin_tooling:
+      - cycles-governance-admin-v0.1.25.yaml (foundation)
+      - cycles-governance-extensions-v0.1.26.yaml (governance additions)
+      - cycles-action-kinds-v0.1.26.yaml (quota rules used in policies)
+    sdk_author:
+      - cycles-openapi-runtime-merged.yaml (single merged file — start here)
+    policy_operator:
+      - cycles-action-kinds-v0.1.26.yaml (action kind taxonomy and quota rules)
+      - cycles-governance-extensions-v0.1.26.yaml (how to attach quotas to policies)
+
+# ---------------------------------------------------------------------------
+# REGISTRY GOVERNANCE (future work)
+# ---------------------------------------------------------------------------
+
+registry_governance:
+  status: not_yet_specified
+  anticipated_concerns:
+    - Deprecation rules for built-in action kinds
+    - Provider-specific alias policy (e.g., openai.completion vs llm.completion)
+    - Compatibility promises for mcp_tool_prefixes conventions
+    - Process for adding new built-in kinds vs custom.* kinds
+    - Versioning semantics for breaking changes to risk_class classifications
+  owner: to be defined in cycles-registry-governance-policy.md (future release)
+  note: >-
+    The action kinds registry is version-aligned with the spec suite
+    (currently v0.1.26) and can evolve within a release without touching
+    the protocol or governance specs.
+    Registry governance policy will be published as a non-OpenAPI markdown document.

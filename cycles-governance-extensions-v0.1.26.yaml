@@ -1,0 +1,571 @@
+openapi: 3.1.0
+info:
+  title: Cycles Governance Extensions — Admin Plane
+  version: 0.1.26
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+  summary: >-
+    Additive extensions to cycles-governance-admin-v0.1.25.yaml (v0.1.25.7).
+    Adds action_quotas, risk_class_quotas, allowed_action_kinds, and
+    denied_action_kinds to Policy; observe_mode to Tenant; completes the
+    PATCH bodies for both; and reserves action_quotas:read in the Permission
+    enum. Governance/admin plane only — no runtime enforcement or registry content.
+  description: |-
+    EXTENSION CONTRACT (NORMATIVE):
+      Strict superset of cycles-governance-admin-v0.1.25.yaml v0.1.25.7.
+      No existing schema, endpoint, field meaning, or error code changed.
+      All new fields are OPTIONAL with no defaults that change existing behavior.
+      Clients built against v0.1.25.7 work unchanged.
+
+    BASE SPEC:
+      cycles-governance-admin-v0.1.25.yaml v0.1.25.7
+
+    COMPANION SPECS:
+      cycles-action-kinds-v0.1.26.yaml — ActionQuota, RiskClassQuota (referenced by PolicyExtension)
+      cycles-protocol-extensions-v0.1.26.yaml — ObserveModeEnum is defined there
+        for runtime semantics. In this governance companion spec, the enum values
+        are MIRRORED INLINE (repeated as raw string enums in TenantExtension and
+        TenantPatchExtension) for companion-spec portability. Cross-file $ref is
+        not used here because these specs are companion documents, not a
+        mechanically bundled single OpenAPI file. If a future merged spec is
+        published, TenantExtension and TenantPatchExtension should reference
+        ObserveModeEnum via $ref instead of repeating the values inline.
+
+    WHAT THIS ADDS:
+
+      1. POLICY EXTENSIONS — QUOTAS
+         Policy.action_quotas: []ActionQuota — per-kind action count quota rules.
+         Policy.risk_class_quotas: []RiskClassQuota — aggregate quotas by risk class.
+         PolicyCreateRequest: same fields for creation.
+         PATCH /v1/admin/policies/{policy_id}: extended body with both.
+
+      2. POLICY EXTENSIONS — ACCESS CONTROL
+         Policy.allowed_action_kinds: string[] — allowlist (only these kinds permitted).
+         Policy.denied_action_kinds: string[] — denylist (these kinds unconditionally blocked).
+         Mutually exclusive: server MUST reject if both non-empty.
+         Evaluated BEFORE quotas and budget checks (hard gate).
+         See RESERVATION EVALUATION ORDER in cycles-protocol-extensions-v0.1.26.yaml.
+
+      3. TENANT EXTENSIONS
+         Tenant.observe_mode: ObserveModeEnum — tenant-level shadow mode default.
+         PATCH /v1/admin/tenants/{tenant_id}: extended body with observe_mode.
+
+      4. PERMISSION EXTENSION
+         action_quotas:read reserved in Permission enum for v0.1.27+.
+         Not enforced in v0.1.26 — GET /v1/admin/action-quota-counters
+         currently uses balances:read (intentional, documented).
+
+    MECHANICAL MERGE WARNING:
+      This companion spec re-declares PATCH /v1/admin/tenants/{tenant_id} and
+      PATCH /v1/admin/policies/{policy_id}, which already exist in the governance
+      spec. OperationIds here are distinct (updateTenantObserveMode,
+      updatePolicyActionQuotas) so there is no operationId collision within
+      this file. However, mechanically bundling with the governance spec produces
+      duplicate path+method entries, which most tooling rejects. Treat as a
+      companion document. A future merged spec will unify both.
+      Implementations MUST merge the new fields into the existing PATCH handlers.
+
+    CHANGELOG:
+      v0.1.26 (2026-04-09):
+        Split from monolithic cycles-protocol-extensions-v0.1.26-final.yaml.
+        Governance/admin plane content only.
+
+servers:
+  - url: https://api.cycles.local
+    description: Replace with your implementation endpoint
+
+tags:
+  - name: Tenants
+    description: "Extension: tenant PATCH additions (observe_mode)"
+  - name: Policies
+    description: "Extension: policy PATCH additions (action_quotas, risk_class_quotas, access control)"
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Cycles-API-Key
+    AdminKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Admin-API-Key
+
+  schemas:
+
+    # -------------------------------------------------------------------------
+    # ERROR RESPONSE (mirrored from governance spec for PATCH path precision)
+    # -------------------------------------------------------------------------
+    # This schema mirrors ErrorResponse from cycles-governance-admin-v0.1.25.yaml.
+    # It is repeated here so the PATCH path response docs are as precise as
+    # the base governance spec, not degraded to bare type: object.
+    # In a future merged spec, these responses should reference the base ErrorResponse.
+
+    ErrorResponse:
+      type: object
+      required: [error, message, request_id]
+      properties:
+        error:
+          type: string
+          description: >-
+            Error code from the ErrorCode enum (governance spec + ErrorCodeExtension
+            in cycles-protocol-extensions-v0.1.26.yaml).
+            Common values for PATCH operations: INVALID_REQUEST, UNAUTHORIZED,
+            FORBIDDEN, NOT_FOUND, INSUFFICIENT_PERMISSIONS, POLICY_VIOLATION.
+        message:
+          type: string
+          description: Human-readable error message.
+        request_id:
+          type: string
+          description: Server-generated request identifier for debugging.
+        details:
+          type: object
+          additionalProperties: true
+          description: Optional structured details for machine-readable context.
+
+    # -------------------------------------------------------------------------
+    # POLICY EXTENSIONS
+    # -------------------------------------------------------------------------
+
+    # EXTENDS: Policy (governance spec)
+    PolicyExtension:
+      type: object
+      description: >-
+        Additive extension to the Policy schema.
+        action_quotas defines action count quota rules that apply to all
+        scopes matching the policy's existing scope_pattern.
+        ActionQuota is defined in cycles-action-kinds-v0.1.26.yaml.
+      properties:
+        action_quotas:
+          type: array
+          items:
+            type: object
+            description: >-
+              See ActionQuota in cycles-action-kinds-v0.1.26.yaml.
+              Required fields: action_kind (string), max_calls (integer),
+              window (per_run|per_minute_tumbling|per_hour_tumbling|per_day_tumbling|per_tenant_per_day).
+          maxItems: 50
+          description: >-
+            List of action count quota rules for this policy.
+            Each rule enforced independently. Empty list = no quotas.
+        risk_class_quotas:
+          type: array
+          items:
+            type: object
+            description: >-
+              See RiskClassQuota in cycles-action-kinds-v0.1.26.yaml.
+              Required fields: risk_class (ActionRiskClass enum), max_calls (integer),
+              window (ActionQuotaWindow enum).
+          maxItems: 20
+          description: >-
+            List of risk-class-level action count quota rules for this policy.
+            Aggregates across all action kinds of the specified risk_class.
+            Each rule enforced independently. Empty list = no risk-class quotas.
+            Evaluated BEFORE per-kind action_quotas (see evaluation order in
+            cycles-protocol-extensions-v0.1.26.yaml).
+        allowed_action_kinds:
+          type: array
+          items:
+            type: string
+            maxLength: 64
+          maxItems: 200
+          description: >-
+            Allowlist of action kinds. If non-empty, ONLY these action kinds
+            are permitted for scopes matching this policy. Any action_kind not
+            in the list is DENIED with reason_code ACTION_KIND_NOT_ALLOWED.
+            Mutually exclusive with denied_action_kinds — server MUST reject
+            with 400 INVALID_REQUEST if both are non-empty.
+            Empty array or absent = no allowlist filtering (all kinds permitted
+            unless denied by denied_action_kinds).
+            Values MUST be exact kind strings (no wildcards, no risk_class names).
+        denied_action_kinds:
+          type: array
+          items:
+            type: string
+            maxLength: 64
+          maxItems: 200
+          description: >-
+            Denylist of action kinds. If non-empty, these action kinds are
+            unconditionally DENIED with reason_code ACTION_KIND_DENIED for
+            scopes matching this policy.
+            Mutually exclusive with allowed_action_kinds — server MUST reject
+            with 400 INVALID_REQUEST if both are non-empty.
+            Empty array or absent = no denylist filtering.
+            Values MUST be exact kind strings (no wildcards, no risk_class names).
+            Evaluated BEFORE quota checks and budget checks (see evaluation
+            order in cycles-protocol-extensions-v0.1.26.yaml).
+
+    # EXTENDS: PolicyCreateRequest (governance spec)
+    PolicyCreateRequestExtension:
+      type: object
+      description: >-
+        Additive extension to PolicyCreateRequest. Same action_quotas,
+        risk_class_quotas, allowed_action_kinds, and denied_action_kinds
+        fields as PolicyExtension.
+      properties:
+        action_quotas:
+          type: array
+          items:
+            type: object
+            description: See ActionQuota in cycles-action-kinds-v0.1.26.yaml.
+          maxItems: 50
+        risk_class_quotas:
+          type: array
+          items:
+            type: object
+            description: See RiskClassQuota in cycles-action-kinds-v0.1.26.yaml.
+          maxItems: 20
+        allowed_action_kinds:
+          type: array
+          items:
+            type: string
+            maxLength: 64
+          maxItems: 200
+          description: See PolicyExtension.allowed_action_kinds.
+        denied_action_kinds:
+          type: array
+          items:
+            type: string
+            maxLength: 64
+          maxItems: 200
+          description: See PolicyExtension.denied_action_kinds.
+
+    # PATCH body extension for PATCH /v1/admin/policies/{policy_id}
+    PolicyPatchExtension:
+      type: object
+      description: >-
+        Additive extension to the PATCH /v1/admin/policies/{policy_id} body.
+        Implementations MUST accept these fields in the existing updatePolicy PATCH.
+        Missing = no change (standard partial-update semantics).
+        When present: REPLACES the existing list entirely.
+        Send field: [] to clear. Absent = no change.
+
+        NOTE ON additionalProperties:
+          Intentionally omitted. This is a documentation fragment, not a
+          standalone validation schema. Using additionalProperties: false here
+          in an allOf composition would cause validators to reject base fields.
+
+        COUNTER CONTINUITY:
+          Quota changes take effect on the NEXT reservation evaluation.
+          Existing per_run counters continue accumulating against new limits.
+          Counters NOT reset when limits change.
+
+        MUTUAL EXCLUSIVITY:
+          Server MUST reject with 400 INVALID_REQUEST if both
+          allowed_action_kinds and denied_action_kinds are set to non-empty
+          arrays in the same request. Clearing one (setting to []) while
+          setting the other is allowed.
+
+        EVENTS: emits policy.updated with changed_fields listing all
+          modified fields (e.g., ["action_quotas", "risk_class_quotas",
+          "allowed_action_kinds"]).
+      properties:
+        action_quotas:
+          type: array
+          items:
+            type: object
+            description: See ActionQuota in cycles-action-kinds-v0.1.26.yaml.
+          maxItems: 50
+          description: Replacement list. Send [] to remove all. Absent = no change.
+        risk_class_quotas:
+          type: array
+          items:
+            type: object
+            description: See RiskClassQuota in cycles-action-kinds-v0.1.26.yaml.
+          maxItems: 20
+          description: Replacement list. Send [] to remove all. Absent = no change.
+        allowed_action_kinds:
+          type: array
+          items:
+            type: string
+            maxLength: 64
+          maxItems: 200
+          description: >-
+            Replacement list. Send [] to clear. Absent = no change.
+            Mutually exclusive with denied_action_kinds (see above).
+        denied_action_kinds:
+          type: array
+          items:
+            type: string
+            maxLength: 64
+          maxItems: 200
+          description: >-
+            Replacement list. Send [] to clear. Absent = no change.
+            Mutually exclusive with allowed_action_kinds (see above).
+
+    # -------------------------------------------------------------------------
+    # TENANT EXTENSIONS
+    # -------------------------------------------------------------------------
+
+    # EXTENDS: Tenant (governance spec)
+    TenantExtension:
+      type: object
+      description: >-
+        Additive extension to the Tenant schema.
+        observe_mode sets the default observation mode for all reservations.
+        Per-request observe_mode (protocol extension) overrides this.
+        Default: ENFORCE — no behavior change for existing tenants.
+
+        NOTE ON ObserveModeEnum:
+          The enum values [DISABLED, OBSERVE, ENFORCE] are mirrored inline here
+          for companion-spec portability. The canonical semantic definition lives
+          in cycles-protocol-extensions-v0.1.26.yaml (ObserveModeEnum schema).
+          In a future merged spec, this field should reference ObserveModeEnum
+          via $ref rather than repeating the values.
+      properties:
+        observe_mode:
+          type: string
+          enum: [DISABLED, OBSERVE, ENFORCE]
+          default: ENFORCE
+          description: >-
+            ENFORCE: normal enforcement (default, v0.1.25 behavior).
+            OBSERVE: all reservations dry-run; observed_denied emitted on DENY,
+              observed_allowed emitted on ALLOW/ALLOW_WITH_CAPS.
+            DISABLED: alias for ENFORCE.
+
+    # PATCH body extension for PATCH /v1/admin/tenants/{tenant_id}
+    TenantPatchExtension:
+      type: object
+      description: >-
+        Additive extension to the PATCH /v1/admin/tenants/{tenant_id} body.
+        Implementations MUST accept observe_mode in the existing updateTenant PATCH.
+        Missing = no change (standard partial-update semantics).
+
+        NOTE ON enum mirroring:
+          observe_mode enum values [DISABLED, OBSERVE, ENFORCE] are mirrored
+          inline for companion-spec portability. See TenantExtension.
+
+        NOTE ON additionalProperties:
+          Intentionally omitted — documentation fragment only. See PolicyPatchExtension.
+
+        TRANSITION SEMANTICS:
+          ENFORCE → OBSERVE: Subsequent reservations evaluate in dry_run mode.
+            In-flight ACTIVE reservations complete under ENFORCE (unaffected).
+          OBSERVE → ENFORCE: Reservations immediately resume enforcement.
+            No backfill of previously observed-denied events.
+          DISABLED is an alias for ENFORCE.
+
+        EVENTS: emits tenant.settings_changed with changed_fields: ["observe_mode"].
+      properties:
+        observe_mode:
+          type: string
+          enum: [DISABLED, OBSERVE, ENFORCE]
+          description: New observe mode. Absent = no change.
+
+    # -------------------------------------------------------------------------
+    # PERMISSION EXTENSION
+    # -------------------------------------------------------------------------
+
+    # EXTENDS: Permission enum (governance spec v0.1.25.7)
+    PermissionExtension:
+      type: string
+      description: >-
+        Extended Permission enum. Adds action_quotas:read as a RESERVED
+        placeholder for v0.1.27+.
+
+        In v0.1.26, action_quotas:read is NOT enforced. The quota counter
+        endpoint (GET /v1/admin/action-quota-counters) uses balances:read.
+        This is intentional and temporary — reusing balances:read avoids
+        a permission migration for existing API keys.
+
+        FUTURE (v0.1.27+):
+          action_quotas:read will grant finer access to quota observability
+          endpoints independently of balances:read. Servers will accept either
+          for backward compatibility, then deprecate the balances:read fallback.
+
+        Servers MUST NOT enforce action_quotas:read in v0.1.26 — it is reserved
+        to prevent future name collision with custom permissions.
+      enum:
+        # All v0.1.25.7 permissions (unchanged):
+        - 'reservations:create'
+        - 'reservations:commit'
+        - 'reservations:release'
+        - 'reservations:extend'
+        - 'reservations:list'
+        - 'balances:read'
+        - 'budgets:read'
+        - 'budgets:write'
+        - 'policies:read'
+        - 'policies:write'
+        - 'webhooks:read'
+        - 'webhooks:write'
+        - 'events:read'
+        - 'admin:read'
+        - 'admin:write'
+        - 'admin:tenants:read'
+        - 'admin:tenants:write'
+        - 'admin:budgets:read'
+        - 'admin:budgets:write'
+        - 'admin:policies:read'
+        - 'admin:policies:write'
+        - 'admin:apikeys:read'
+        - 'admin:apikeys:write'
+        - 'admin:webhooks:read'
+        - 'admin:webhooks:write'
+        - 'admin:events:read'
+        - 'admin:audit:read'
+        # NEW in v0.1.26 — RESERVED, not yet enforced:
+        - 'action_quotas:read'
+
+paths:
+
+  /v1/admin/tenants/{tenant_id}:
+    patch:
+      tags: [Tenants]
+      operationId: updateTenantObserveMode
+      summary: "Extended: PATCH tenant — adds observe_mode (v0.1.26)"
+      description: >-
+        Extends PATCH /v1/admin/tenants/{tenant_id} from the governance spec.
+        All existing fields unchanged. observe_mode added with partial-update semantics.
+        AUTHORIZATION: AdminKeyAuth (unchanged).
+        BACKWARD COMPATIBILITY: requests omitting observe_mode are identical to v0.1.25.
+      security:
+        - AdminKeyAuth: []
+      parameters:
+        - name: tenant_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - type: object
+                  description: Existing v0.1.25.7 updateTenant fields (unchanged)
+                  properties:
+                    name:
+                      type: string
+                    status:
+                      type: string
+                      enum: [ACTIVE, SUSPENDED, CLOSED]
+                    metadata:
+                      type: object
+                    default_commit_overage_policy:
+                      type: string
+                      enum: [REJECT, ALLOW_IF_AVAILABLE, ALLOW_WITH_OVERDRAFT]
+                    default_reservation_ttl_ms:
+                      type: integer
+                    max_reservation_ttl_ms:
+                      type: integer
+                    max_reservation_extensions:
+                      type: integer
+                - $ref: '#/components/schemas/TenantPatchExtension'
+      responses:
+        "200":
+          description: Tenant updated (observe_mode reflected in response)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - type: object
+                    description: Existing Tenant schema fields
+                  - $ref: '#/components/schemas/TenantExtension'
+        "400":
+          description: "Invalid observe_mode value or malformed request body"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "401":
+          description: "Missing or invalid admin API key"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "404":
+          description: "Tenant not found"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/admin/policies/{policy_id}:
+    patch:
+      tags: [Policies]
+      operationId: updatePolicyActionQuotas
+      summary: "Extended: PATCH policy — adds quotas and access control (v0.1.26)"
+      description: >-
+        Extends PATCH /v1/admin/policies/{policy_id} from the governance spec.
+        All existing fields unchanged. Adds action_quotas, risk_class_quotas,
+        allowed_action_kinds, and denied_action_kinds with replacement semantics.
+        AUTHORIZATION: ApiKeyAuth with policies:write (unchanged).
+        BACKWARD COMPATIBILITY: requests omitting new fields are identical to v0.1.25.
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: policy_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - type: object
+                  description: Existing v0.1.25.7 updatePolicy fields (unchanged)
+                  properties:
+                    name:
+                      type: string
+                    description:
+                      type: string
+                    priority:
+                      type: integer
+                    caps:
+                      type: object
+                    commit_overage_policy:
+                      type: string
+                    reservation_ttl_override:
+                      type: object
+                    rate_limits:
+                      type: object
+                    effective_from:
+                      type: string
+                      format: date-time
+                    effective_until:
+                      type: string
+                      format: date-time
+                    status:
+                      type: string
+                      enum: [ACTIVE, DISABLED]
+                - $ref: '#/components/schemas/PolicyPatchExtension'
+      responses:
+        "200":
+          description: Policy updated (action_quotas, risk_class_quotas, allowed_action_kinds, denied_action_kinds reflected in response)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - type: object
+                    description: Existing Policy schema fields
+                  - $ref: '#/components/schemas/PolicyExtension'
+        "400":
+          description: "Invalid request: action_kind not in registry and not a custom.* kind, missing window, per_run_counter_ttl_ms on non-per_run window, both allowed_action_kinds and denied_action_kinds non-empty (mutually exclusive), etc."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "401":
+          description: "Missing or invalid API key"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "403":
+          description: "API key lacks policies:write permission or scope_filter denies access"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "404":
+          description: "Policy not found"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
