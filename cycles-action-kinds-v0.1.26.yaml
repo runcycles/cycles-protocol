@@ -48,7 +48,9 @@ info:
           The governance extension spec references ActionQuota by description;
           a future merged spec would use $ref.
         - Admin auth: GET /v1/admin/action-quota-counters uses AdminKeyAuth
-          and the balances:read permission, both defined in the governance spec.
+          or ApiKeyAuth with action_quotas:read (primary) or balances:read
+          (deprecated fallback for v0.1.26, removed in v0.1.27). Permission
+          definitions live in the governance extension spec.
       These are integration points, not schema dependencies. This spec can be
       read and implemented independently, but implementers MUST also read the
       runtime and governance specs to wire the integration points correctly.

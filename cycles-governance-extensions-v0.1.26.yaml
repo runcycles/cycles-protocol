@@ -9,8 +9,10 @@ info:
     Additive extensions to cycles-governance-admin-v0.1.25.yaml (v0.1.25.7).
     Adds action_quotas, risk_class_quotas, allowed_action_kinds, and
     denied_action_kinds to Policy; observe_mode to Tenant; completes the
-    PATCH bodies for both; and reserves action_quotas:read in the Permission
-    enum. Governance/admin plane only — no runtime enforcement or registry content.
+    PATCH bodies for both; and adds action_quotas:read to the Permission
+    enum (enforced in v0.1.26 with balances:read fallback, fallback
+    removed in v0.1.27).
+    Governance/admin plane only — no runtime enforcement or registry content.
   description: |-
     EXTENSION CONTRACT (NORMATIVE):
       Strict superset of cycles-governance-admin-v0.1.25.yaml v0.1.25.7.
