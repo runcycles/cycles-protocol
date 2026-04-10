@@ -546,7 +546,7 @@ paths:
                     description: Existing Policy schema fields
                   - $ref: '#/components/schemas/PolicyExtension'
         "400":
-          description: "Invalid request: action_kind not in registry and not a custom.* kind, missing window, per_run_counter_ttl_ms on non-per_run window, both allowed_action_kinds and denied_action_kinds non-empty (mutually exclusive), etc."
+          description: "Invalid request: unrecognized action_kind (including undeclared custom.* kinds), missing window, per_run_counter_ttl_ms on non-per_run window, both allowed_action_kinds and denied_action_kinds non-empty (mutually exclusive), etc."
           content:
             application/json:
               schema:
