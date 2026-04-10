@@ -6,7 +6,7 @@ info:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Additive extensions to cycles-governance-admin-v0.1.25.yaml (v0.1.25.7).
+    Additive extensions to cycles-governance-admin-v0.1.25.yaml (v0.1.25.8).
     Adds action_quotas, risk_class_quotas, allowed_action_kinds, and
     denied_action_kinds to Policy; observe_mode to Tenant; completes the
     PATCH bodies for both; and adds action_quotas:read to the Permission
@@ -15,13 +15,13 @@ info:
     Governance/admin plane only — no runtime enforcement or registry content.
   description: |-
     EXTENSION CONTRACT (NORMATIVE):
-      Strict superset of cycles-governance-admin-v0.1.25.yaml v0.1.25.7.
+      Strict superset of cycles-governance-admin-v0.1.25.yaml v0.1.25.8.
       No existing schema, endpoint, field meaning, or error code changed.
       All new fields are OPTIONAL with no defaults that change existing behavior.
-      Clients built against v0.1.25.7 work unchanged.
+      Clients built against v0.1.25.8 work unchanged.
 
     BASE SPEC:
-      cycles-governance-admin-v0.1.25.yaml v0.1.25.7
+      cycles-governance-admin-v0.1.25.yaml v0.1.25.8
 
     COMPANION SPECS:
       cycles-action-kinds-v0.1.26.yaml — ActionQuota, RiskClassQuota (referenced by PolicyExtension)
@@ -85,60 +85,36 @@ info:
       them. The merge recipe in cycles-spec-index.yaml produces a single
       artifact with the extensions applied to all paths.
 
-    ADMIN OVERVIEW EXTENSIONS (SHOULD-level):
-      The base governance spec defines GET /v1/admin/overview returning
-      AdminOverviewResponse — a single-request dashboard aggregation.
-      v0.1.26 servers SHOULD enrich this response with governance state
-      so dashboards can surface v0.1.26 features from a single call.
+    ADMIN OVERVIEW AND LIST FILTERS (NORMATIVE):
+      The base governance spec v0.1.25.8 added optional dashboard fields
+      to AdminOverviewResponse and new filter query parameters to listTenants
+      and listPolicies. v0.1.26 servers MUST populate these fields/filters
+      with governance state from this extension:
 
-      RECOMMENDED ADDITIONS (SHOULD, not MUST):
-        tenant_counts.in_observe_mode:
-          type: integer
-          description: Count of tenants with observe_mode=OBSERVE. Useful
-            for tracking shadow rollout progress.
+      AdminOverviewResponse.tenant_counts.in_observe_mode:
+        Count of tenants with observe_mode != ENFORCE.
 
-        quota_health:
-          type: object
-          description: Aggregate quota counter health summary.
-          properties:
-            counters_above_80pct:
-              type: integer
-              description: Count of active counters at >=80% of max_calls.
-            counters_at_limit:
-              type: integer
-              description: Count of active counters at 100% of max_calls.
-            top_offenders:
-              type: array
-              maxItems: 10
-              description: Top agents/scopes by quota utilization.
+      AdminOverviewResponse.quota_health:
+        Counter health summary. Populated from action quota counter state.
 
-        recent_denials_by_reason:
-          type: object
-          description: Denial counts broken down by reason_code over
-            event_window_seconds.
-          additionalProperties:
-            type: integer
-          description_example: >-
-            { "BUDGET_EXCEEDED": 12, "ACTION_QUOTA_EXCEEDED": 7,
-              "ACTION_KIND_DENIED": 3, "ACTION_KIND_NOT_ALLOWED": 1 }
+      AdminOverviewResponse.recent_denials_by_reason:
+        Denial count breakdown. v0.1.26 servers MUST include denials with
+        reason_code ACTION_QUOTA_EXCEEDED, ACTION_KIND_DENIED, and
+        ACTION_KIND_NOT_ALLOWED.
 
-        policies_with_access_control:
-          type: integer
-          description: Count of policies with non-empty allowed_action_kinds
-            or denied_action_kinds.
+      AdminOverviewResponse.access_control_stats:
+        Policies with allow/deny lists count. Populated from PolicyExtension
+        allowed_action_kinds and denied_action_kinds field contents.
 
-      These fields are SHOULD-level because adding them modifies a base
-      governance schema (AdminOverviewResponse) which is frozen at
-      v0.1.25.7. Servers MAY choose to omit them if their dashboards
-      use alternative aggregation endpoints.
+      listTenants ?observe_mode filter:
+        v0.1.26 servers MUST support this filter. Value is ObserveModeEnum
+        (DISABLED | OBSERVE | ENFORCE).
 
-      NOTE ON observe_mode FILTER:
-        Dashboards frequently need "tenants currently in observe mode."
-        v0.1.26 servers SHOULD support an ?observe_mode=OBSERVE query
-        parameter on GET /v1/admin/tenants to enable server-side filtering
-        without fetching all tenants. This is a SHOULD-level extension to
-        the base listTenants operation; filter implementation is at server
-        discretion until standardized in a future spec version.
+      listPolicies ?has_action_quotas and ?references_action_kind filters:
+        v0.1.26 servers MUST support these filters. has_action_quotas
+        filters to policies with non-empty action_quotas or risk_class_quotas.
+        references_action_kind matches policies whose action_quotas,
+        allowed_action_kinds, or denied_action_kinds mention the given kind.
 
     DEFAULT VALUE SEMANTICS (NORMATIVE):
       On POLICY CREATION (POST /v1/admin/policies):

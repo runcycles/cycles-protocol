@@ -537,62 +537,19 @@ components:
         - quota.threshold_approaching
         - quota.counter_reset
 
-    # EXTENDS: EventDataReservationDenied (governance base spec)
-    EventDataReservationDeniedExtension:
-      type: object
-      description: >-
-        Additive extension to the base EventDataReservationDenied schema.
-        Extends the reason_code enum with v0.1.26 values and adds deny_detail.
-
-        WHY THIS EXISTS:
-          The base EventDataReservationDenied schema has a reason_code enum
-          limited to v0.1.25 values:
-            [BUDGET_EXCEEDED, OVERDRAFT_LIMIT_EXCEEDED, DEBT_OUTSTANDING,
-             BUDGET_FROZEN, BUDGET_CLOSED]
-          A strict OpenAPI validator would reject v0.1.26 denial events
-          emitted with the new reason codes. This extension declares the
-          extended enum and adds a deny_detail field so dashboards and
-          event consumers can filter denials by the full v0.1.26 reason
-          code set and see operator-grade context (which policy caused the
-          denial, which quota was violated) without joining against other
-          data sources.
-
-          This mirrors the observed_denied event structure for consistency
-          between ENFORCE and OBSERVE mode dashboards.
-
-        IMPLEMENTATION RULE (NORMATIVE):
-          v0.1.26 servers MUST emit reservation.denied events with:
-            - reason_code from the extended enum (includes v0.1.26 values)
-            - deny_detail populated (same structure as DecisionResponse.deny_detail)
-          Servers MUST NOT omit deny_detail from v0.1.26 reservation.denied
-          events; dashboards depend on it for operational visibility.
-
-        DEDUPLICATION: consumers MUST deduplicate on event_id.
-      properties:
-        reason_code:
-          type: string
-          enum:
-            # v0.1.25 values (preserved):
-            - BUDGET_EXCEEDED
-            - OVERDRAFT_LIMIT_EXCEEDED
-            - DEBT_OUTSTANDING
-            - BUDGET_FROZEN
-            - BUDGET_CLOSED
-            # NEW in v0.1.26:
-            - ACTION_QUOTA_EXCEEDED
-            - ACTION_KIND_DENIED
-            - ACTION_KIND_NOT_ALLOWED
-          description: >-
-            Extended reason_code enum. Servers MUST populate this field
-            with the actual denial reason, including v0.1.26 values when
-            applicable.
-        deny_detail:
-          $ref: '#/components/schemas/DenyDetail'
-          description: >-
-            MUST be populated on v0.1.26 reservation.denied events.
-            Provides full operator-grade context: quota_violation (if
-            applicable), blocked_by_policy, blocked_by_scope, suggested_fix,
-            budget_remaining.
+    # NOTE: EventDataReservationDeniedExtension was removed when the base
+    # governance spec (v0.1.25.8) was updated to:
+    #   - Open the reason_code enum (now an open string, not closed enum)
+    #   - Add policy_id field
+    #   - Add deny_detail field (generic object)
+    # v0.1.26 servers populate the base fields directly:
+    #   - reason_code: any value including ACTION_QUOTA_EXCEEDED,
+    #     ACTION_KIND_DENIED, ACTION_KIND_NOT_ALLOWED
+    #   - deny_detail: serialized DenyDetail (see below) as a generic object
+    # v0.1.26 NORMATIVE REQUIREMENT: servers MUST populate deny_detail on
+    # every reservation.denied event, with structure matching the DenyDetail
+    # schema defined below (reason_code, quota_violation, blocked_by_scope,
+    # blocked_by_policy, suggested_fix, budget_remaining).
 
     EventDataObservedDenied:
       type: object

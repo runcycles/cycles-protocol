@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.7
+  version: 0.1.25.8
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Stable governance base (v0.1.25.7). Serves as the base for the Cycles
+    Stable governance base (v0.1.25.8). Serves as the base for the Cycles
     Protocol v0.1.26 spec family. Covers tenant management, authentication,
     and runtime enforcement. NOTE: This file alone is NOT sufficient for
     v0.1.26 admin tooling — use the merged artifact or read with the
@@ -14,7 +14,7 @@ info:
   description: |-
     SPEC FAMILY CONTEXT (v0.1.26):
       This is the STABLE GOVERNANCE BASE for the Cycles Protocol v0.1.26
-      family. It is intentionally frozen at v0.1.25.7 — new capabilities
+      family. It is intentionally frozen at v0.1.25.8 — new capabilities
       (action quotas, risk-class quotas, access control lists, tenant
       observe_mode, action_quotas:read permission) are delivered via
       cycles-governance-extensions-v0.1.26.yaml as additive extensions.
@@ -72,6 +72,45 @@ info:
       - Federated: Multiple runtime enforcement instances, shared admin plane
 
     CHANGELOG:
+      v0.1.25.8 (2026-04-10):
+        - Dashboard and observability hardening for v0.1.26 readiness.
+          All changes are additive and backward compatible with v0.1.25.7.
+        - EventDataReservationDenied extensibility:
+          * reason_code enum changed from closed to open (string with
+            known values documented). Servers MAY emit extension reason
+            codes; strict validators that previously rejected unknown
+            values now accept them.
+          * Added optional policy_id field — identifies which policy
+            caused the denial when applicable. Backfills a long-standing
+            dashboard gap (could not filter denials by policy).
+          * Added optional deny_detail field (generic object) for
+            operator-grade context. Extensions (e.g., v0.1.26) populate
+            this with structured detail like quota_violation,
+            blocked_by_policy, blocked_by_scope, suggested_fix.
+        - AdminOverviewResponse dashboard enrichments (all optional):
+          * tenant_counts.in_observe_mode — count of tenants in shadow
+            mode (requires v0.1.26 observe_mode extension to populate).
+          * quota_health — aggregate counter health summary (counts at/
+            near limit, top offenders). Populated by v0.1.26 servers.
+          * recent_denials_by_reason — denial count breakdown by
+            reason_code over the event window.
+          * access_control_stats — count of policies with allow/deny
+            lists configured.
+        - Query parameter additions (additive, ignored by v0.1.25.7 servers):
+          * listTenants: observe_mode filter (requires v0.1.26 extension).
+          * listPolicies: has_action_quotas and references_action_kind
+            filters (require v0.1.26 extension).
+        - Backward compatibility: All v0.1.25.7 clients and servers
+          continue to work unchanged. New optional fields are absent
+          in responses from v0.1.25.7 servers. New query parameters
+          are ignored by v0.1.25.7 servers.
+        - Relationship to v0.1.26 extensions:
+          * The v0.1.26 governance extension no longer needs to declare
+            EventDataReservationDeniedExtension; it uses the now-open
+            base schema directly.
+          * The v0.1.26 governance extension's AdminOverviewResponse
+            guidance is now codified in the base as optional fields.
+
       v0.1.25 (2026-03-31):
         - Added Pillar 4: Events & Webhooks (Observability Plane).
         - Added 29 new schemas:
@@ -1559,6 +1598,14 @@ components:
       type: object
       description: >-
         Payload for reservation.denied events.
+
+        EXTENSIBILITY (v0.1.25.8):
+          reason_code is an OPEN string (not a closed enum) so future
+          extensions can add new values without breaking validators.
+          deny_detail is an optional generic object populated by
+          extensions (e.g., v0.1.26) with operator-grade structured
+          context: quota_violation, blocked_by_policy, blocked_by_scope,
+          suggested_fix, budget_remaining.
       properties:
         scope:
           type: string
@@ -1566,7 +1613,18 @@ components:
           $ref: '#/components/schemas/UnitEnum'
         reason_code:
           type: string
-          enum: [BUDGET_EXCEEDED, OVERDRAFT_LIMIT_EXCEEDED, DEBT_OUTSTANDING, BUDGET_FROZEN, BUDGET_CLOSED]
+          maxLength: 128
+          description: >-
+            Denial reason code. Open string to permit extensions.
+            Known values (v0.1.25):
+              BUDGET_EXCEEDED, OVERDRAFT_LIMIT_EXCEEDED, DEBT_OUTSTANDING,
+              BUDGET_FROZEN, BUDGET_CLOSED.
+            Additional known values from v0.1.26 extensions:
+              ACTION_QUOTA_EXCEEDED, ACTION_KIND_DENIED,
+              ACTION_KIND_NOT_ALLOWED.
+            Future extensions MAY add more values. Consumers MUST
+            gracefully handle unrecognized values (e.g., log and
+            display as-is without throwing).
         requested_amount:
           type: integer
           format: int64
@@ -1579,6 +1637,29 @@ components:
         subject:
           type: object
           description: The subject context (from the reservation request)
+        policy_id:
+          type: string
+          maxLength: 256
+          description: >-
+            Optional. When populated, identifies the policy that caused
+            the denial. Enables dashboards to filter denials by policy
+            and attribute denial volume to specific policy rules.
+            Absent when no specific policy is responsible (e.g., tenant
+            suspension) or when the server does not track policy
+            attribution for denials.
+        deny_detail:
+          type: object
+          additionalProperties: true
+          description: >-
+            Optional. Extension-defined structured context about the denial.
+            v0.1.26 servers populate this with DenyDetail fields:
+              reason_code (echoed),
+              quota_violation (object with action_kind, window, used, limit),
+              blocked_by_policy, blocked_by_scope, suggested_fix,
+              budget_remaining.
+            Consumers SHOULD check the spec version and known extensions
+            to interpret this object's contents. Unknown fields MUST
+            be preserved (for audit) and MAY be ignored for display.
 
     EventDataReservationExpired:
       type: object
@@ -2266,6 +2347,13 @@ components:
             active: { type: integer }
             suspended: { type: integer }
             closed: { type: integer }
+            in_observe_mode:
+              type: integer
+              description: >-
+                Optional (v0.1.25.8). Count of tenants with observe_mode
+                set to a non-ENFORCE value. Only populated by v0.1.26+
+                servers that implement the observe_mode extension.
+                Useful for tracking shadow rollout progress.
         budget_counts:
           type: object
           required: [total, active, frozen, closed, over_limit, with_debt, by_unit]
@@ -2354,6 +2442,63 @@ components:
           description: Most recent reservation.expired events within the window
           items:
             $ref: '#/components/schemas/Event'
+        recent_denials_by_reason:
+          type: object
+          additionalProperties:
+            type: integer
+          description: >-
+            Optional (v0.1.25.8). Denial count breakdown by reason_code
+            over event_window_seconds. Keys are reason_code strings
+            (e.g., "BUDGET_EXCEEDED", "ACTION_QUOTA_EXCEEDED"), values
+            are counts. Enables dashboards to show a "top denials by
+            reason" chart from a single overview call.
+            Example: { "BUDGET_EXCEEDED": 12, "ACTION_QUOTA_EXCEEDED": 7 }
+        quota_health:
+          type: object
+          description: >-
+            Optional (v0.1.25.8). Aggregate quota counter health summary.
+            Only populated by v0.1.26+ servers that implement action quotas.
+            Enables dashboards to show quota utilization at a glance.
+          additionalProperties: false
+          properties:
+            counters_above_80pct:
+              type: integer
+              description: Count of active counters at >=80% of max_calls.
+            counters_at_limit:
+              type: integer
+              description: Count of active counters at 100% of max_calls.
+            top_offenders:
+              type: array
+              maxItems: 10
+              description: Top agents/scopes by quota utilization.
+              items:
+                type: object
+                additionalProperties: false
+                required: [scope, action_kind, used, limit]
+                properties:
+                  scope: { type: string }
+                  action_kind: { type: string }
+                  window: { type: string }
+                  used: { type: integer, format: int64 }
+                  limit: { type: integer, format: int64 }
+                  utilization_pct:
+                    type: number
+                    format: double
+                    description: used/limit ratio for display.
+        access_control_stats:
+          type: object
+          description: >-
+            Optional (v0.1.25.8). Access control configuration summary.
+            Only populated by v0.1.26+ servers that implement action-kind
+            allow/deny lists on policies.
+          additionalProperties: false
+          properties:
+            policies_with_allow_list:
+              type: integer
+              description: Count of policies with a non-empty allowlist.
+            policies_with_deny_list:
+              type: integer
+              description: Count of policies with a non-empty denylist.
 
     AuthIntrospectResponse:
       type: object
@@ -2471,6 +2616,15 @@ paths:
             enum: [ACTIVE, SUSPENDED, CLOSED]
         - name: parent_tenant_id
           in: query
+          schema:
+            type: string
+        - name: observe_mode
+          in: query
+          description: >-
+            Optional (v0.1.25.8). Filter by tenant observe_mode value.
+            Only meaningful on v0.1.26+ servers that implement the
+            observe_mode extension. v0.1.25.7 servers MUST ignore this
+            parameter without error.
           schema:
             type: string
         - name: cursor
@@ -3181,6 +3335,26 @@ paths:
           schema:
             type: string
             enum: [ACTIVE, DISABLED]
+        - name: has_action_quotas
+          in: query
+          description: >-
+            Optional (v0.1.25.8). Filter to policies that have at least
+            one action quota configured. Only meaningful on v0.1.26+
+            servers. v0.1.25.7 servers MUST ignore this parameter
+            without error.
+          schema:
+            type: boolean
+        - name: references_action_kind
+          in: query
+          description: >-
+            Optional (v0.1.25.8). Filter to policies that mention the
+            given action_kind in any quota rule or access control list.
+            Enables incident investigation ("which policies block
+            payment.charge?"). Only meaningful on v0.1.26+ servers.
+            v0.1.25.7 servers MUST ignore this parameter without error.
+          schema:
+            type: string
+            maxLength: 64
         - name: cursor
           in: query
           schema:
