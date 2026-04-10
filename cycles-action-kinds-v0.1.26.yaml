@@ -80,6 +80,9 @@ info:
       See also the governance extension spec for Policy.risk_class_quotas.
 
     PER_RUN COUNTER LIFECYCLE (NORMATIVE):
+      Applies to BOTH per-kind counters (ActionQuota with window=per_run)
+      AND risk-class counters (RiskClassQuota with window=per_run).
+      The lifecycle is identical for both counter types.
       INCREMENT (+1): at reserve time, atomically with the budget check.
       NO CHANGE: at commit time. Committed calls permanently count.
       DECREMENT (-1): at release time (cancelled / failed call).
@@ -462,6 +465,10 @@ components:
 
         ATOMICITY: counter increments atomically with per-kind counters and
         budget balance. All in the same atomic Lua block. See info.description.
+
+        PER_RUN LIFECYCLE: when window=per_run, risk-class counters follow
+        the same increment/decrement/auto-expiry lifecycle as per-kind
+        counters. See PER_RUN COUNTER LIFECYCLE in info.description.
       required: [risk_class, max_calls, window]
       additionalProperties: false
       properties:

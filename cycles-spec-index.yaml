@@ -353,6 +353,27 @@ publication_model_summary:
       - cycles-governance-extensions-v0.1.26.yaml (how to attach quotas to policies)
 
 # ---------------------------------------------------------------------------
+# IMPLEMENTATION RESOURCES (non-normative)
+# ---------------------------------------------------------------------------
+
+implementation_resources:
+  description: >-
+    Non-normative implementation aids. The OpenAPI specs above are authoritative.
+    These resources help implementers build correct servers faster.
+  files:
+    - file: impl/reserve-lua-pseudocode.md
+      description: >-
+        Pseudocode for the 5-step reservation evaluation path (access control,
+        risk-class quotas, per-kind quotas, budget checks, atomic commit).
+        Covers counter increment/decrement lifecycle and threshold detection.
+    - file: impl/test-vectors.yaml
+      description: >-
+        11 reference request/response pairs covering: happy path ALLOW,
+        ACTION_KIND_DENIED, ACTION_KIND_NOT_ALLOWED, risk-class quota deny,
+        per-kind quota deny, budget exceeded, observe mode deny/allow,
+        threshold crossing, per-request observe override, burst protection.
+
+# ---------------------------------------------------------------------------
 # REGISTRY GOVERNANCE (future work)
 # ---------------------------------------------------------------------------
 
