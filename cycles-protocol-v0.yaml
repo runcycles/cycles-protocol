@@ -57,7 +57,12 @@ info:
           (a) reserve — estimate.unit does not match any budget stored for the derived scopes,
               but at least one of those scopes has a budget in a different unit;
           (b) commit — actual.unit differs from the reservation's estimate.unit;
-          (c) event — actual.unit does not match the budget stored for the target scope.
+          (c) event — actual.unit does not match the budget stored for the target scope;
+          (d) decide — estimate.unit does not match any budget stored for the derived scopes,
+              but at least one of those scopes has a budget in a different unit. This is an
+              exception to /decide's general "return decision=DENY (200) without 4xx" pattern,
+              which applies only to budget-state conditions (debt, overdraft, insufficient
+              remaining), not request-validity errors like a wrong unit.
         When the cause is a wrong unit (rather than the absence of any budget at the scope),
         servers SHOULD populate the error response's `details` object with:
           - `scope` — the canonical scope identifier where the mismatch was detected
