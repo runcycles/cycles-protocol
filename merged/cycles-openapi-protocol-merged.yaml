@@ -1902,6 +1902,19 @@ paths:
           $ref: '#/components/responses/ErrorResponse'
         '403':
           $ref: '#/components/responses/ErrorResponse'
+        '404':
+          description: BUDGET_NOT_FOUND — no budget exists at any of the reservation's derived scopes
+            in any unit. Distinct from 400 UNIT_MISMATCH (a budget exists at the scope but in a different
+            unit).
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+            X-Cycles-Tenant:
+              $ref: '#/components/headers/X-Cycles-Tenant'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '409':
           $ref: '#/components/responses/ErrorResponse'
         '500':
@@ -2263,6 +2276,18 @@ paths:
           $ref: '#/components/responses/ErrorResponse'
         '403':
           $ref: '#/components/responses/ErrorResponse'
+        '404':
+          description: BUDGET_NOT_FOUND — no budget exists at any of the event's derived scopes in any
+            unit. Distinct from 400 UNIT_MISMATCH (a budget exists at the scope but in a different unit).
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+            X-Cycles-Tenant:
+              $ref: '#/components/headers/X-Cycles-Tenant'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '409':
           $ref: '#/components/responses/ErrorResponse'
         '500':

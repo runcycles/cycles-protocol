@@ -53,7 +53,23 @@ info:
         (commit/release: beyond expires_at_ms + grace_period_ms; extend: beyond expires_at_ms).
       - Reservations that never existed MUST return HTTP 404 with error=NOT_FOUND.
       - HTTP 429 is reserved for server-side throttling/rate limiting (optional in v0), not deterministic budget exhaustion.
-      - Unit mismatch on commit (actual.unit ≠ reservation unit) or event (actual.unit not supported for the target scope) MUST return HTTP 400 with error=UNIT_MISMATCH.
+      - Unit mismatch MUST return HTTP 400 with error=UNIT_MISMATCH in any of these cases:
+          (a) reserve — estimate.unit does not match any budget stored for the derived scopes,
+              but at least one of those scopes has a budget in a different unit;
+          (b) commit — actual.unit differs from the reservation's estimate.unit;
+          (c) event — actual.unit does not match the budget stored for the target scope;
+          (d) decide — estimate.unit does not match any budget stored for the derived scopes,
+              but at least one of those scopes has a budget in a different unit. This is an
+              exception to /decide's general "return decision=DENY (200) without 4xx" pattern,
+              which applies only to budget-state conditions (debt, overdraft, insufficient
+              remaining), not request-validity errors like a wrong unit.
+        When the cause is a wrong unit (rather than the absence of any budget at the scope),
+        servers SHOULD populate the error response's `details` object with:
+          - `scope` — the canonical scope identifier where the mismatch was detected
+          - `requested_unit` — the unit supplied by the client
+          - `expected_units` — array of units for which a budget does exist at that scope
+        so clients can self-correct without a separate lookup. BUDGET_NOT_FOUND (404) is
+        reserved for the case where the target scope has no budget in ANY unit.
       - For expiry comparisons, “now” refers to server time (not client-provided time).
       - When is_over_limit=true, server MUST return 409 OVERDRAFT_LIMIT_EXCEEDED for new reservations. 
         This takes precedence over DEBT_OUTSTANDING even when debt > 0.
@@ -1196,6 +1212,16 @@ paths:
         "400": {$ref: '#/components/responses/ErrorResponse'}
         "401": {$ref: '#/components/responses/ErrorResponse'}
         "403": {$ref: '#/components/responses/ErrorResponse'}
+        "404":
+          description: >-
+            BUDGET_NOT_FOUND — no budget exists at any of the reservation's derived scopes in any unit.
+            Distinct from 400 UNIT_MISMATCH (a budget exists at the scope but in a different unit).
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/X-Request-Id'}
+            X-Cycles-Tenant: {$ref: '#/components/headers/X-Cycles-Tenant'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
         "409": {$ref: '#/components/responses/ErrorResponse'}
         "500": {$ref: '#/components/responses/ErrorResponse'}
     get:
@@ -1515,5 +1541,15 @@ paths:
         "400": {$ref: '#/components/responses/ErrorResponse'}
         "401": {$ref: '#/components/responses/ErrorResponse'}
         "403": {$ref: '#/components/responses/ErrorResponse'}
+        "404":
+          description: >-
+            BUDGET_NOT_FOUND — no budget exists at any of the event's derived scopes in any unit.
+            Distinct from 400 UNIT_MISMATCH (a budget exists at the scope but in a different unit).
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/X-Request-Id'}
+            X-Cycles-Tenant: {$ref: '#/components/headers/X-Cycles-Tenant'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
         "409": {$ref: '#/components/responses/ErrorResponse'}
         "500": {$ref: '#/components/responses/ErrorResponse'}
