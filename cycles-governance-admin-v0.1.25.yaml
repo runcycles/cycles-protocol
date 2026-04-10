@@ -6,9 +6,33 @@ info:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Complete budget governance protocol covering tenant management, authentication, 
-    and runtime enforcement (aligned with Cycles Protocol v0.1.24).
+    Stable governance base (v0.1.25.7). Serves as the base for the Cycles
+    Protocol v0.1.26 spec family. Covers tenant management, authentication,
+    and runtime enforcement. NOTE: This file alone is NOT sufficient for
+    v0.1.26 admin tooling — use the merged artifact or read with the
+    governance extension spec. See cycles-spec-index.yaml.
   description: |-
+    SPEC FAMILY CONTEXT (v0.1.26):
+      This is the STABLE GOVERNANCE BASE for the Cycles Protocol v0.1.26
+      family. It is intentionally frozen at v0.1.25.7 — new capabilities
+      (action quotas, risk-class quotas, access control lists, tenant
+      observe_mode, action_quotas:read permission) are delivered via
+      cycles-governance-extensions-v0.1.26.yaml as additive extensions.
+
+      This file ALONE is NOT sufficient for v0.1.26 admin tooling,
+      SDK codegen, or strict response validators. It exposes Policy,
+      PolicyCreateRequest, and Tenant in their v0.1.25.7 shapes without
+      the v0.1.26 additions.
+
+      For v0.1.26 admin tooling, use one of:
+        - Read this file together with cycles-governance-extensions-v0.1.26.yaml
+          and apply the extension manually (small tooling footprint).
+        - Build cycles-openapi-full-merged.yaml via the full_merged recipe
+          in cycles-spec-index.yaml (SDK codegen, validators, OpenAPI tooling).
+
+      This companion-spec design keeps the base stable across v0.1.x
+      releases while allowing extensions to evolve independently.
+
     PURPOSE:
       This specification defines a complete, interoperable budget governance system
       with four integrated pillars:
