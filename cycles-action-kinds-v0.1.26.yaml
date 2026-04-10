@@ -1091,7 +1091,7 @@ x-action-kind-registry:
       description: Read a file from local or shared storage
       policy_key_spec:
         path_prefix: true
-      mcp_tool_prefixes: ["read_file", "file_read", "get_file", "download_file"]
+      mcp_tool_prefixes: ["read_file", "file_read", "get_file", "open_file"]
 
     - kind: file.write
       risk_class: local_mutation
@@ -1120,7 +1120,7 @@ x-action-kind-registry:
       description: Deploy code to a runtime environment
       policy_key_spec:
         host: true
-      mcp_tool_prefixes: ["deploy_", "publish_", "vercel_deploy", "lambda_deploy"]
+      mcp_tool_prefixes: ["deploy_", "code_publish", "vercel_deploy", "lambda_deploy"]
 
     - kind: code.lint
       risk_class: read_only
