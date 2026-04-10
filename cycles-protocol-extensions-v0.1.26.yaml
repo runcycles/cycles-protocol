@@ -102,6 +102,53 @@ info:
         - Quota threshold events (quota.threshold_approaching) are NOT emitted
           in OBSERVE mode because counters are not incremented.
 
+    POLICY KEYS EVALUATION SEMANTICS (NORMATIVE):
+      Action.policy_keys provides extra routing dimensions for policy matching.
+      ActionPolicyKeys is defined in cycles-action-kinds-v0.1.26.yaml.
+      ActionPolicyKeySpec (per-kind dimension declarations) is defined there too.
+
+      CLIENT POPULATION RULES:
+        - policy_keys is ALWAYS OPTIONAL on the Action object.
+        - Clients SHOULD populate policy_keys when the action kind's
+          policy_key_spec declares relevant dimensions. Example: when calling
+          message.email.send (policy_key_spec: host, recipient_domain),
+          clients SHOULD provide policy_keys.host and
+          policy_keys.recipient_domain if known.
+        - Clients MAY omit policy_keys entirely. Omission is never an error.
+        - Clients MAY send dimensions that the kind's policy_key_spec does
+          not declare. Servers MUST ignore undeclared dimensions (see below).
+
+      SERVER EVALUATION RULES:
+        - When a quota rule has a non-empty allowlist (host_allowlist,
+          recipient_domain_allowlist, resource_type_allowlist), the server
+          MUST match the corresponding policy_keys field against the list.
+        - If the corresponding policy_keys field is ABSENT (client did not
+          provide it) and the quota rule has a non-empty allowlist: the
+          quota rule DOES NOT APPLY to this reservation. The server MUST
+          skip the rule as if the action kind did not match.
+          Rationale: absent keys mean "unknown routing"; applying a
+          host-scoped quota to a request with no host would produce
+          false denials.
+        - If the corresponding policy_keys field IS present and matches
+          an entry in the allowlist: the quota rule applies normally.
+        - If the corresponding policy_keys field IS present but does NOT
+          match any entry in the allowlist: the quota rule DOES NOT APPLY.
+          The allowlist is a positive filter, not a denylist.
+
+      UNDECLARED DIMENSIONS:
+        - If a client sends policy_keys.host but the kind's policy_key_spec
+          does not declare host: true, the server MUST ignore the host
+          value for policy matching purposes. It MUST NOT reject the request.
+        - Servers SHOULD pass through undeclared dimensions in event
+          payloads and deny_detail for operator visibility, even if they
+          are not used for policy matching.
+
+      CUSTOM DIMENSIONS:
+        - policy_keys.custom (map of string→string, max 8 entries) is
+          always accepted. Custom dimensions are not validated against
+          policy_key_spec. They are available for operator-defined policy
+          matching logic but have no built-in evaluation semantics.
+
     RESERVATION EVALUATION ORDER (NORMATIVE):
       Policies evaluated in priority order (highest first). Only the
       highest-priority matching policy's rules apply. The full evaluation
@@ -138,6 +185,10 @@ info:
       STEP 3 — PER-KIND ACTION QUOTAS:
         For the highest-priority matching policy's action_quotas:
           - Each matching rule's quota counter is checked.
+          - Allowlist filters (host_allowlist, recipient_domain_allowlist,
+            resource_type_allowlist) are evaluated per POLICY KEYS EVALUATION
+            SEMANTICS above. Rules with non-empty allowlists where the
+            corresponding policy_keys field is absent are SKIPPED.
           - First violated rule produces DENY with reason ACTION_QUOTA_EXCEEDED
             and deny_detail.quota_violation populated.
           - If multiple rules violated, server SHOULD return the most restrictive

@@ -111,10 +111,37 @@ info:
     ATOMICITY WITH BUDGET RESERVATION (NORMATIVE):
       Quota counter increments MUST be atomic with the budget balance
       decrement. A reservation that passes budget checks but fails quota
-      checks MUST NOT modify any balance. Implementation: extend reserve.lua
-      to check and increment quota counters in the same atomic Lua block.
-      Quota counter Redis keys MUST have a TTL for stale-key cleanup, but
-      for calendar-bucket windows the TTL MUST NOT define the quota boundary.
+      checks MUST NOT modify any balance.
+
+      IMPLEMENTATION CONTRACT:
+        Implementations MUST use a CHECK-THEN-COMMIT pattern:
+          PHASE 1 — CHECK (no mutations):
+            Evaluate all checks in order (access control, risk-class quotas,
+            per-kind quotas, budget balance). Read counter values and balance.
+            If ANY check fails: return DENY immediately. No state modified.
+          PHASE 2 — COMMIT (all-or-nothing):
+            Atomically apply ALL mutations in a single transaction:
+              a. Decrement budget balance.
+              b. Increment per-kind quota counter(s) (if applicable).
+              c. Increment risk-class quota counter(s) (if applicable).
+              d. Set/refresh counter TTLs.
+            If the transaction fails (e.g., store error): no partial state
+            is visible. The server MUST return 500 INTERNAL_ERROR.
+            Partial mutation (e.g., balance decremented but counter not
+            incremented) MUST NOT occur.
+
+        For Redis implementations: both phases MUST execute within a single
+        Lua script invocation (Redis guarantees atomic execution of Lua
+        scripts). See impl/reserve-lua-pseudocode.md for reference.
+
+        For non-Redis implementations: both phases MUST execute within a
+        single database transaction with serializable isolation, or an
+        equivalent mechanism that prevents concurrent reads from observing
+        intermediate state.
+
+      COUNTER TTL RULES:
+        Quota counter Redis keys MUST have a TTL for stale-key cleanup, but
+        for calendar-bucket windows the TTL MUST NOT define the quota boundary.
 
     ACTION KIND NORMALIZATION FOR MCP (NORMATIVE):
       The Cycles MCP gateway SHOULD map MCP tool names to registered kinds:
