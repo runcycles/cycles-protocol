@@ -106,7 +106,10 @@ documents:
           Subject.dimensions.run_id required for per_run quotas.
       - governance_base: >-
           ActionQuota is used by Policy.action_quotas (governance extension).
-          Admin auth/permissions for counter endpoint defined in governance base.
+          AdminKeyAuth and ApiKeyAuth security schemes for the counter endpoint
+          come from the governance base; the action_quotas:read permission
+          (with balances:read fallback for v0.1.26) is defined in the
+          governance extension.
     depends_on: []  # no schema imports from other specs
     readers:
       - MCP gateway implementers (action kind normalization)
@@ -269,6 +272,16 @@ merge_recipes:
       - document: governance_extension
         include: all
         merge_strategy:
+          schemas: >-
+            Merge PolicyExtension fields (action_quotas, risk_class_quotas,
+            allowed_action_kinds, denied_action_kinds) into the base Policy
+            schema so GET /v1/admin/policies and GET /v1/admin/policies/{policy_id}
+            return the extended shape.
+            Merge PolicyCreateRequestExtension fields into PolicyCreateRequest
+            so POST /v1/admin/policies accepts the new creation fields.
+            Merge TenantExtension.observe_mode into the base Tenant schema
+            so GET /v1/admin/tenants and GET /v1/admin/tenants/{tenant_id}
+            return the extended shape.
           patch_operations: >-
             Merge action_quotas, risk_class_quotas, allowed_action_kinds,
             denied_action_kinds into the existing updatePolicy PATCH body.
@@ -277,11 +290,23 @@ merge_recipes:
             merge into updateTenant; updatePolicyActionQuotas → merge into
             updatePolicy).
           permissions: add action_quotas:read to Permission enum
+          error_codes: >-
+            Merge ACTION_QUOTA_EXCEEDED, ACTION_KIND_NOT_ALLOWED, and
+            ACTION_KIND_DENIED into the governance base ErrorCode enum.
+          event_types: >-
+            Merge reservation.observed_denied, reservation.observed_allowed,
+            and quota.threshold_approaching into the governance base
+            EventType enum.
     resolution_rules:
       - ErrorResponse is deduplicated (governance_base version is canonical)
       - ObserveModeEnum is defined once (runtime_extension version)
       - PATCH path conflicts resolved by merging request bodies, not duplicating paths
+      - Policy schema: governance_base Policy + PolicyExtension fields (no conflict)
+      - PolicyCreateRequest schema: governance_base + PolicyCreateRequestExtension
+      - Tenant schema: governance_base Tenant + TenantExtension.observe_mode
       - Permission enum: governance_base values + action_quotas:read from extension
+      - Enforcement: action_quotas:read required on quota counter endpoint,
+        balances:read accepted as fallback through v0.1.26 only
     tooling:
       note: >-
         Full merge requires conflict resolution on PATCH paths and enum deduplication.
