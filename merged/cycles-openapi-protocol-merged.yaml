@@ -1778,6 +1778,24 @@ components:
         type: string
         maxLength: 64
       description: Filter by action kind.
+  headers:
+    X-Request-Id:
+      description: Unique request identifier for debugging
+      schema:
+        type: string
+    X-RateLimit-Remaining:
+      description: Number of requests remaining in current window (optional in v0)
+      schema:
+        type: integer
+    X-RateLimit-Reset:
+      description: Unix timestamp (seconds) when rate limit resets (optional in v0)
+      schema:
+        type: integer
+        format: int64
+    X-Cycles-Tenant:
+      description: Effective tenant identifier derived from auth context (optional in v0)
+      schema:
+        type: string
   responses:
     ErrorResponse:
       description: Error response

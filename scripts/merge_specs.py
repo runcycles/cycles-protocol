@@ -307,13 +307,31 @@ def build_merged(
             "securitySchemes": {},
             "schemas": {},
             "parameters": {},
+            "headers": {},
             "responses": {},
             "requestBodies": {},
+            "examples": {},
+            "links": {},
+            "callbacks": {},
         },
         "paths": {},
     }
 
     seen_tag_names: set[str] = set()
+
+    # All OpenAPI 3.1 reusable component sections that may contain $ref targets.
+    # We must merge every section the sources use, or $refs will break.
+    COMPONENT_SECTIONS = (
+        "securitySchemes",
+        "schemas",
+        "parameters",
+        "headers",
+        "responses",
+        "requestBodies",
+        "examples",
+        "links",
+        "callbacks",
+    )
 
     for source_name, path in sources:
         print(f"  + merging {path.name}")
@@ -327,7 +345,7 @@ def build_merged(
 
         # Components
         components = spec.get("components", {}) or {}
-        for section in ("securitySchemes", "schemas", "parameters", "responses", "requestBodies"):
+        for section in COMPONENT_SECTIONS:
             merge_component_dict(merged["components"][section], components.get(section), section, source_name)
 
         # Paths
