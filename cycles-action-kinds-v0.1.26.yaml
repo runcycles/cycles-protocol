@@ -789,16 +789,28 @@ paths:
 
         PUBLIC ENDPOINT RATE LIMITING (NORMATIVE):
           No API key required. Servers MUST implement abuse protection on
-          this endpoint since it is unauthenticated. Specific mechanisms
-          are implementation-defined, but servers SHOULD:
-            - Apply per-IP rate limits (recommended baseline: 60 requests
-              per minute per source IP).
-            - Honor If-None-Match for cheap cache validation (prefer 304
-              over 200 when possible — 304 responses SHOULD NOT count
-              against rate limits).
-            - Return 429 Too Many Requests when rate limits are exceeded,
-              with a Retry-After header (seconds) indicating when the
-              client may retry.
+          this endpoint since it is unauthenticated.
+
+          WIRE BEHAVIOR (MUST):
+            When a request is rate-limited, servers MUST return
+            HTTP 429 Too Many Requests with a Retry-After header
+            (value in seconds) indicating the earliest retry time.
+            This is the contract SDKs and MCP gateways depend on for
+            consistent back-off behavior. Servers MUST NOT silently
+            drop rate-limited requests or return 403 / 503 in their
+            place.
+
+          MECHANISM (SHOULD):
+            Specific abuse-protection mechanisms are implementation-defined
+            because deployment topologies differ (direct, CDN-fronted,
+            behind a WAF). Servers SHOULD:
+              - Apply per-IP rate limits when deployed directly
+                (recommended baseline: 60 requests per minute per source IP).
+              - Apply per-edge-client limits when deployed behind a CDN
+                or reverse proxy (using forwarded-for headers or equivalent).
+              - Honor If-None-Match for cheap cache validation (prefer 304
+                over 200 when possible — 304 responses SHOULD NOT count
+                against rate limits).
           Servers MAY additionally use WAF, CDN caching, or bot-detection
           mechanisms — these are deployment concerns outside this spec.
       parameters:
