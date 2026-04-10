@@ -616,3 +616,60 @@ test_vectors:
               policy_id: "pol_burst_protection"
             blocked_by_policy: "pol_burst_protection"
             suggested_fix: "Wait until the next minute or increase per_minute_tumbling limit from 5 in policy 'pol_burst_protection'"
+
+  # ---------------------------------------------------------------------------
+  # 12. AGENT SPAWN QUOTA EXCEEDED
+  # ---------------------------------------------------------------------------
+  - id: deny_agent_spawn_quota
+    description: >-
+      Policy caps agent.spawn at 5 per run to prevent runaway fan-out.
+      Agent has already spawned 5 sub-agents and tries a 6th.
+      This is the core governance scenario for multi-agent systems:
+      "agent spawns 100 sub-agents that each send 10 emails."
+    policy_context:
+      policy_id: "pol_agent_safety"
+      action_quotas:
+        - action_kind: "agent.spawn"
+          max_calls: 5
+          window: "per_run"
+    counter_state:
+      key: "quota:acme:tenant:acme/agent:orchestrator:agent.spawn:per_run:run-orch-001"
+      used: 5
+    request:
+      method: POST
+      path: /v1/reservations
+      headers:
+        X-Cycles-API-Key: "key_tenant_acme_001"
+        X-Idempotency-Key: "idem-012"
+      body:
+        idempotency_key: "idem-012"
+        subject:
+          tenant: "acme"
+          agent: "orchestrator"
+          dimensions:
+            run_id: "run-orch-001"
+        action:
+          kind: "agent.spawn"
+          name: "spawn-research-agent"
+        estimate:
+          unit: "USD_MICROCENTS"
+          amount: 100000
+    response:
+      status: 409
+      body:
+        error: "ACTION_QUOTA_EXCEEDED"
+        message: "Action quota exceeded: agent.spawn per_run limit 5 reached"
+        request_id: "req_5p3v..."
+        details:
+          deny_detail:
+            reason_code: "ACTION_QUOTA_EXCEEDED"
+            quota_violation:
+              action_kind: "agent.spawn"
+              window: "per_run"
+              window_key: "run-orch-001"
+              used: 5
+              limit: 5
+              scope: "tenant:acme/agent:orchestrator"
+              policy_id: "pol_agent_safety"
+            blocked_by_policy: "pol_agent_safety"
+            suggested_fix: "Increase agent.spawn per_run limit from 5 in policy 'pol_agent_safety', or consolidate work into fewer sub-agents"

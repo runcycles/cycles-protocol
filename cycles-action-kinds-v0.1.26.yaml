@@ -126,24 +126,148 @@ info:
         - policy_key matching is not performed
         - Server SHOULD log unregistered kinds for operator visibility
 
-    REGISTRY GOVERNANCE:
+    REGISTRY GOVERNANCE — OVERVIEW:
       Built-in kinds (those defined in x-action-kind-registry) MUST NOT
       be modified by operators. Operators MAY add custom kinds using the
-      "custom." prefix (e.g. "custom.erp.invoice.post"). Custom kinds are
-      not validated by this spec; their risk_class and policy_key_spec are
-      operator-defined. Future registry maintenance (deprecation rules,
-      provider aliases, compatibility promises) will be specified in a
-      separate registry governance document.
+      "custom." prefix. See the normative governance sections below.
+
+    DEPRECATION PROCESS (NORMATIVE):
+      Built-in action kinds MAY be deprecated but MUST NOT be removed.
+      Deprecated kinds remain in the registry indefinitely for backward
+      compatibility.
+
+      DEPRECATION STEPS:
+        1. Set deprecated: true on the ActionKind entry.
+        2. Set replacement_kind to the canonical successor kind string.
+           If no direct replacement exists, set replacement_kind to the
+           closest semantic equivalent or "unknown.call".
+        3. Add a deprecation notice to the kind's description field,
+           including the spec version that deprecated it.
+        4. The deprecation MUST be announced in the CHANGELOG.
+
+      MINIMUM NOTICE:
+        A deprecated kind MUST remain functional (accepted by servers,
+        counted by quotas, matched by policies) for at least TWO spec
+        minor versions after the version that deprecated it. Servers
+        MUST NOT reject reservations using deprecated kinds.
+
+      SERVER BEHAVIOR:
+        When a reservation uses a deprecated kind, the server SHOULD
+        include a deprecation warning via a "X-Cycles-Deprecated-Kind"
+        response header with the value of replacement_kind. Servers
+        MUST NOT auto-rewrite the kind to the replacement; clients
+        own the migration.
+
+      MCP GATEWAY BEHAVIOR:
+        MCP gateways SHOULD map tool prefixes to the replacement kind
+        for NEW tool integrations. Existing tool mappings using
+        deprecated kinds MUST continue to work.
+
+    PROVIDER ALIASING POLICY (NORMATIVE):
+      The registry uses CAPABILITY-SCOPED kinds (e.g., llm.completion)
+      rather than PROVIDER-SCOPED kinds (e.g., openai.completion).
+
+      RESOLUTION RULES:
+        1. Provider-specific operations MUST be mapped to the canonical
+           capability-scoped kind. There is no "openai.completion" kind;
+           there is only "llm.completion" with policy_keys.host routing.
+        2. If an MCP tool name contains a provider prefix (e.g.,
+           "openai_chat_completion"), the MCP gateway resolves it to
+           the canonical kind via mcp_tool_prefixes.
+        3. Provider-specific policy routing uses ActionPolicyKeys.host.
+           Example: a quota rule for llm.completion with
+           host_allowlist=["api.openai.com"] targets only OpenAI calls.
+        4. The custom.* namespace MAY be used for provider-specific
+           operations that have no canonical equivalent (e.g.,
+           "custom.acme.openai.fine_tune").
+
+      RATIONALE:
+        Provider-scoped kinds would fragment the registry (N providers x
+        M operations = N*M kinds). Capability-scoped kinds + host routing
+        gives the same policy granularity with O(M) kinds.
+
+    ADDING NEW BUILT-IN KINDS (NORMATIVE):
+      New built-in kinds may be added in any minor version bump.
+      Addition is always backward-compatible (additive only).
+
+      CRITERIA FOR INCLUSION:
+        A candidate kind SHOULD meet at least two of:
+          a. Operators need to set QUOTAS on the operation (cost control).
+          b. Operators need ALLOW/DENY lists for the operation (access control).
+          c. The operation has distinct RISK CLASS from existing kinds in
+             its category (governance routing requires differentiation).
+          d. Two or more MCP tool ecosystems use conventions that would
+             benefit from a shared prefix mapping.
+        Purely internal agent operations that never cross a trust boundary
+        and have negligible cost SHOULD NOT be added as built-in kinds.
+
+      PROCESS:
+        1. Propose the kind in a spec PR with: kind string, risk_class
+           with justification, description, policy_key_spec, and at
+           least two mcp_tool_prefixes.
+        2. Validate naming: kind MUST follow <category>.<operation>[.<qualifier>]
+           format and MUST NOT conflict with existing kinds or prefixes.
+        3. Validate risk_class against the ascending risk ordering.
+        4. Review mcp_tool_prefixes for overlap with existing kinds.
+           Overlapping prefixes are NOT allowed (ambiguous resolution).
+        5. Merge and increment the registry version.
+
+      RISK CLASS RECLASSIFICATION:
+        Changing a kind's risk_class is a BREAKING CHANGE for policy
+        authors who use risk_class_quotas. Risk class changes MUST:
+          a. Be announced in the CHANGELOG with justification.
+          b. Follow the deprecation timeline (two minor versions notice).
+
+    CUSTOM.* NAMESPACE RULES (NORMATIVE):
+      Operators MAY define custom action kinds using the "custom." prefix.
+      Custom kinds are not part of the built-in registry and are not
+      validated by this spec.
+
+      NAMING:
+        Custom kinds MUST use the format: custom.<org>.<operation>[.<qualifier>]
+        The <org> segment prevents collisions between operators.
+        Examples: "custom.acme.erp.invoice.post", "custom.acme.sap.query"
+
+      RISK CLASS:
+        Custom kinds MUST declare a risk_class. There is no default.
+        Servers MUST reject reservation requests with custom kinds that
+        have no risk_class configured in any matching policy.
+
+      POLICY KEY SPEC:
+        Custom kinds MAY declare a policy_key_spec. If absent, policy
+        routing falls back to kind-only matching (no host/domain/resource
+        routing).
+
+      MCP TOOL PREFIXES:
+        Custom kinds MAY declare mcp_tool_prefixes. Custom prefixes
+        MUST NOT overlap with any built-in kind's prefixes. If overlap
+        is detected at server startup, the server SHOULD log a warning
+        and give precedence to the built-in kind.
+
+      REGISTRATION:
+        Custom kinds are registered via operator configuration (out of
+        scope for this spec). They do NOT appear in the public
+        GET /v1/action-kinds endpoint unless the server is configured
+        to expose them.
 
     CHANGELOG:
       v0.1.26 (2026-04-09):
         - Split from cycles-protocol-extensions-v0.1.26-final.yaml monolith.
-        - Added 16 new action kinds across media, social, notification,
-          storage, and document categories (was 28, now 44 total).
-        - per_run_counter_ttl_ms field added to ActionQuota with operator
-          warning for long-pausing runs.
+        - Expanded registry from 44 to 62 built-in kinds.
+        - NEW categories: agent (4 kinds), memory (3 kinds),
+          reasoning (2 kinds), vision (3 kinds).
+        - NEW kinds in existing categories: vector.delete,
+          llm.structured_output, code.lint, document.edit,
+          message.chat.post, http.graphql.
+        - Added mcp_tool_prefixes to llm.completion and llm.embedding
+          (previously empty).
+        - Added RiskClassQuota, per_minute_tumbling window, threshold_pct.
+        - per_run_counter_ttl_ms field added to ActionQuota.
         - Calendar-bucket window model fully specified and consistent
           throughout (no first-write+TTL contradictions).
+        - REGISTRY GOVERNANCE: added normative sections for deprecation
+          process, provider aliasing policy, adding new built-in kinds,
+          and custom.* namespace rules.
 
 servers:
   - url: https://api.cycles.local
@@ -793,12 +917,54 @@ x-action-kind-registry:
     - kind: llm.completion
       risk_class: side_effect
       description: LLM text completion or chat call (may trigger further actions)
-      mcp_tool_prefixes: []
+      mcp_tool_prefixes: ["llm_", "chat_", "complete_", "openai_chat", "anthropic_", "generate_text"]
 
     - kind: llm.embedding
       risk_class: read_only
       description: Generate embedding vector for text
-      mcp_tool_prefixes: []
+      mcp_tool_prefixes: ["embed_", "embedding_", "openai_embed", "get_embedding", "encode_text"]
+
+    - kind: llm.structured_output
+      risk_class: side_effect
+      description: >-
+        LLM call with structured output constraint (JSON schema, function calling,
+        tool use). Distinct from llm.completion for providers that bill differently.
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["structured_output", "json_mode", "function_call"]
+
+    # Agent operations
+    - kind: agent.spawn
+      risk_class: side_effect
+      description: >-
+        Spawn a child agent or sub-task with its own execution context.
+        Governs fan-out: each spawned agent inherits or derives a budget scope.
+      mcp_tool_prefixes: ["spawn_agent", "create_agent", "fork_agent", "new_agent"]
+
+    - kind: agent.delegate
+      risk_class: side_effect
+      description: >-
+        Delegate a task to a named agent or agent pool. The delegate may
+        execute actions under its own policy scope.
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["delegate_", "handoff_", "assign_agent", "route_to_agent"]
+
+    - kind: agent.message
+      risk_class: side_effect
+      description: >-
+        Send a message to another agent within the same runtime or cluster.
+        Enables agent-to-agent coordination and protocol exchanges.
+      mcp_tool_prefixes: ["send_to_agent", "agent_message", "a2a_send", "inter_agent"]
+
+    - kind: agent.human_escalation
+      risk_class: external_side_effect
+      description: >-
+        Escalate a decision or task to a human operator. Externally visible:
+        triggers a notification and blocks until human response.
+      policy_key_spec:
+        recipient_domain: true
+      mcp_tool_prefixes: ["escalate_", "human_review", "request_approval", "ask_human"]
 
     # Web / HTTP
     - kind: web.search
@@ -834,6 +1000,15 @@ x-action-kind-registry:
         host: true
       mcp_tool_prefixes: ["http_delete", "delete_api"]
 
+    - kind: http.graphql
+      risk_class: side_effect
+      description: >-
+        Execute a GraphQL query or mutation. Classified as side_effect because
+        a single request may contain both reads and writes.
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["graphql_", "gql_query", "gql_mutate"]
+
     # Messaging
     - kind: message.email.send
       risk_class: external_side_effect
@@ -856,6 +1031,15 @@ x-action-kind-registry:
       policy_key_spec:
         recipient_domain: true
       mcp_tool_prefixes: ["send_sms", "sms_", "twilio_"]
+
+    - kind: message.chat.post
+      risk_class: external_side_effect
+      description: >-
+        Post a message to a chat platform (Teams, Discord, Mattermost, etc.).
+        Use message.slack.post for Slack-specific routing; use this for other platforms.
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["teams_", "discord_", "mattermost_", "chat_send", "post_message"]
 
     # Database
     - kind: db.query
@@ -938,6 +1122,13 @@ x-action-kind-registry:
         host: true
       mcp_tool_prefixes: ["deploy_", "publish_", "vercel_deploy", "lambda_deploy"]
 
+    - kind: code.lint
+      risk_class: read_only
+      description: Run static analysis, linting, or type-checking on code. Read-only inspection with no state modification.
+      policy_key_spec:
+        path_prefix: true
+      mcp_tool_prefixes: ["lint_", "check_code", "type_check", "static_analysis"]
+
     # Vector / Embedding storage
     - kind: vector.query
       risk_class: read_only
@@ -952,6 +1143,54 @@ x-action-kind-registry:
       policy_key_spec:
         resource_type: collection
       mcp_tool_prefixes: ["vector_upsert", "embed_and_store", "pinecone_upsert"]
+
+    - kind: vector.delete
+      risk_class: side_effect
+      description: Delete vectors or documents from a vector store. Irreversible data loss for the affected embeddings.
+      policy_key_spec:
+        resource_type: collection
+      mcp_tool_prefixes: ["vector_delete", "pinecone_delete", "remove_embedding", "delete_vectors"]
+
+    # Memory / Knowledge
+    - kind: memory.read
+      risk_class: read_only
+      description: >-
+        Read from agent long-term memory, knowledge base, or RAG retrieval store.
+        Includes semantic search over memory.
+      policy_key_spec:
+        resource_type: store
+      mcp_tool_prefixes: ["memory_read", "recall_", "retrieve_memory", "rag_query", "knowledge_search"]
+
+    - kind: memory.write
+      risk_class: local_mutation
+      description: >-
+        Write to agent long-term memory or knowledge base. Includes storing
+        conversation summaries, facts, or documents for future retrieval.
+      policy_key_spec:
+        resource_type: store
+      mcp_tool_prefixes: ["memory_write", "memorize_", "store_memory", "rag_ingest", "knowledge_store"]
+
+    - kind: memory.delete
+      risk_class: side_effect
+      description: Delete entries from agent long-term memory or knowledge base. Irreversible data loss without backups.
+      policy_key_spec:
+        resource_type: store
+      mcp_tool_prefixes: ["memory_delete", "forget_", "clear_memory", "rag_delete"]
+
+    # Reasoning / Planning
+    - kind: reasoning.plan
+      risk_class: side_effect
+      description: >-
+        Generate or revise an execution plan. Typically involves LLM calls to
+        decompose a goal into steps. Operators can quota to cap runaway planning loops.
+      mcp_tool_prefixes: ["plan_", "create_plan", "decompose_", "reason_"]
+
+    - kind: reasoning.reflect
+      risk_class: side_effect
+      description: >-
+        Self-evaluation or critique loop where the agent reviews its own output.
+        Consumes LLM calls; operators can quota to prevent infinite self-correction.
+      mcp_tool_prefixes: ["reflect_", "self_evaluate", "critique_", "review_output"]
 
     # Calendar / Scheduling
     - kind: calendar.read
@@ -1037,6 +1276,35 @@ x-action-kind-registry:
         host: true
       mcp_tool_prefixes: ["transcribe_", "speech_to_text", "whisper_", "deepgram_"]
 
+    # Vision / document understanding
+    - kind: vision.analyze
+      risk_class: side_effect
+      description: >-
+        Analyze an image using a vision model. Includes scene description,
+        object detection, visual question answering, and chart interpretation.
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["analyze_image", "vision_", "describe_image", "image_understand", "gpt4v_"]
+
+    - kind: vision.ocr
+      risk_class: side_effect
+      description: >-
+        Extract text from images or scanned documents via OCR. May use
+        specialized OCR services or vision LLMs.
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["ocr_", "extract_text", "read_document", "document_ocr"]
+
+    - kind: vision.parse_document
+      risk_class: side_effect
+      description: >-
+        Parse a document (PDF, scan, form) into structured data. Includes
+        table extraction, form field recognition, and layout analysis.
+      policy_key_spec:
+        host: true
+        path_prefix: true
+      mcp_tool_prefixes: ["parse_document", "extract_form", "pdf_extract", "document_parse", "parse_pdf"]
+
     # Social media / publishing
     - kind: social.post.create
       risk_class: external_side_effect
@@ -1115,6 +1383,13 @@ x-action-kind-registry:
       policy_key_spec:
         host: true
       mcp_tool_prefixes: ["create_doc", "create_document", "new_page", "notion_create"]
+
+    - kind: document.edit
+      risk_class: side_effect
+      description: Edit or update an existing document, spreadsheet, or page in a workspace tool.
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["edit_doc", "update_document", "modify_page", "notion_update", "gdocs_edit"]
 
     - kind: document.share
       risk_class: external_side_effect

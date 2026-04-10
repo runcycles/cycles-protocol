@@ -91,7 +91,7 @@ documents:
     title: Cycles Action Kind Registry
     plane: registry-and-quota-primitives
     owns:
-      - Canonical action kind taxonomy (44 built-in kinds)
+      - Canonical action kind taxonomy (62 built-in kinds)
       - ActionRiskClass, ActionKind, ActionKindRegistry
       - ActionPolicyKeys (request-side routing dimensions)
       - ActionQuota, ActionQuotaWindow, ActionQuotaState (quota primitives)
@@ -378,16 +378,16 @@ implementation_resources:
 # ---------------------------------------------------------------------------
 
 registry_governance:
-  status: not_yet_specified
-  anticipated_concerns:
-    - Deprecation rules for built-in action kinds
-    - Provider-specific alias policy (e.g., openai.completion vs llm.completion)
-    - Compatibility promises for mcp_tool_prefixes conventions
-    - Process for adding new built-in kinds vs custom.* kinds
-    - Versioning semantics for breaking changes to risk_class classifications
-  owner: to be defined in cycles-registry-governance-policy.md (future release)
+  status: specified
+  location: cycles-action-kinds-v0.1.26.yaml info.description
+  covers:
+    - Deprecation process (minimum two-version notice, replacement_kind required)
+    - Provider aliasing policy (capability-scoped kinds + host routing)
+    - Process for adding new built-in kinds (criteria, review, versioning)
+    - custom.* namespace rules (naming, risk_class, prefix non-overlap)
+    - Risk class reclassification (breaking change, transition period)
+  owner: action-kinds spec maintainers
   note: >-
     The action kinds registry is version-aligned with the spec suite
     (currently v0.1.26) and can evolve within a release without touching
     the protocol or governance specs.
-    Registry governance policy will be published as a non-OpenAPI markdown document.
