@@ -187,8 +187,15 @@ info:
 
       STEP 2 — RISK-CLASS QUOTAS:
         For the highest-priority matching policy's risk_class_quotas:
-          a. Server looks up the action kind's risk_class from the registry
-             (or the default side_effect for unregistered kinds).
+          a. Server looks up the action kind's risk_class from the registry.
+             For non-custom unregistered kinds (e.g., "proprietary.action"),
+             the default is side_effect per UNREGISTERED KIND HANDLING in
+             cycles-action-kinds-v0.1.26.yaml.
+             This fallback does NOT apply to undeclared custom.* kinds;
+             those MUST be rejected with 400 INVALID_REQUEST per the
+             CUSTOM.* NAMESPACE RULES in the action-kinds companion spec.
+             By the time evaluation reaches Step 2, an undeclared custom.*
+             kind has already been rejected.
           b. If a risk-class quota matches (same risk_class, matching scope,
              within window): check aggregate counter.
           c. If aggregate counter >= max_calls: DENY with
@@ -468,11 +475,12 @@ components:
 
     # EXTENDS: EventType enum (governance spec)
     # NOTE ON PURITY: The EventType enum is defined in the governance spec, but
-    # reservation.observed_denied is a runtime-plane event triggered by the
-    # reservation enforcement path. It logically belongs here in the protocol
-    # extension. The full enum is reproduced for completeness because OpenAPI
-    # does not support additive enum extension; implementers only need to add
-    # reservation.observed_denied to the existing enum in practice.
+    # the three new event types below (reservation.observed_denied,
+    # reservation.observed_allowed, quota.threshold_approaching) are runtime-plane
+    # events triggered by the reservation enforcement path. They logically belong
+    # here in the protocol extension. The full enum is reproduced for completeness
+    # because OpenAPI does not support additive enum extension; implementers only
+    # need to add these three new values to the existing enum in practice.
     EventTypeExtension:
       type: string
       description: >-
