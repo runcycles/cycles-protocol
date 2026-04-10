@@ -148,10 +148,27 @@ info:
         1. Tool schema annotation: x-cycles-action-kind (highest priority)
         2. Convention: tool name prefix matching via mcp_tool_prefixes
         3. Fallback: "unknown.call" (risk_class: side_effect)
-      action.kind values not in the registry are accepted but:
-        - risk_class defaults to side_effect unless overridden by policy
-        - policy_key matching is not performed
-        - Server SHOULD log unregistered kinds for operator visibility
+
+      UNREGISTERED KIND HANDLING (NORMATIVE):
+        The handling rule depends on whether the kind string uses the
+        custom.* namespace:
+
+        NON-custom.* unregistered kinds (e.g., "proprietary.action"):
+          - Accepted by the server.
+          - risk_class defaults to side_effect unless overridden by policy.
+          - policy_key matching is not performed.
+          - Server SHOULD log unregistered kinds for operator visibility.
+
+        custom.* unregistered kinds (e.g., "custom.acme.erp.new_op" with
+        no declaration):
+          - MUST be REJECTED with 400 INVALID_REQUEST.
+          - There is no fallback to side_effect for custom kinds.
+          - See CUSTOM.* NAMESPACE RULES below for the declaration contract.
+          - Rationale: custom.* is operator-controlled namespace; accepting
+            undeclared custom kinds with a default risk_class would bypass
+            governance. Non-custom unknowns are typically transient
+            (e.g., new provider tools not yet in the registry) and the
+            side_effect fallback is the safe conservative default.
 
     REGISTRY GOVERNANCE — OVERVIEW:
       Built-in kinds (those defined in x-action-kind-registry) MUST NOT
@@ -765,6 +782,7 @@ paths:
       tags: [ActionKinds]
       operationId: listActionKinds
       summary: List the canonical action kind registry
+      security: []  # Explicit empty to override any global security in merged artifacts
       description: >-
         Returns the published registry. Safe to cache aggressively (TTL: 1 hour).
         Use ETag / If-None-Match for efficient cache validation.
@@ -853,6 +871,7 @@ paths:
       tags: [ActionKinds]
       operationId: getActionKind
       summary: Get a single action kind by its kind string (exact match)
+      security: []  # Explicit empty to override any global security in merged artifacts
       description: >-
         EXACT MATCH ONLY. Returns 200 if the kind string is in the registry,
         404 if it is not. No prefix matching, no fuzzy matching, no "closest
