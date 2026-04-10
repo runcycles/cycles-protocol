@@ -1,0 +1,675 @@
+# =============================================================================
+# Cycles Protocol v0.1.26 — Test Vectors
+# =============================================================================
+# Reference request/response pairs for implementers.
+# These are NOT normative — the OpenAPI specs are authoritative.
+# These vectors verify that an implementation handles the key scenarios
+# described in the RESERVATION EVALUATION ORDER.
+# =============================================================================
+
+test_vectors:
+
+  # ---------------------------------------------------------------------------
+  # 1. HAPPY PATH — ALLOW
+  # ---------------------------------------------------------------------------
+  - id: allow_happy_path
+    description: >-
+      Standard reservation that passes all checks: no access control lists,
+      quota under limit, budget available.
+    request:
+      method: POST
+      path: /v1/reservations
+      headers:
+        X-Cycles-API-Key: "key_tenant_acme_001"
+        X-Idempotency-Key: "idem-001"
+      body:
+        idempotency_key: "idem-001"
+        subject:
+          tenant: "acme"
+          agent: "support-bot"
+          dimensions:
+            run_id: "run-abc-123"
+        action:
+          kind: "llm.completion"
+          name: "generate-reply"
+        estimate:
+          unit: "USD_MICROCENTS"
+          amount: 5000
+        ttl_ms: 30000
+    response:
+      status: 200
+      body:
+        decision: "ALLOW"
+        reservation_id: "res_7f3a..."
+        reserved:
+          unit: "USD_MICROCENTS"
+          amount: 5000
+        expires_at_ms: 1744206030000
+        scope_path: "tenant:acme > agent:support-bot"
+        affected_scopes:
+          - scope: "tenant:acme"
+            remaining:
+              unit: "USD_MICROCENTS"
+              amount: 995000
+          - scope: "tenant:acme/agent:support-bot"
+            remaining:
+              unit: "USD_MICROCENTS"
+              amount: 45000
+
+  # ---------------------------------------------------------------------------
+  # 2. ACCESS CONTROL — ACTION_KIND_DENIED
+  # ---------------------------------------------------------------------------
+  - id: deny_action_kind_denied
+    description: >-
+      Agent tries payment.charge but the matching policy has it in
+      denied_action_kinds. Evaluation stops at Step 1 — no quota or
+      budget checks performed.
+    policy_context:
+      policy_id: "pol_sandbox_001"
+      denied_action_kinds: ["payment.charge", "payment.refund", "code.deploy"]
+      allowed_action_kinds: []
+    request:
+      method: POST
+      path: /v1/reservations
+      headers:
+        X-Cycles-API-Key: "key_tenant_acme_001"
+        X-Idempotency-Key: "idem-002"
+      body:
+        idempotency_key: "idem-002"
+        subject:
+          tenant: "acme"
+          agent: "support-bot"
+          dimensions:
+            run_id: "run-abc-123"
+        action:
+          kind: "payment.charge"
+          name: "charge-customer"
+          policy_keys:
+            host: "api.stripe.com"
+        estimate:
+          unit: "USD_MICROCENTS"
+          amount: 100000
+        dry_run: true
+    response:
+      status: 200
+      body:
+        decision: "DENY"
+        affected_scopes:
+          - scope: "tenant:acme/agent:support-bot"
+        deny_detail:
+          reason_code: "ACTION_KIND_DENIED"
+          blocked_by_policy: "pol_sandbox_001"
+          suggested_fix: "Remove 'payment.charge' from denied_action_kinds in policy 'pol_sandbox_001'"
+
+  # ---------------------------------------------------------------------------
+  # 3. ACCESS CONTROL — ACTION_KIND_NOT_ALLOWED
+  # ---------------------------------------------------------------------------
+  - id: deny_action_kind_not_allowed
+    description: >-
+      Policy has an allowlist of only db.query and llm.completion.
+      Agent tries message.email.send which is not in the list.
+    policy_context:
+      policy_id: "pol_readonly_001"
+      allowed_action_kinds: ["db.query", "llm.completion", "llm.embedding"]
+      denied_action_kinds: []
+    request:
+      method: POST
+      path: /v1/reservations
+      headers:
+        X-Cycles-API-Key: "key_tenant_acme_001"
+        X-Idempotency-Key: "idem-003"
+      body:
+        idempotency_key: "idem-003"
+        subject:
+          tenant: "acme"
+          agent: "support-bot"
+          dimensions:
+            run_id: "run-abc-123"
+        action:
+          kind: "message.email.send"
+          name: "send-followup"
+          policy_keys:
+            host: "api.sendgrid.com"
+            recipient_domain: "customer.com"
+        estimate:
+          unit: "USD_MICROCENTS"
+          amount: 1000
+        dry_run: true
+    response:
+      status: 200
+      body:
+        decision: "DENY"
+        affected_scopes:
+          - scope: "tenant:acme/agent:support-bot"
+        deny_detail:
+          reason_code: "ACTION_KIND_NOT_ALLOWED"
+          blocked_by_policy: "pol_readonly_001"
+          suggested_fix: "Add 'message.email.send' to allowed_action_kinds in policy 'pol_readonly_001'"
+
+  # ---------------------------------------------------------------------------
+  # 4. RISK-CLASS QUOTA EXCEEDED
+  # ---------------------------------------------------------------------------
+  - id: deny_risk_class_quota
+    description: >-
+      Policy caps all external_side_effect actions at 50 per hour.
+      Agent has already made 50 external_side_effect calls this hour
+      (emails, Slack posts, etc.) and tries one more email.
+    policy_context:
+      policy_id: "pol_agent_defaults"
+      risk_class_quotas:
+        - risk_class: "external_side_effect"
+          max_calls: 50
+          window: "per_hour_tumbling"
+    counter_state:
+      key: "quota:acme:tenant:acme/agent:support-bot:__risk__:external_side_effect:per_hour_tumbling:2026-04-09T14"
+      used: 50
+    request:
+      method: POST
+      path: /v1/reservations
+      headers:
+        X-Cycles-API-Key: "key_tenant_acme_001"
+        X-Idempotency-Key: "idem-004"
+      body:
+        idempotency_key: "idem-004"
+        subject:
+          tenant: "acme"
+          agent: "support-bot"
+          dimensions:
+            run_id: "run-abc-123"
+        action:
+          kind: "message.email.send"
+          name: "send-notification"
+          policy_keys:
+            host: "api.sendgrid.com"
+            recipient_domain: "partner.com"
+        estimate:
+          unit: "USD_MICROCENTS"
+          amount: 500
+    response:
+      status: 409
+      body:
+        error: "ACTION_QUOTA_EXCEEDED"
+        message: "Risk-class quota exceeded: external_side_effect per_hour_tumbling limit 50 reached"
+        request_id: "req_9x2b..."
+        details:
+          deny_detail:
+            reason_code: "ACTION_QUOTA_EXCEEDED"
+            quota_violation:
+              action_kind: "message.email.send"
+              risk_class: "external_side_effect"
+              window: "per_hour_tumbling"
+              window_key: "2026-04-09T14"
+              used: 50
+              limit: 50
+              scope: "tenant:acme/agent:support-bot"
+              policy_id: "pol_agent_defaults"
+            blocked_by_policy: "pol_agent_defaults"
+            suggested_fix: "Increase external_side_effect per_hour_tumbling limit from 50 in policy 'pol_agent_defaults'"
+
+  # ---------------------------------------------------------------------------
+  # 5. PER-KIND ACTION QUOTA EXCEEDED
+  # ---------------------------------------------------------------------------
+  - id: deny_per_kind_quota
+    description: >-
+      Policy allows max 3 message.email.send per run. Agent has sent 3
+      emails in this run and tries a 4th.
+    policy_context:
+      policy_id: "pol_support_agent"
+      action_quotas:
+        - action_kind: "message.email.send"
+          max_calls: 3
+          window: "per_run"
+    counter_state:
+      key: "quota:acme:tenant:acme/agent:support-bot:message.email.send:per_run:run-abc-123"
+      used: 3
+    request:
+      method: POST
+      path: /v1/reservations
+      headers:
+        X-Cycles-API-Key: "key_tenant_acme_001"
+        X-Idempotency-Key: "idem-005"
+      body:
+        idempotency_key: "idem-005"
+        subject:
+          tenant: "acme"
+          agent: "support-bot"
+          dimensions:
+            run_id: "run-abc-123"
+        action:
+          kind: "message.email.send"
+          name: "send-escalation"
+          policy_keys:
+            host: "api.sendgrid.com"
+            recipient_domain: "customer.com"
+        estimate:
+          unit: "USD_MICROCENTS"
+          amount: 500
+    response:
+      status: 409
+      body:
+        error: "ACTION_QUOTA_EXCEEDED"
+        message: "Action quota exceeded: message.email.send per_run limit 3 reached"
+        request_id: "req_4m7k..."
+        details:
+          deny_detail:
+            reason_code: "ACTION_QUOTA_EXCEEDED"
+            quota_violation:
+              action_kind: "message.email.send"
+              window: "per_run"
+              window_key: "run-abc-123"
+              used: 3
+              limit: 3
+              scope: "tenant:acme/agent:support-bot"
+              policy_id: "pol_support_agent"
+            blocked_by_policy: "pol_support_agent"
+            suggested_fix: "Increase message.email.send per_run limit from 3 to 5 in policy 'pol_support_agent'"
+
+  # ---------------------------------------------------------------------------
+  # 6. BUDGET EXCEEDED
+  # ---------------------------------------------------------------------------
+  - id: deny_budget_exceeded
+    description: >-
+      Agent passes access control and quota checks but the budget scope
+      has insufficient funds. Overage policy is REJECT.
+    request:
+      method: POST
+      path: /v1/reservations
+      headers:
+        X-Cycles-API-Key: "key_tenant_acme_001"
+        X-Idempotency-Key: "idem-006"
+      body:
+        idempotency_key: "idem-006"
+        subject:
+          tenant: "acme"
+          agent: "support-bot"
+          dimensions:
+            run_id: "run-abc-123"
+        action:
+          kind: "llm.completion"
+          name: "generate-report"
+        estimate:
+          unit: "USD_MICROCENTS"
+          amount: 500000
+    response:
+      status: 409
+      body:
+        error: "BUDGET_EXCEEDED"
+        message: "Insufficient budget at scope tenant:acme/agent:support-bot"
+        request_id: "req_2n8p..."
+        details:
+          deny_detail:
+            reason_code: "BUDGET_EXCEEDED"
+            blocked_by_scope: "tenant:acme/agent:support-bot"
+            budget_remaining: 45000
+            suggested_fix: "Fund tenant:acme/agent:support-bot budget by at least 455000 USD_MICROCENTS"
+
+  # ---------------------------------------------------------------------------
+  # 7. OBSERVE MODE — DENY (observed_denied event)
+  # ---------------------------------------------------------------------------
+  - id: observe_mode_deny
+    description: >-
+      Tenant is in OBSERVE mode. Quota would deny, but no counters or
+      balances are modified. Server emits reservation.observed_denied.
+    tenant_context:
+      observe_mode: "OBSERVE"
+    policy_context:
+      policy_id: "pol_support_agent"
+      action_quotas:
+        - action_kind: "message.email.send"
+          max_calls: 3
+          window: "per_run"
+    counter_state:
+      key: "quota:acme:...:message.email.send:per_run:run-abc-123"
+      used: 3
+    request:
+      method: POST
+      path: /v1/reservations
+      headers:
+        X-Cycles-API-Key: "key_tenant_acme_001"
+        X-Idempotency-Key: "idem-007"
+      body:
+        idempotency_key: "idem-007"
+        subject:
+          tenant: "acme"
+          agent: "support-bot"
+          dimensions:
+            run_id: "run-abc-123"
+        action:
+          kind: "message.email.send"
+          name: "send-alert"
+        estimate:
+          unit: "USD_MICROCENTS"
+          amount: 500
+    response:
+      status: 200
+      note: "200 not 409 — observe mode always returns 200"
+      body:
+        decision: "DENY"
+        # reservation_id: absent (observe mode)
+        # expires_at_ms: absent (observe mode)
+        affected_scopes:
+          - scope: "tenant:acme/agent:support-bot"
+        deny_detail:
+          reason_code: "ACTION_QUOTA_EXCEEDED"
+          quota_violation:
+            action_kind: "message.email.send"
+            window: "per_run"
+            window_key: "run-abc-123"
+            used: 3
+            limit: 3
+            scope: "tenant:acme/agent:support-bot"
+            policy_id: "pol_support_agent"
+          blocked_by_policy: "pol_support_agent"
+    emitted_event:
+      type: "reservation.observed_denied"
+      data:
+        scope: "tenant:acme/agent:support-bot"
+        unit: "USD_MICROCENTS"
+        deny_detail:
+          reason_code: "ACTION_QUOTA_EXCEEDED"
+          quota_violation:
+            action_kind: "message.email.send"
+            window: "per_run"
+            window_key: "run-abc-123"
+            used: 3
+            limit: 3
+            scope: "tenant:acme/agent:support-bot"
+            policy_id: "pol_support_agent"
+        action:
+          kind: "message.email.send"
+          name: "send-alert"
+        estimated_amount: 500
+        observe_mode: "OBSERVE"
+        would_have_blocked_at: "tenant:acme/agent:support-bot"
+    side_effects:
+      balance_changed: false
+      counters_changed: false
+
+  # ---------------------------------------------------------------------------
+  # 8. OBSERVE MODE — ALLOW (observed_allowed event)
+  # ---------------------------------------------------------------------------
+  - id: observe_mode_allow
+    description: >-
+      Tenant is in OBSERVE mode. Request would be allowed, but no balance
+      is decremented and no counters incremented. Server emits
+      reservation.observed_allowed.
+    tenant_context:
+      observe_mode: "OBSERVE"
+    request:
+      method: POST
+      path: /v1/reservations
+      headers:
+        X-Cycles-API-Key: "key_tenant_acme_001"
+        X-Idempotency-Key: "idem-008"
+      body:
+        idempotency_key: "idem-008"
+        subject:
+          tenant: "acme"
+          agent: "support-bot"
+          dimensions:
+            run_id: "run-abc-123"
+        action:
+          kind: "llm.completion"
+          name: "summarize-thread"
+        estimate:
+          unit: "USD_MICROCENTS"
+          amount: 3000
+    response:
+      status: 200
+      body:
+        decision: "ALLOW"
+        # reservation_id: absent (observe mode)
+        # expires_at_ms: absent (observe mode)
+        affected_scopes:
+          - scope: "tenant:acme/agent:support-bot"
+            remaining:
+              unit: "USD_MICROCENTS"
+              amount: 45000
+    emitted_event:
+      type: "reservation.observed_allowed"
+      data:
+        scope: "tenant:acme/agent:support-bot"
+        decision: "ALLOW"
+        unit: "USD_MICROCENTS"
+        action:
+          kind: "llm.completion"
+          name: "summarize-thread"
+        estimated_amount: 3000
+        observe_mode: "OBSERVE"
+    side_effects:
+      balance_changed: false
+      counters_changed: false
+
+  # ---------------------------------------------------------------------------
+  # 9. QUOTA THRESHOLD CROSSING
+  # ---------------------------------------------------------------------------
+  - id: threshold_crossing
+    description: >-
+      Agent's 8th email in this run crosses the 80% threshold on a
+      max_calls=10 per_run quota. The reservation succeeds (ALLOW) and
+      a quota.threshold_approaching event is emitted.
+    policy_context:
+      policy_id: "pol_support_agent"
+      action_quotas:
+        - action_kind: "message.email.send"
+          max_calls: 10
+          window: "per_run"
+          threshold_pct: 0.80
+    counter_state:
+      key: "quota:acme:...:message.email.send:per_run:run-abc-123"
+      used_before: 7
+      used_after: 8
+    request:
+      method: POST
+      path: /v1/reservations
+      headers:
+        X-Cycles-API-Key: "key_tenant_acme_001"
+        X-Idempotency-Key: "idem-009"
+      body:
+        idempotency_key: "idem-009"
+        subject:
+          tenant: "acme"
+          agent: "support-bot"
+          dimensions:
+            run_id: "run-abc-123"
+        action:
+          kind: "message.email.send"
+          name: "send-update"
+        estimate:
+          unit: "USD_MICROCENTS"
+          amount: 500
+    response:
+      status: 200
+      body:
+        decision: "ALLOW"
+        reservation_id: "res_3k9m..."
+        reserved:
+          unit: "USD_MICROCENTS"
+          amount: 500
+        expires_at_ms: 1744206090000
+    emitted_event:
+      type: "quota.threshold_approaching"
+      data:
+        scope: "tenant:acme/agent:support-bot"
+        action_kind: "message.email.send"
+        window: "per_run"
+        window_key: "run-abc-123"
+        used: 8
+        limit: 10
+        threshold_pct: 0.80
+        policy_id: "pol_support_agent"
+        tenant_id: "acme"
+    threshold_note: >-
+      Previous ratio: 7/10 = 0.70 (below 0.80).
+      New ratio: 8/10 = 0.80 (at threshold).
+      Crossing detected — event emitted exactly once.
+      9th and 10th calls do NOT re-emit.
+
+  # ---------------------------------------------------------------------------
+  # 10. PER-REQUEST OBSERVE MODE OVERRIDE
+  # ---------------------------------------------------------------------------
+  - id: per_request_observe_override
+    description: >-
+      Tenant is in ENFORCE mode, but the request includes
+      observe_mode=OBSERVE as a per-request override. Server evaluates
+      without side effects.
+    tenant_context:
+      observe_mode: "ENFORCE"
+    request:
+      method: POST
+      path: /v1/reservations
+      headers:
+        X-Cycles-API-Key: "key_tenant_acme_001"
+        X-Idempotency-Key: "idem-010"
+      body:
+        idempotency_key: "idem-010"
+        subject:
+          tenant: "acme"
+          agent: "support-bot"
+          dimensions:
+            run_id: "run-abc-123"
+        action:
+          kind: "llm.completion"
+          name: "test-prompt"
+        estimate:
+          unit: "USD_MICROCENTS"
+          amount: 2000
+        observe_mode: "OBSERVE"
+    response:
+      status: 200
+      body:
+        decision: "ALLOW"
+        # reservation_id: absent (observe mode override)
+        # expires_at_ms: absent
+        affected_scopes:
+          - scope: "tenant:acme/agent:support-bot"
+            remaining:
+              unit: "USD_MICROCENTS"
+              amount: 45000
+    emitted_event:
+      type: "reservation.observed_allowed"
+      data:
+        scope: "tenant:acme/agent:support-bot"
+        decision: "ALLOW"
+        observe_mode: "OBSERVE"
+    side_effects:
+      balance_changed: false
+      counters_changed: false
+
+  # ---------------------------------------------------------------------------
+  # 11. BURST PROTECTION — per_minute_tumbling
+  # ---------------------------------------------------------------------------
+  - id: deny_burst_per_minute
+    description: >-
+      Policy has per_minute_tumbling quota of 5 emails per minute.
+      Agent has sent 5 in the current minute and tries a 6th.
+      The per_hour_tumbling quota (100/hour) is not exhausted.
+    policy_context:
+      policy_id: "pol_burst_protection"
+      action_quotas:
+        - action_kind: "message.email.send"
+          max_calls: 5
+          window: "per_minute_tumbling"
+        - action_kind: "message.email.send"
+          max_calls: 100
+          window: "per_hour_tumbling"
+    counter_state:
+      per_minute_key: "quota:acme:...:message.email.send:per_minute_tumbling:2026-04-09T14:32"
+      per_minute_used: 5
+      per_hour_key: "quota:acme:...:message.email.send:per_hour_tumbling:2026-04-09T14"
+      per_hour_used: 23
+    request:
+      method: POST
+      path: /v1/reservations
+      headers:
+        X-Cycles-API-Key: "key_tenant_acme_001"
+        X-Idempotency-Key: "idem-011"
+      body:
+        idempotency_key: "idem-011"
+        subject:
+          tenant: "acme"
+          agent: "support-bot"
+          dimensions:
+            run_id: "run-abc-123"
+        action:
+          kind: "message.email.send"
+          name: "batch-send-6"
+        estimate:
+          unit: "USD_MICROCENTS"
+          amount: 500
+    response:
+      status: 409
+      body:
+        error: "ACTION_QUOTA_EXCEEDED"
+        message: "Action quota exceeded: message.email.send per_minute_tumbling limit 5 reached"
+        request_id: "req_8j2w..."
+        details:
+          deny_detail:
+            reason_code: "ACTION_QUOTA_EXCEEDED"
+            quota_violation:
+              action_kind: "message.email.send"
+              window: "per_minute_tumbling"
+              window_key: "2026-04-09T14:32"
+              used: 5
+              limit: 5
+              scope: "tenant:acme/agent:support-bot"
+              policy_id: "pol_burst_protection"
+            blocked_by_policy: "pol_burst_protection"
+            suggested_fix: "Wait until the next minute or increase per_minute_tumbling limit from 5 in policy 'pol_burst_protection'"
+
+  # ---------------------------------------------------------------------------
+  # 12. AGENT SPAWN QUOTA EXCEEDED
+  # ---------------------------------------------------------------------------
+  - id: deny_agent_spawn_quota
+    description: >-
+      Policy caps agent.spawn at 5 per run to prevent runaway fan-out.
+      Agent has already spawned 5 sub-agents and tries a 6th.
+      This is the core governance scenario for multi-agent systems:
+      "agent spawns 100 sub-agents that each send 10 emails."
+    policy_context:
+      policy_id: "pol_agent_safety"
+      action_quotas:
+        - action_kind: "agent.spawn"
+          max_calls: 5
+          window: "per_run"
+    counter_state:
+      key: "quota:acme:tenant:acme/agent:orchestrator:agent.spawn:per_run:run-orch-001"
+      used: 5
+    request:
+      method: POST
+      path: /v1/reservations
+      headers:
+        X-Cycles-API-Key: "key_tenant_acme_001"
+        X-Idempotency-Key: "idem-012"
+      body:
+        idempotency_key: "idem-012"
+        subject:
+          tenant: "acme"
+          agent: "orchestrator"
+          dimensions:
+            run_id: "run-orch-001"
+        action:
+          kind: "agent.spawn"
+          name: "spawn-research-agent"
+        estimate:
+          unit: "USD_MICROCENTS"
+          amount: 100000
+    response:
+      status: 409
+      body:
+        error: "ACTION_QUOTA_EXCEEDED"
+        message: "Action quota exceeded: agent.spawn per_run limit 5 reached"
+        request_id: "req_5p3v..."
+        details:
+          deny_detail:
+            reason_code: "ACTION_QUOTA_EXCEEDED"
+            quota_violation:
+              action_kind: "agent.spawn"
+              window: "per_run"
+              window_key: "run-orch-001"
+              used: 5
+              limit: 5
+              scope: "tenant:acme/agent:orchestrator"
+              policy_id: "pol_agent_safety"
+            blocked_by_policy: "pol_agent_safety"
+            suggested_fix: "Increase agent.spawn per_run limit from 5 in policy 'pol_agent_safety', or consolidate work into fewer sub-agents"

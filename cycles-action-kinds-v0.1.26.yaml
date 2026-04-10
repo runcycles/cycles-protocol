@@ -1,0 +1,1693 @@
+openapi: 3.1.0
+info:
+  title: Cycles Action Kind Registry
+  version: 0.1.26
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+  summary: >-
+    Canonical action kind taxonomy, action count quota primitives,
+    and the action kind registry API. Foundational companion spec with
+    no schema imports from the Cycles runtime or governance specs, but
+    with normative integration points into both (quota atomicity with
+    the runtime reservation path; action_quotas on Policy in the governance spec).
+  description: |-
+    PURPOSE:
+      This spec defines three things:
+
+      1. ACTION KIND TAXONOMY
+         A published, canonical vocabulary for action.kind strings used
+         in Cycles reservation requests. Enables portable policy rules
+         and quota definitions across all frameworks and languages.
+
+      2. ACTION COUNT QUOTA PRIMITIVES
+         First-class quota schemas and counter mechanics for expressing
+         "max N calls of action_kind X per scope Y per window".
+         These primitives are referenced by the governance spec's
+         Policy schema (action_quotas field) and enforced by the
+         runtime protocol's reservation path.
+
+      3. REGISTRY API
+         Three endpoints: list the registry, get a single kind,
+         and query live quota counters for operator visibility.
+         NOTE: This spec owns both the public registry endpoints
+         (open, no auth) and the admin quota-counter endpoint (auth required).
+         The counter endpoint belongs here because it reads quota primitive state;
+         it is an operator observability concern, not a pure registry concern.
+
+    INTEGRATION POINTS (NOT SCHEMA IMPORTS):
+      This spec has no $ref imports from the runtime or governance specs.
+      However, its normative text has integration points with both:
+        - Runtime: quota counters are incremented/decremented atomically
+          within the reserve.lua Lua script that governs the reservation path.
+          This spec defines the counter semantics; the runtime spec owns the
+          reservation lifecycle. They are coupled at implementation time.
+        - Runtime: Subject.dimensions.run_id is defined by the runtime
+          protocol's Subject schema. This spec requires it for per_run quotas.
+        - Governance: Policy.action_quotas uses ActionQuota from this spec.
+          The governance extension spec references ActionQuota by description;
+          a future merged spec would use $ref.
+        - Admin auth: GET /v1/admin/action-quota-counters uses AdminKeyAuth
+          or ApiKeyAuth with action_quotas:read (primary) or balances:read
+          (deprecated fallback for v0.1.26, removed in v0.1.27). Permission
+          definitions live in the governance extension spec.
+      These are integration points, not schema dependencies. This spec can be
+      read and implemented independently, but implementers MUST also read the
+      runtime and governance specs to wire the integration points correctly.
+
+    WINDOW MODEL — CALENDAR BUCKETS (NORMATIVE):
+      All time-bounded windows use a CALENDAR BUCKET model.
+      The Redis key includes a bucket string derived server-side from
+      UTC calendar arithmetic on the request receipt timestamp:
+        per_minute_tumbling: bucket = YYYY-MM-DDTHH:MM (e.g. "2026-04-09T14:32")
+        per_hour_tumbling:   bucket = YYYY-MM-DDTHH (e.g. "2026-04-09T14")
+        per_day_tumbling:    bucket = YYYY-MM-DD    (e.g. "2026-04-09")
+        per_tenant_per_day:  bucket = YYYY-MM-DD    (tenant-root scope)
+      Key format: quota:{tenant}:{scope}:{action_kind}:{window_code}:{bucket}
+      The Redis key TTL is for stale-key cleanup ONLY and MUST NOT define
+      the window boundary. Recommended cleanup TTLs: 120s for
+      per_minute_tumbling; 3660s for per_hour_tumbling; 90000s for
+      per_day_tumbling and per_tenant_per_day.
+      For per_run, TTL is defined by ActionQuota.per_run_counter_ttl_ms.
+
+    RISK-CLASS QUOTA COUNTER KEYS (NORMATIVE):
+      Risk-class quotas use a counter key format:
+        quota:{tenant}:{scope}:__risk__:{risk_class}:{window_code}:{bucket}
+      The "__risk__" token in the action_kind position distinguishes
+      risk-class counters from per-kind counters.
+      A single reservation may increment BOTH a per-kind counter (e.g.,
+      message.email.send) AND a risk-class counter (e.g., external_side_effect)
+      if both quotas are configured on the matching policy.
+      Risk-class quotas are defined by the RiskClassQuota schema below.
+      See also the governance extension spec for Policy.risk_class_quotas.
+
+    PER_RUN COUNTER LIFECYCLE (NORMATIVE):
+      Applies to BOTH per-kind counters (ActionQuota with window=per_run)
+      AND risk-class counters (RiskClassQuota with window=per_run).
+      The lifecycle is identical for both counter types.
+      INCREMENT (+1): at reserve time, atomically with the budget check.
+      NO CHANGE: at commit time. Committed calls permanently count.
+      DECREMENT (-1): at release time (cancelled / failed call).
+      DECREMENT (-1): when the expiry sweeper processes an expired per_run
+        reservation that was never committed or released.
+      AUTO-EXPIRY: key TTL = per_run_counter_ttl_ms, refreshed on each
+        increment. Clients do NOT need to release committed reservations
+        to clean up per_run counters. Auto-expiry handles abandoned runs.
+      OPERATOR WARNING: if a run pauses longer than per_run_counter_ttl_ms
+        with no new increments, the counter key may expire mid-run, silently
+        resetting quota headroom for the same run_id. Set TTL to at least
+        the maximum expected run duration plus a cleanup margin.
+
+    SCOPE DERIVATION FOR QUOTAS (NORMATIVE):
+      Quota counters are keyed per (action_kind, canonical_scope,
+      window_type, window_key). Scope derivation follows the same hierarchy
+      as budget scopes (tenant → workspace → app → workflow → agent →
+      toolset), using the most specific scope level that has a quota rule
+      for the action_kind.
+      "per_run" window_key = Subject.dimensions.run_id. REQUIRED when any
+      per_run quota applies — server MUST return 400 INVALID_REQUEST if absent.
+      No fallback to idempotency_key or any other field.
+      Time-bounded window_keys are derived server-side from UTC arithmetic;
+      clients do not provide or influence them.
+
+    ATOMICITY WITH BUDGET RESERVATION (NORMATIVE):
+      Quota counter increments MUST be atomic with the budget balance
+      decrement. A reservation that passes budget checks but fails quota
+      checks MUST NOT modify any balance.
+
+      IMPLEMENTATION CONTRACT:
+        Implementations MUST use a CHECK-THEN-COMMIT pattern:
+          PHASE 1 — CHECK (no mutations):
+            Evaluate all checks in order (access control, risk-class quotas,
+            per-kind quotas, budget balance). Read counter values and balance.
+            If ANY check fails: return DENY immediately. No state modified.
+          PHASE 2 — COMMIT (all-or-nothing):
+            Atomically apply ALL mutations in a single transaction:
+              a. Decrement budget balance.
+              b. Increment per-kind quota counter(s) (if applicable).
+              c. Increment risk-class quota counter(s) (if applicable).
+              d. Set/refresh counter TTLs.
+            If the transaction fails (e.g., store error): no partial state
+            is visible. The server MUST return 500 INTERNAL_ERROR.
+            Partial mutation (e.g., balance decremented but counter not
+            incremented) MUST NOT occur.
+
+        For Redis implementations: both phases MUST execute within a single
+        Lua script invocation (Redis guarantees atomic execution of Lua
+        scripts). See impl/reserve-lua-pseudocode.md for reference.
+
+        For non-Redis implementations: both phases MUST execute within a
+        single database transaction with serializable isolation, or an
+        equivalent mechanism that prevents concurrent reads from observing
+        intermediate state.
+
+      COUNTER TTL RULES:
+        Quota counter Redis keys MUST have a TTL for stale-key cleanup, but
+        for calendar-bucket windows the TTL MUST NOT define the quota boundary.
+
+    ACTION KIND NORMALIZATION FOR MCP (NORMATIVE):
+      The Cycles MCP gateway SHOULD map MCP tool names to registered kinds:
+        1. Tool schema annotation: x-cycles-action-kind (highest priority)
+        2. Convention: tool name prefix matching via mcp_tool_prefixes
+        3. Fallback: "unknown.call" (risk_class: side_effect)
+
+      UNREGISTERED KIND HANDLING (NORMATIVE):
+        The handling rule depends on whether the kind string uses the
+        custom.* namespace:
+
+        NON-custom.* unregistered kinds (e.g., "proprietary.action"):
+          - Accepted by the server.
+          - risk_class defaults to side_effect unless overridden by policy.
+          - policy_key matching is not performed.
+          - Server SHOULD log unregistered kinds for operator visibility.
+
+        custom.* unregistered kinds (e.g., "custom.acme.erp.new_op" with
+        no declaration):
+          - MUST be REJECTED with 400 INVALID_REQUEST.
+          - There is no fallback to side_effect for custom kinds.
+          - See CUSTOM.* NAMESPACE RULES below for the declaration contract.
+          - Rationale: custom.* is operator-controlled namespace; accepting
+            undeclared custom kinds with a default risk_class would bypass
+            governance. Non-custom unknowns are typically transient
+            (e.g., new provider tools not yet in the registry) and the
+            side_effect fallback is the safe conservative default.
+
+    REGISTRY GOVERNANCE — OVERVIEW:
+      Built-in kinds (those defined in x-action-kind-registry) MUST NOT
+      be modified by operators. Operators MAY add custom kinds using the
+      "custom." prefix. See the normative governance sections below.
+
+    DEPRECATION PROCESS (NORMATIVE):
+      Built-in action kinds MAY be deprecated but MUST NOT be removed.
+      Deprecated kinds remain in the registry indefinitely for backward
+      compatibility.
+
+      DEPRECATION STEPS:
+        1. Set deprecated: true on the ActionKind entry.
+        2. Set replacement_kind to the canonical successor kind string.
+           If no direct replacement exists, set replacement_kind to the
+           closest semantic equivalent or "unknown.call".
+        3. Add a deprecation notice to the kind's description field,
+           including the spec version that deprecated it.
+        4. The deprecation MUST be announced in the CHANGELOG.
+
+      MINIMUM NOTICE:
+        A deprecated kind MUST remain functional (accepted by servers,
+        counted by quotas, matched by policies) for at least TWO spec
+        minor versions after the version that deprecated it. Servers
+        MUST NOT reject reservations using deprecated kinds.
+
+      SERVER BEHAVIOR:
+        When a reservation uses a deprecated kind, the server SHOULD
+        include a deprecation warning via a "X-Cycles-Deprecated-Kind"
+        response header with the value of replacement_kind. Servers
+        MUST NOT auto-rewrite the kind to the replacement; clients
+        own the migration.
+
+      MCP GATEWAY BEHAVIOR:
+        MCP gateways SHOULD map tool prefixes to the replacement kind
+        for NEW tool integrations. Existing tool mappings using
+        deprecated kinds MUST continue to work.
+
+    PROVIDER ALIASING POLICY (NORMATIVE):
+      The registry uses CAPABILITY-SCOPED kinds (e.g., llm.completion)
+      rather than PROVIDER-SCOPED kinds (e.g., openai.completion).
+
+      RESOLUTION RULES:
+        1. Provider-specific operations MUST be mapped to the canonical
+           capability-scoped kind. There is no "openai.completion" kind;
+           there is only "llm.completion" with policy_keys.host routing.
+        2. If an MCP tool name contains a provider prefix (e.g.,
+           "openai_chat_completion"), the MCP gateway resolves it to
+           the canonical kind via mcp_tool_prefixes.
+        3. Provider-specific policy routing uses ActionPolicyKeys.host.
+           Example: a quota rule for llm.completion with
+           host_allowlist=["api.openai.com"] targets only OpenAI calls.
+        4. The custom.* namespace MAY be used for provider-specific
+           operations that have no canonical equivalent (e.g.,
+           "custom.acme.openai.fine_tune").
+
+      RATIONALE:
+        Provider-scoped kinds would fragment the registry (N providers x
+        M operations = N*M kinds). Capability-scoped kinds + host routing
+        gives the same policy granularity with O(M) kinds.
+
+    ADDING NEW BUILT-IN KINDS (NORMATIVE):
+      New built-in kinds may be added in any minor version bump.
+      Addition is always backward-compatible (additive only).
+
+      CRITERIA FOR INCLUSION:
+        A candidate kind SHOULD meet at least two of:
+          a. Operators need to set QUOTAS on the operation (cost control).
+          b. Operators need ALLOW/DENY lists for the operation (access control).
+          c. The operation has distinct RISK CLASS from existing kinds in
+             its category (governance routing requires differentiation).
+          d. Two or more MCP tool ecosystems use conventions that would
+             benefit from a shared prefix mapping.
+        Purely internal agent operations that never cross a trust boundary
+        and have negligible cost SHOULD NOT be added as built-in kinds.
+
+      PROCESS:
+        1. Propose the kind in a spec PR with: kind string, risk_class
+           with justification, description, policy_key_spec, and at
+           least two mcp_tool_prefixes.
+        2. Validate naming: kind MUST follow <category>.<operation>[.<qualifier>]
+           format and MUST NOT conflict with existing kinds or prefixes.
+        3. Validate risk_class against the ascending risk ordering.
+        4. Review mcp_tool_prefixes for overlap with existing kinds.
+           Overlapping prefixes are NOT allowed (ambiguous resolution).
+        5. Merge and increment the registry version.
+
+      RISK CLASS RECLASSIFICATION:
+        Changing a kind's risk_class is a BREAKING CHANGE for policy
+        authors who use risk_class_quotas. Risk class changes MUST:
+          a. Be announced in the CHANGELOG with justification.
+          b. Follow the deprecation timeline (two minor versions notice).
+
+    CUSTOM.* NAMESPACE RULES (NORMATIVE):
+      Operators MAY define custom action kinds using the "custom." prefix.
+      Custom kinds are not part of the built-in registry and are not
+      validated by this spec.
+
+      NAMING:
+        Custom kinds MUST use the format: custom.<org>.<operation>[.<qualifier>]
+        The <org> segment prevents collisions between operators.
+        Examples: "custom.acme.erp.invoice.post", "custom.acme.sap.query"
+
+      DECLARATION CONTRACT (NORMATIVE):
+        For every custom kind, operators MUST make the following declarable
+        to the server at startup or runtime:
+          REQUIRED:
+            - kind (string, format: "custom.<org>.<operation>[.<qualifier>]")
+            - risk_class (ActionRiskClass enum value)
+          OPTIONAL:
+            - description (string)
+            - policy_key_spec (ActionPolicyKeySpec object)
+            - mcp_tool_prefixes (array of strings)
+
+        The declaration mechanism is implementation-defined (config file,
+        database seed, admin API extension, environment variables). This
+        spec does not prescribe a specific mechanism, but servers MUST
+        support declaration of at least the required fields above.
+
+        Servers MUST validate declarations at load time:
+          - kind MUST match the "custom.<org>.<operation>" format
+          - risk_class MUST be a valid ActionRiskClass enum value
+          - mcp_tool_prefixes MUST NOT overlap with any built-in kind's
+            prefixes (if overlap detected, server SHOULD log a warning
+            and give precedence to the built-in kind)
+
+      ENFORCEMENT:
+        When a reservation request uses a custom kind:
+          - If the kind has been declared: the declared risk_class and
+            policy_key_spec are used for policy matching and routing.
+          - If the kind has NOT been declared: the server MUST reject the
+            request with 400 INVALID_REQUEST. The error message SHOULD
+            indicate that the kind is not registered.
+          - There is no implicit default. Accepting unregistered custom
+            kinds with a fallback risk_class would bypass governance.
+
+      POLICY KEY SPEC:
+        If absent from the declaration, policy routing falls back to
+        kind-only matching (no host/domain/resource routing).
+
+      VISIBILITY:
+        Custom kinds do NOT appear in the public GET /v1/action-kinds
+        endpoint by default. Servers MAY provide a separate
+        operator-scoped endpoint for custom kind introspection.
+
+    CHANGELOG:
+      v0.1.26 (2026-04-09):
+        - Split from cycles-protocol-extensions-v0.1.26-final.yaml monolith.
+        - Expanded registry from 44 to 62 built-in kinds.
+        - NEW categories: agent (4 kinds), memory (3 kinds),
+          reasoning (2 kinds), vision (3 kinds).
+        - NEW kinds in existing categories: vector.delete,
+          llm.structured_output, code.lint, document.edit,
+          message.chat.post, http.graphql.
+        - Added mcp_tool_prefixes to llm.completion and llm.embedding
+          (previously empty).
+        - Added RiskClassQuota, per_minute_tumbling window, threshold_pct.
+        - per_run_counter_ttl_ms field added to ActionQuota.
+        - Calendar-bucket window model fully specified and consistent
+          throughout (no first-write+TTL contradictions).
+        - REGISTRY GOVERNANCE: added normative sections for deprecation
+          process, provider aliasing policy, adding new built-in kinds,
+          and custom.* namespace rules.
+
+servers:
+  - url: https://api.cycles.local
+    description: Replace with your implementation endpoint
+
+tags:
+  - name: ActionKinds
+    description: Canonical action kind registry — list and lookup
+  - name: ActionQuotas
+    description: Live action quota counter state (operator debug view)
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Cycles-API-Key
+    AdminKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Admin-API-Key
+
+  parameters:
+    ActionKindParam:
+      name: kind
+      in: path
+      required: true
+      schema:
+        type: string
+        maxLength: 64
+      description: Canonical action kind string (e.g. "message.email.send")
+
+    QuotaWindowFilter:
+      name: window
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/ActionQuotaWindow'
+      description: Filter quota counters by window type.
+
+    ActionKindFilter:
+      name: action_kind
+      in: query
+      required: false
+      schema:
+        type: string
+        maxLength: 64
+      description: Filter by action kind.
+
+  schemas:
+
+    ActionRiskClass:
+      type: string
+      description: >-
+        Normalized risk class for an action kind. Used by the policy engine
+        for routing behavior and default budget weights when no explicit
+        quota rule matches.
+
+        ORDERING (ascending risk):
+          read_only < local_mutation < side_effect < external_side_effect < high_risk
+
+        RISK_POINTS WEIGHTS:
+          Default weights are NOT part of this specification. They are
+          server-configurable. Embedding defaults here would conflate
+          semantic taxonomy with policy configuration.
+
+        NOTE ON llm.completion:
+          llm.completion is classified as side_effect for governance purposes,
+          not because it mutates external state. It consumes budget, may
+          produce output that drives downstream side effects, and has
+          non-trivial blast radius in agent loops.
+      enum:
+        - read_only
+        - local_mutation
+        - side_effect
+        - external_side_effect
+        - high_risk
+
+    ActionPolicyKeySpec:
+      type: object
+      description: >-
+        Declares which extra dimensions a policy engine should extract from
+        Action.policy_keys when evaluating quota rules for this action kind.
+        Presence means the dimension is meaningful for policy matching.
+      additionalProperties: false
+      properties:
+        host:
+          type: boolean
+          description: True if HTTP host is a meaningful policy dimension.
+        recipient_domain:
+          type: boolean
+          description: True if recipient domain is a policy dimension.
+        resource_type:
+          type: string
+          description: >-
+            Name of the resource dimension (e.g. "table" for db.write,
+            "collection" for vector.upsert, "object_type" for crm.record.write).
+        path_prefix:
+          type: boolean
+          description: True if file/resource path prefix is a policy dimension.
+
+    ActionKind:
+      type: object
+      description: >-
+        A single entry in the canonical Cycles action kind registry.
+        Action kinds provide a stable, cross-framework vocabulary for
+        policy rules and quota definitions.
+      required: [kind, risk_class]
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          maxLength: 64
+          description: >-
+            Canonical action kind string. Format: <category>.<operation>[.<qualifier>].
+        risk_class:
+          $ref: '#/components/schemas/ActionRiskClass'
+        policy_key_spec:
+          $ref: '#/components/schemas/ActionPolicyKeySpec'
+          description: >-
+            Which policy key dimensions are meaningful for this action kind.
+            Absent for kinds with no host/domain/resource routing.
+        description:
+          type: string
+          maxLength: 512
+        mcp_tool_prefixes:
+          type: array
+          items:
+            type: string
+            maxLength: 128
+          description: >-
+            MCP tool name prefixes that conventionally map to this kind.
+            Used by the MCP gateway for automatic normalization when tools
+            do not carry an x-cycles-action-kind annotation.
+        deprecated:
+          type: boolean
+          default: false
+        replacement_kind:
+          type: string
+          maxLength: 64
+
+    ActionKindRegistry:
+      type: object
+      description: Returned by GET /v1/action-kinds.
+      required: [kinds, version]
+      additionalProperties: false
+      properties:
+        version:
+          type: string
+          description: Registry version (semver). Incremented when kinds are added or deprecated.
+        kinds:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActionKind'
+        next_cursor:
+          type: string
+        has_more:
+          type: boolean
+
+    ActionPolicyKeys:
+      type: object
+      description: >-
+        Extra dimensions sent by clients in Action objects for policy routing.
+        Allows quota rules and allow/deny lists to be scoped to specific hosts,
+        domains, resource types, or file paths — not just action kinds.
+        If not provided, policy routing falls back to action.kind only.
+        This is the REQUEST-SIDE companion to the registry's ActionPolicyKeySpec,
+        which declares which dimensions are meaningful per kind.
+      additionalProperties: false
+      properties:
+        host:
+          type: string
+          maxLength: 253
+          description: Hostname only, no port, no scheme. E.g. "api.sendgrid.com".
+        recipient_domain:
+          type: string
+          maxLength: 253
+          description: Domain only. E.g. "customer.com".
+        resource_type:
+          type: string
+          maxLength: 128
+          description: E.g. "users", "orders", "contacts", "leads".
+        path_prefix:
+          type: string
+          maxLength: 512
+          description: Absolute path prefix. E.g. "/workspace/output".
+        custom:
+          type: object
+          additionalProperties:
+            type: string
+            maxLength: 256
+          maxProperties: 8
+
+    ActionQuotaWindow:
+      type: string
+      description: >-
+        Time window for action quota enforcement. See WINDOW MODEL in info.description.
+
+        per_run:
+          Keyed on Subject.dimensions.run_id. REQUIRED — if absent and
+          per_run quota applies, server MUST return 400 INVALID_REQUEST.
+          No calendar bucket; bucket IS the run_id.
+
+        per_minute_tumbling:
+          Calendar bucket = UTC minute of request receipt (YYYY-MM-DDTHH:MM).
+          Resets at top of each UTC minute. Cleanup TTL: 120s.
+          Use for burst protection: prevent agents from exhausting hourly
+          quotas in seconds. Example: max 5 emails per minute.
+
+        per_hour_tumbling:
+          Calendar bucket = UTC hour of request receipt.
+          Resets at top of each UTC hour. Cleanup TTL: 3660s.
+
+        per_day_tumbling:
+          Calendar bucket = UTC calendar date of request receipt.
+          Resets at UTC midnight. Cleanup TTL: 90000s.
+
+        per_tenant_per_day:
+          Same as per_day_tumbling but scope always normalized to
+          tenant root regardless of reservation subject hierarchy.
+      enum:
+        - per_run
+        - per_minute_tumbling
+        - per_hour_tumbling
+        - per_day_tumbling
+        - per_tenant_per_day
+
+    ActionQuota:
+      type: object
+      description: >-
+        A single action count quota rule. When attached to a Policy via
+        action_quotas, enforces that the action_kind does not exceed
+        max_calls within the window for scopes matching the policy's
+        scope_pattern.
+
+        ATOMICITY: counter increments atomically with the budget reserve.
+        A reservation failing quota check MUST NOT modify any balance.
+        See info.description ATOMICITY section.
+      required: [action_kind, max_calls, window]
+      additionalProperties: false
+      properties:
+        action_kind:
+          type: string
+          maxLength: 64
+          description: >-
+            The action kind this quota applies to. Wildcards not supported
+            in v0; specify exact kind strings.
+        max_calls:
+          type: integer
+          minimum: 1
+          maximum: 100000
+          description: Maximum reserve calls allowed within the window.
+        window:
+          $ref: '#/components/schemas/ActionQuotaWindow'
+        host_allowlist:
+          type: array
+          items:
+            type: string
+            maxLength: 253
+          description: >-
+            If non-empty, quota only applies where Action.policy_keys.host matches.
+        recipient_domain_allowlist:
+          type: array
+          items:
+            type: string
+            maxLength: 253
+          description: >-
+            If non-empty, quota only applies where Action.policy_keys.recipient_domain matches.
+        resource_type_allowlist:
+          type: array
+          items:
+            type: string
+            maxLength: 128
+          description: >-
+            If non-empty, quota only applies where Action.policy_keys.resource_type matches.
+        per_run_counter_ttl_ms:
+          type: integer
+          minimum: 60000
+          maximum: 604800000
+          default: 86400000
+          description: >-
+            Only meaningful when window=per_run. Redis key TTL refreshed on
+            each increment. Default: 86400000ms (24h). Max: 604800000ms (7d).
+            Servers MUST NOT allow this for non-per_run windows.
+            OPERATOR WARNING: if a run pauses longer than this value with no
+            new increments, the counter key may expire mid-run, silently
+            resetting quota headroom for the same run_id. Set to at least
+            the maximum expected run duration plus a cleanup margin (minimum
+            2x the longest expected inter-action pause within a run).
+        threshold_pct:
+          type: number
+          format: double
+          minimum: 0.01
+          maximum: 0.99
+          default: 0.80
+          description: >-
+            Percentage of max_calls at which a quota.threshold_approaching
+            event is emitted. Default: 0.80 (80%). Set to 0.99 to alert
+            only near exhaustion. Server emits at most once per window
+            instance per threshold crossing. See
+            EventDataQuotaThresholdApproaching in
+            cycles-protocol-extensions-v0.1.26.yaml.
+
+    RiskClassQuota:
+      type: object
+      description: >-
+        A risk-class-level action count quota rule. When attached to a Policy
+        via risk_class_quotas, enforces that ALL action kinds of the specified
+        risk_class do not collectively exceed max_calls within the window
+        for scopes matching the policy's scope_pattern.
+
+        Unlike ActionQuota (which targets a single action_kind), RiskClassQuota
+        aggregates across all kinds in a risk class. Example: "max 50
+        external_side_effect actions per hour" caps the total of email sends,
+        Slack posts, SMS sends, social media posts, etc.
+
+        A reservation may be subject to BOTH a risk-class quota AND a per-kind
+        quota. Both must pass. If either fails, DENY.
+
+        ATOMICITY: counter increments atomically with per-kind counters and
+        budget balance. All in the same atomic Lua block. See info.description.
+
+        PER_RUN LIFECYCLE: when window=per_run, risk-class counters follow
+        the same increment/decrement/auto-expiry lifecycle as per-kind
+        counters. See PER_RUN COUNTER LIFECYCLE in info.description.
+      required: [risk_class, max_calls, window]
+      additionalProperties: false
+      properties:
+        risk_class:
+          $ref: '#/components/schemas/ActionRiskClass'
+          description: >-
+            The risk class this quota applies to. Counts all action kinds
+            with this risk_class in aggregate.
+        max_calls:
+          type: integer
+          minimum: 1
+          maximum: 100000
+          description: Maximum reserve calls (across all kinds in the risk class) within the window.
+        window:
+          $ref: '#/components/schemas/ActionQuotaWindow'
+        per_run_counter_ttl_ms:
+          type: integer
+          minimum: 60000
+          maximum: 604800000
+          default: 86400000
+          description: >-
+            Only meaningful when window=per_run. Same semantics as
+            ActionQuota.per_run_counter_ttl_ms.
+        threshold_pct:
+          type: number
+          format: double
+          minimum: 0.01
+          maximum: 0.99
+          default: 0.80
+          description: >-
+            Percentage of max_calls at which a quota.threshold_approaching
+            event is emitted. Same semantics as ActionQuota.threshold_pct.
+
+    ActionQuotaState:
+      type: object
+      description: >-
+        Current state of a single quota counter. Returned by
+        GET /v1/admin/action-quota-counters for operator visibility.
+        For risk-class counters, action_kind is "__risk__" and risk_class
+        identifies the aggregated risk class.
+      required: [action_kind, scope, window, used, limit]
+      additionalProperties: false
+      properties:
+        action_kind:
+          type: string
+          maxLength: 64
+          description: >-
+            The action kind for per-kind counters, or "__risk__" for
+            risk-class counters.
+        risk_class:
+          $ref: '#/components/schemas/ActionRiskClass'
+          description: >-
+            Present for risk-class quota counters. Identifies the risk class
+            being aggregated. When present, action_kind is "__risk__".
+        scope:
+          type: string
+        scope_path:
+          type: string
+        window:
+          $ref: '#/components/schemas/ActionQuotaWindow'
+        window_key:
+          type: string
+          description: >-
+            Specific window instance key (e.g. run_id for per_run,
+            UTC hour string for per_hour_tumbling).
+        used:
+          type: integer
+          format: int64
+          minimum: 0
+        limit:
+          type: integer
+          format: int64
+          minimum: 1
+        remaining:
+          type: integer
+          format: int64
+          description: limit - used. Floored at 0.
+        policy_id:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+          description: >-
+            When this counter's window expires
+            (for per_hour_tumbling, per_day_tumbling, per_tenant_per_day).
+        last_incremented_at:
+          type: string
+          format: date-time
+
+    ActionQuotaCounterListResponse:
+      type: object
+      required: [counters, has_more]
+      additionalProperties: false
+      properties:
+        counters:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActionQuotaState'
+        next_cursor:
+          type: string
+        has_more:
+          type: boolean
+
+    ActionQuotaCounterResetRequest:
+      type: object
+      description: >-
+        Request body for POST /v1/admin/action-quota-counters/reset.
+        Identifies a single counter by its key fields and triggers a reset.
+
+        RESET SEMANTICS (NORMATIVE):
+          - The counter value is set to 0 atomically.
+          - The counter TTL is preserved (for calendar-bucket windows) or
+            refreshed (for per_run counters).
+          - A quota.counter_reset event is emitted with the previous value.
+          - Active reservations are NOT affected — only the counter state.
+          - The reset is IRREVERSIBLE. Admins SHOULD provide a reason.
+
+        RESET IS NOT RECOMMENDED for:
+          - Production quota tuning (change the policy limit instead).
+          - Routine operations (counters expire naturally via window boundaries).
+        Reset is intended for INCIDENT RESPONSE — e.g., a stuck counter due
+        to a bug, or an operator mistake that needs to be unwound.
+      required: [scope, action_kind, window, window_key]
+      additionalProperties: false
+      properties:
+        tenant_id:
+          type: string
+          description: >-
+            REQUIRED when using AdminKeyAuth. Ignored when using ApiKeyAuth
+            (uses the authenticated tenant).
+        scope:
+          type: string
+          description: Canonical scope string of the counter.
+        action_kind:
+          type: string
+          maxLength: 64
+          description: >-
+            The action kind of the counter, or "__risk__" for risk-class counters.
+        risk_class:
+          $ref: '#/components/schemas/ActionRiskClass'
+          description: >-
+            Required when action_kind="__risk__". Identifies the risk-class
+            counter to reset.
+        window:
+          $ref: '#/components/schemas/ActionQuotaWindow'
+        window_key:
+          type: string
+          description: >-
+            Specific window instance key (run_id, UTC hour string, etc.).
+            MUST exactly match an existing counter key.
+        reason:
+          type: string
+          maxLength: 512
+          description: >-
+            Optional human-readable reason for the reset. Included in the
+            quota.counter_reset event for audit purposes.
+
+    ActionQuotaCounterResetResponse:
+      type: object
+      description: Response after a successful counter reset.
+      required: [counter, previous_used]
+      additionalProperties: false
+      properties:
+        counter:
+          $ref: '#/components/schemas/ActionQuotaState'
+          description: Counter state after the reset (used=0).
+        previous_used:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Counter used value immediately before the reset.
+
+    ErrorResponse:
+      type: object
+      description: Error response (mirrors base spec shape).
+      required: [error, message, request_id]
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        request_id:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+
+paths:
+
+  /v1/action-kinds:
+    get:
+      tags: [ActionKinds]
+      operationId: listActionKinds
+      summary: List the canonical action kind registry
+      security: []  # Explicit empty to override any global security in merged artifacts
+      description: >-
+        Returns the published registry. Safe to cache aggressively (TTL: 1 hour).
+        Use ETag / If-None-Match for efficient cache validation.
+
+        PUBLIC ENDPOINT RATE LIMITING (NORMATIVE):
+          No API key required. Servers MUST implement abuse protection on
+          this endpoint since it is unauthenticated.
+
+          WIRE BEHAVIOR (MUST):
+            When a request is rate-limited, servers MUST return
+            HTTP 429 Too Many Requests with a Retry-After header
+            (value in seconds) indicating the earliest retry time.
+            This is the contract SDKs and MCP gateways depend on for
+            consistent back-off behavior. Servers MUST NOT silently
+            drop rate-limited requests or return 403 / 503 in their
+            place.
+
+          MECHANISM (SHOULD):
+            Specific abuse-protection mechanisms are implementation-defined
+            because deployment topologies differ (direct, CDN-fronted,
+            behind a WAF). Servers SHOULD:
+              - Apply per-IP rate limits when deployed directly
+                (recommended baseline: 60 requests per minute per source IP).
+              - Apply per-edge-client limits when deployed behind a CDN
+                or reverse proxy (using forwarded-for headers or equivalent).
+              - Honor If-None-Match for cheap cache validation (prefer 304
+                over 200 when possible — 304 responses SHOULD NOT count
+                against rate limits).
+          Servers MAY additionally use WAF, CDN caching, or bot-detection
+          mechanisms — these are deployment concerns outside this spec.
+      parameters:
+        - name: risk_class
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/ActionRiskClass'
+        - name: deprecated
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: Default false (exclude deprecated). Set true to include them.
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: Action kind registry (paginated)
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+            ETag:
+              description: Registry version hash for cache validation.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionKindRegistry'
+        "400":
+          description: Invalid filter parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "429":
+          description: Too many requests (rate limit exceeded)
+          headers:
+            Retry-After:
+              description: Seconds until the client may retry.
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/action-kinds/{kind}:
+    get:
+      tags: [ActionKinds]
+      operationId: getActionKind
+      summary: Get a single action kind by its kind string (exact match)
+      security: []  # Explicit empty to override any global security in merged artifacts
+      description: >-
+        EXACT MATCH ONLY. Returns 200 if the kind string is in the registry,
+        404 if it is not. No prefix matching, no fuzzy matching, no "closest
+        alternative." Convention-mapping (MCP tool name → registered kind)
+        belongs in the MCP gateway layer, not here.
+        Open endpoint — no API key required. Rate limiting rules from
+        GET /v1/action-kinds apply to this endpoint as well.
+      parameters:
+        - $ref: '#/components/parameters/ActionKindParam'
+      responses:
+        "200":
+          description: Action kind definition
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionKind'
+        "404":
+          description: Action kind not found in registry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "429":
+          description: Too many requests (rate limit exceeded)
+          headers:
+            Retry-After:
+              description: Seconds until the client may retry.
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/admin/action-quota-counters:
+    get:
+      tags: [ActionQuotas]
+      operationId: listActionQuotaCounters
+      summary: List live action quota counters (operator debug view)
+      description: >-
+        Returns current quota counter states. Reads live Redis state without
+        modifying it. No server-side caching.
+
+        USE CASES:
+          - Tune quota limits: see what "max 2 emails per run" actually consumes.
+          - Incident investigation: which run_id exhausted a quota.
+          - Run Authority Timeline data source: fetch counters by run_id.
+
+        TENANCY (NORMATIVE):
+          - AdminKeyAuth: can query any tenant (tenant_id REQUIRED).
+          - ApiKeyAuth: own tenant only. Requires action_quotas:read
+            permission (primary) or balances:read permission (deprecated
+            fallback for v0.1.26).
+
+        PERMISSION MODEL (NORMATIVE):
+          Servers MUST accept either:
+            - action_quotas:read (PRIMARY — preferred for all new grants)
+            - balances:read (DEPRECATED FALLBACK — v0.1.26 only, removed in v0.1.27)
+          When accepting the balances:read fallback, servers SHOULD include
+          a X-Cycles-Permission-Deprecated response header indicating the
+          key should be re-granted with action_quotas:read.
+          See PermissionExtension in cycles-governance-extensions-v0.1.26.yaml.
+      security:
+        - AdminKeyAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - name: tenant_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: >-
+            AdminKeyAuth: REQUIRED. ApiKeyAuth: ignored (uses authenticated tenant).
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Prefix-match. E.g. "tenant:acme" returns all scopes under acme.
+        - $ref: '#/components/parameters/ActionKindFilter'
+        - $ref: '#/components/parameters/QuotaWindowFilter'
+        - name: run_id
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 256
+          description: Filter per_run counters by Subject.dimensions.run_id value.
+        - name: include_zero
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Include counters where used=0. Default false.
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: Action quota counter states
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+            X-Cycles-Tenant:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionQuotaCounterListResponse'
+        "400":
+          description: Missing tenant_id with AdminKeyAuth
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "401":
+          description: Missing or invalid key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "403":
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/admin/action-quota-counters/reset:
+    post:
+      tags: [ActionQuotas]
+      operationId: resetActionQuotaCounter
+      summary: Reset a specific quota counter (incident response)
+      description: >-
+        Atomically resets a single quota counter to zero. Intended for
+        INCIDENT RESPONSE, not routine operations. See
+        ActionQuotaCounterResetRequest for full semantics.
+
+        USE CASES:
+          - A bug caused double-counting; reset to unblock the affected agent.
+          - An operator mistake needs to be unwound before the window expires.
+          - Testing: reset a counter between test runs.
+
+        NOT FOR:
+          - Production quota tuning → change the policy max_calls instead.
+          - Bypassing quota policies → reset leaves a permanent audit trail.
+
+        AUDIT (NORMATIVE):
+          Every successful reset MUST emit a quota.counter_reset event
+          containing the previous counter value, the counter key fields,
+          the acting admin identity, and the optional reason. Defined in
+          cycles-protocol-extensions-v0.1.26.yaml (EventDataQuotaCounterReset).
+
+        PERMISSION MODEL (NORMATIVE):
+          This endpoint requires ADMIN-ONLY access:
+            - AdminKeyAuth: ALWAYS permitted.
+            - ApiKeyAuth: requires action_quotas:write (reserved — not yet
+              defined in v0.1.26). In v0.1.26, servers MUST require
+              AdminKeyAuth for reset operations. A finer-grained
+              action_quotas:write permission MAY be added in v0.1.27.
+          Rationale: reset is a high-privilege operation that bypasses
+          the quota policy temporarily. Restricting to AdminKeyAuth in
+          v0.1.26 prevents accidental exposure via tenant-scoped keys.
+
+        TENANCY (NORMATIVE):
+          - AdminKeyAuth: tenant_id in request body REQUIRED.
+          - The operation targets exactly ONE counter identified by all
+            key fields (tenant_id, scope, action_kind, window, window_key).
+          - Bulk reset is NOT supported in v0.1.26. Operators submit one
+            request per counter.
+      security:
+        - AdminKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionQuotaCounterResetRequest'
+      responses:
+        "200":
+          description: Counter reset successfully
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionQuotaCounterResetResponse'
+        "400":
+          description: "Invalid request: missing required field, invalid key combination, or malformed body"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "401":
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "403":
+          description: Insufficient permissions (requires AdminKeyAuth in v0.1.26)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "404":
+          description: Counter not found (no counter matches the specified key fields)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+# =============================================================================
+# BUILT-IN ACTION KIND REGISTRY (NORMATIVE SEED DATA)
+# =============================================================================
+# Servers MUST seed these entries at startup. Operators MUST NOT modify them.
+# Custom kinds use the "custom." prefix and are operator-defined.
+# unknown.call is always the last entry (catch-all ordering preserved).
+
+x-action-kind-registry:
+  version: "0.1.26"
+  kinds:
+
+    # LLM / AI
+    - kind: llm.completion
+      risk_class: side_effect
+      description: LLM text completion or chat call (may trigger further actions)
+      mcp_tool_prefixes: ["llm_", "chat_", "complete_", "openai_chat", "anthropic_", "generate_text"]
+
+    - kind: llm.embedding
+      risk_class: read_only
+      description: Generate embedding vector for text
+      mcp_tool_prefixes: ["embed_", "embedding_", "openai_embed", "get_embedding", "encode_text"]
+
+    - kind: llm.structured_output
+      risk_class: side_effect
+      description: >-
+        LLM call with structured output constraint (JSON schema, function calling,
+        tool use). Distinct from llm.completion for providers that bill differently.
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["structured_output", "json_mode", "function_call"]
+
+    # Agent operations
+    - kind: agent.spawn
+      risk_class: side_effect
+      description: >-
+        Spawn a child agent or sub-task with its own execution context.
+        Governs fan-out: each spawned agent inherits or derives a budget scope.
+      mcp_tool_prefixes: ["spawn_agent", "create_agent", "fork_agent", "new_agent"]
+
+    - kind: agent.delegate
+      risk_class: side_effect
+      description: >-
+        Delegate a task to a named agent or agent pool. The delegate may
+        execute actions under its own policy scope.
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["delegate_", "handoff_", "assign_agent", "route_to_agent"]
+
+    - kind: agent.message
+      risk_class: side_effect
+      description: >-
+        Send a message to another agent within the same runtime or cluster.
+        Enables agent-to-agent coordination and protocol exchanges.
+      mcp_tool_prefixes: ["send_to_agent", "agent_message", "a2a_send", "inter_agent"]
+
+    - kind: agent.human_escalation
+      risk_class: external_side_effect
+      description: >-
+        Escalate a decision or task to a human operator. Externally visible:
+        triggers a notification and blocks until human response.
+      policy_key_spec:
+        recipient_domain: true
+      mcp_tool_prefixes: ["escalate_", "human_review", "request_approval", "ask_human"]
+
+    # Web / HTTP
+    - kind: web.search
+      risk_class: read_only
+      description: Web search query (read-only, no side effects)
+      mcp_tool_prefixes: ["search_", "web_search", "search"]
+
+    - kind: http.get
+      risk_class: read_only
+      description: HTTP GET to an external endpoint
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["http_get", "fetch_url", "get_url"]
+
+    - kind: http.post
+      risk_class: external_side_effect
+      description: HTTP POST to an external endpoint
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["http_post", "post_url", "call_api", "api_call"]
+
+    - kind: http.put
+      risk_class: external_side_effect
+      description: HTTP PUT/PATCH to an external endpoint
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["http_put", "http_patch", "update_api"]
+
+    - kind: http.delete
+      risk_class: external_side_effect
+      description: HTTP DELETE to an external endpoint
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["http_delete", "delete_api"]
+
+    - kind: http.graphql
+      risk_class: side_effect
+      description: >-
+        Execute a GraphQL query or mutation. Classified as side_effect because
+        a single request may contain both reads and writes.
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["graphql_", "gql_query", "gql_mutate"]
+
+    # Messaging
+    - kind: message.email.send
+      risk_class: external_side_effect
+      description: Send an email to one or more recipients
+      policy_key_spec:
+        host: true
+        recipient_domain: true
+      mcp_tool_prefixes: ["send_email", "email_", "smtp_", "sendgrid_"]
+
+    - kind: message.slack.post
+      risk_class: external_side_effect
+      description: Post a message to a Slack channel or user
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["slack_", "post_slack", "send_slack"]
+
+    - kind: message.sms.send
+      risk_class: external_side_effect
+      description: Send an SMS message
+      policy_key_spec:
+        recipient_domain: true
+      mcp_tool_prefixes: ["send_sms", "sms_", "twilio_"]
+
+    - kind: message.chat.post
+      risk_class: external_side_effect
+      description: >-
+        Post a message to a chat platform (Teams, Discord, Mattermost, etc.).
+        Use message.slack.post for Slack-specific routing; use this for other platforms.
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["teams_", "discord_", "mattermost_", "chat_send", "post_message"]
+
+    # Database
+    - kind: db.query
+      risk_class: read_only
+      description: "Read-only database query (SELECT)"
+      policy_key_spec:
+        resource_type: table
+      mcp_tool_prefixes: ["db_query", "query_db", "sql_query", "select_"]
+
+    - kind: db.write
+      risk_class: side_effect
+      description: "Database write (INSERT, UPDATE, DELETE, UPSERT)"
+      policy_key_spec:
+        resource_type: table
+      mcp_tool_prefixes: ["db_write", "db_insert", "db_update", "db_delete", "sql_write"]
+
+    - kind: db.schema_change
+      risk_class: high_risk
+      description: "Database schema modification (DDL: CREATE, ALTER, DROP)"
+      policy_key_spec:
+        resource_type: table
+      mcp_tool_prefixes: ["db_migrate", "alter_table", "create_table", "drop_table"]
+
+    # CRM / SaaS records
+    - kind: crm.record.read
+      risk_class: read_only
+      description: Read a CRM record
+      policy_key_spec:
+        resource_type: object_type
+      mcp_tool_prefixes: ["get_contact", "get_lead", "crm_read", "salesforce_get"]
+
+    - kind: crm.record.write
+      risk_class: side_effect
+      description: Create or update a CRM record
+      policy_key_spec:
+        resource_type: object_type
+      mcp_tool_prefixes: ["create_contact", "update_contact", "crm_write", "salesforce_create"]
+
+    - kind: crm.record.delete
+      risk_class: external_side_effect
+      description: Delete a CRM record (typically irreversible)
+      policy_key_spec:
+        resource_type: object_type
+      mcp_tool_prefixes: ["delete_contact", "crm_delete", "salesforce_delete"]
+
+    # File / Storage
+    - kind: file.read
+      risk_class: read_only
+      description: Read a file from local or shared storage
+      policy_key_spec:
+        path_prefix: true
+      mcp_tool_prefixes: ["read_file", "file_read", "get_file", "open_file"]
+
+    - kind: file.write
+      risk_class: local_mutation
+      description: Write or create a file in local or shared storage
+      policy_key_spec:
+        path_prefix: true
+      mcp_tool_prefixes: ["write_file", "file_write", "create_file", "save_file"]
+
+    - kind: file.delete
+      risk_class: side_effect
+      description: Delete a file from storage
+      policy_key_spec:
+        path_prefix: true
+      mcp_tool_prefixes: ["delete_file", "file_delete", "remove_file"]
+
+    # Code / Compute
+    - kind: code.exec
+      risk_class: high_risk
+      description: Execute arbitrary code in a sandbox or interpreter
+      policy_key_spec:
+        path_prefix: true
+      mcp_tool_prefixes: ["exec_", "run_code", "python_exec", "bash_exec", "js_exec"]
+
+    - kind: code.deploy
+      risk_class: high_risk
+      description: Deploy code to a runtime environment
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["deploy_", "code_publish", "vercel_deploy", "lambda_deploy"]
+
+    - kind: code.lint
+      risk_class: read_only
+      description: Run static analysis, linting, or type-checking on code. Read-only inspection with no state modification.
+      policy_key_spec:
+        path_prefix: true
+      mcp_tool_prefixes: ["lint_", "check_code", "type_check", "static_analysis"]
+
+    # Vector / Embedding storage
+    - kind: vector.query
+      risk_class: read_only
+      description: Vector similarity search (read-only)
+      policy_key_spec:
+        resource_type: collection
+      mcp_tool_prefixes: ["vector_search", "similarity_search", "pinecone_query"]
+
+    - kind: vector.upsert
+      risk_class: side_effect
+      description: Insert or update vectors in a vector store
+      policy_key_spec:
+        resource_type: collection
+      mcp_tool_prefixes: ["vector_upsert", "embed_and_store", "pinecone_upsert"]
+
+    - kind: vector.delete
+      risk_class: side_effect
+      description: Delete vectors or documents from a vector store. Irreversible data loss for the affected embeddings.
+      policy_key_spec:
+        resource_type: collection
+      mcp_tool_prefixes: ["vector_delete", "pinecone_delete", "remove_embedding", "delete_vectors"]
+
+    # Memory / Knowledge
+    - kind: memory.read
+      risk_class: read_only
+      description: >-
+        Read from agent long-term memory, knowledge base, or RAG retrieval store.
+        Includes semantic search over memory.
+      policy_key_spec:
+        resource_type: store
+      mcp_tool_prefixes: ["memory_read", "recall_", "retrieve_memory", "rag_query", "knowledge_search"]
+
+    - kind: memory.write
+      risk_class: local_mutation
+      description: >-
+        Write to agent long-term memory or knowledge base. Includes storing
+        conversation summaries, facts, or documents for future retrieval.
+      policy_key_spec:
+        resource_type: store
+      mcp_tool_prefixes: ["memory_write", "memorize_", "store_memory", "rag_ingest", "knowledge_store"]
+
+    - kind: memory.delete
+      risk_class: side_effect
+      description: Delete entries from agent long-term memory or knowledge base. Irreversible data loss without backups.
+      policy_key_spec:
+        resource_type: store
+      mcp_tool_prefixes: ["memory_delete", "forget_", "clear_memory", "rag_delete"]
+
+    # Reasoning / Planning
+    - kind: reasoning.plan
+      risk_class: side_effect
+      description: >-
+        Generate or revise an execution plan. Typically involves LLM calls to
+        decompose a goal into steps. Operators can quota to cap runaway planning loops.
+      mcp_tool_prefixes: ["plan_", "create_plan", "decompose_", "reason_"]
+
+    - kind: reasoning.reflect
+      risk_class: side_effect
+      description: >-
+        Self-evaluation or critique loop where the agent reviews its own output.
+        Consumes LLM calls; operators can quota to prevent infinite self-correction.
+      mcp_tool_prefixes: ["reflect_", "self_evaluate", "critique_", "review_output"]
+
+    # Calendar / Scheduling
+    - kind: calendar.read
+      risk_class: read_only
+      description: Read calendar events or availability
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["get_calendar", "list_events", "check_availability"]
+
+    - kind: calendar.write
+      risk_class: external_side_effect
+      description: Create or modify calendar events
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["create_event", "update_event", "schedule_meeting"]
+
+    # Payments
+    - kind: payment.charge
+      risk_class: high_risk
+      description: Initiate a payment charge or transaction
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["charge_", "payment_", "stripe_charge", "process_payment"]
+
+    - kind: payment.refund
+      risk_class: high_risk
+      description: Issue a payment refund
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["refund_", "issue_refund", "stripe_refund"]
+
+    # Media generation (AI-native)
+    - kind: image.generate
+      risk_class: external_side_effect
+      description: >-
+        AI image generation from a text prompt or reference image.
+        Billed on submit regardless of downstream use.
+        Examples: DALL-E, Stable Diffusion, Midjourney, Imagen.
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["generate_image", "create_image", "dalle_", "image_gen", "text_to_image"]
+
+    - kind: image.edit
+      risk_class: external_side_effect
+      description: AI-assisted image editing, inpainting, or outpainting.
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["edit_image", "inpaint_", "outpaint_", "image_edit"]
+
+    - kind: video.generate
+      risk_class: high_risk
+      description: >-
+        AI video generation. high_risk: expensive (large billing events),
+        long-running (minutes to hours), irreversible output.
+        Examples: Sora, RunwayML, Pika.
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["generate_video", "create_video", "text_to_video", "runway_"]
+
+    - kind: video.transcode
+      risk_class: side_effect
+      description: Transcode or re-encode an existing video file.
+      policy_key_spec:
+        host: true
+        path_prefix: true
+      mcp_tool_prefixes: ["transcode_", "encode_video", "ffmpeg_"]
+
+    - kind: audio.generate
+      risk_class: external_side_effect
+      description: >-
+        AI audio generation: text-to-speech, voice cloning, or music generation.
+        Examples: ElevenLabs, OpenAI TTS, Suno.
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["generate_audio", "text_to_speech", "tts_", "elevenlabs_"]
+
+    - kind: audio.transcribe
+      risk_class: read_only
+      description: >-
+        Transcribe audio or video to text. Source audio is not modified.
+        Examples: Whisper, Deepgram.
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["transcribe_", "speech_to_text", "whisper_", "deepgram_"]
+
+    # Vision / document understanding
+    - kind: vision.analyze
+      risk_class: side_effect
+      description: >-
+        Analyze an image using a vision model. Includes scene description,
+        object detection, visual question answering, and chart interpretation.
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["analyze_image", "vision_", "describe_image", "image_understand", "gpt4v_"]
+
+    - kind: vision.ocr
+      risk_class: side_effect
+      description: >-
+        Extract text from images or scanned documents via OCR. May use
+        specialized OCR services or vision LLMs.
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["ocr_", "extract_text", "read_document", "document_ocr"]
+
+    - kind: vision.parse_document
+      risk_class: side_effect
+      description: >-
+        Parse a document (PDF, scan, form) into structured data. Includes
+        table extraction, form field recognition, and layout analysis.
+      policy_key_spec:
+        host: true
+        path_prefix: true
+      mcp_tool_prefixes: ["parse_document", "extract_form", "pdf_extract", "document_parse", "parse_pdf"]
+
+    # Social media / publishing
+    - kind: social.post.create
+      risk_class: external_side_effect
+      description: >-
+        Publish a post to a social platform or public-facing channel.
+        Irreversible once visible. Examples: Twitter/X, LinkedIn, Reddit.
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["post_tweet", "create_post", "publish_", "tweet_", "linkedin_post"]
+
+    - kind: social.post.delete
+      risk_class: external_side_effect
+      description: Delete a previously published post. Irreversible and externally visible.
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["delete_post", "delete_tweet", "remove_post"]
+
+    - kind: social.dm.send
+      risk_class: external_side_effect
+      description: >-
+        Send a direct message on a social platform. Not public, but
+        still an external irreversible communication.
+      policy_key_spec:
+        host: true
+        recipient_domain: true
+      mcp_tool_prefixes: ["send_dm", "send_message", "dm_", "direct_message"]
+
+    # Notifications
+    - kind: notification.push.send
+      risk_class: external_side_effect
+      description: >-
+        Send a push notification to a mobile device or browser.
+        High-volume sends have reputational impact. Examples: FCM, APNs.
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["send_push", "push_notification", "fcm_", "apns_", "notify_"]
+
+    - kind: notification.webhook.trigger
+      risk_class: external_side_effect
+      description: >-
+        Trigger an outbound webhook to a pre-configured endpoint.
+        Distinct from http.post: target is registered, not ad-hoc.
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["trigger_webhook", "send_webhook", "webhook_notify"]
+
+    # Cloud storage
+    - kind: storage.upload
+      risk_class: side_effect
+      description: Upload a file or object to cloud storage (S3, GCS, Azure Blob).
+      policy_key_spec:
+        host: true
+        path_prefix: true
+      mcp_tool_prefixes: ["upload_file", "s3_put", "gcs_upload", "blob_upload"]
+
+    - kind: storage.download
+      risk_class: read_only
+      description: Download a file or object from cloud storage. May incur egress costs.
+      policy_key_spec:
+        host: true
+        path_prefix: true
+      mcp_tool_prefixes: ["download_file", "s3_get", "gcs_download", "blob_download"]
+
+    - kind: storage.delete
+      risk_class: side_effect
+      description: Delete an object from cloud storage. Irreversible without versioning.
+      policy_key_spec:
+        host: true
+        path_prefix: true
+      mcp_tool_prefixes: ["delete_object", "s3_delete", "gcs_delete", "blob_delete"]
+
+    # Document / workspace
+    - kind: document.create
+      risk_class: side_effect
+      description: Create a document, spreadsheet, or page in a workspace tool.
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["create_doc", "create_document", "new_page", "notion_create"]
+
+    - kind: document.edit
+      risk_class: side_effect
+      description: Edit or update an existing document, spreadsheet, or page in a workspace tool.
+      policy_key_spec:
+        host: true
+      mcp_tool_prefixes: ["edit_doc", "update_document", "modify_page", "notion_update", "gdocs_edit"]
+
+    - kind: document.share
+      risk_class: external_side_effect
+      description: >-
+        Share a document with external users or make it publicly accessible.
+        external_side_effect because it grants access to third parties
+        and the permission change is immediately visible outside the system.
+      policy_key_spec:
+        host: true
+        recipient_domain: true
+      mcp_tool_prefixes: ["share_doc", "share_document", "grant_access", "set_permissions"]
+
+    # Catch-all (always last)
+    - kind: unknown.call
+      risk_class: side_effect
+      description: >-
+        Fallback for MCP tool calls that cannot be normalized to a registered kind.
+        risk_class=side_effect is conservative and safe. Operators SHOULD configure
+        policies for specific kinds rather than relying on this fallback.
+      mcp_tool_prefixes: []
