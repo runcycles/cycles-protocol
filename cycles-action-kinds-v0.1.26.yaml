@@ -762,6 +762,75 @@ components:
         has_more:
           type: boolean
 
+    ActionQuotaCounterResetRequest:
+      type: object
+      description: >-
+        Request body for POST /v1/admin/action-quota-counters/reset.
+        Identifies a single counter by its key fields and triggers a reset.
+
+        RESET SEMANTICS (NORMATIVE):
+          - The counter value is set to 0 atomically.
+          - The counter TTL is preserved (for calendar-bucket windows) or
+            refreshed (for per_run counters).
+          - A quota.counter_reset event is emitted with the previous value.
+          - Active reservations are NOT affected — only the counter state.
+          - The reset is IRREVERSIBLE. Admins SHOULD provide a reason.
+
+        RESET IS NOT RECOMMENDED for:
+          - Production quota tuning (change the policy limit instead).
+          - Routine operations (counters expire naturally via window boundaries).
+        Reset is intended for INCIDENT RESPONSE — e.g., a stuck counter due
+        to a bug, or an operator mistake that needs to be unwound.
+      required: [scope, action_kind, window, window_key]
+      additionalProperties: false
+      properties:
+        tenant_id:
+          type: string
+          description: >-
+            REQUIRED when using AdminKeyAuth. Ignored when using ApiKeyAuth
+            (uses the authenticated tenant).
+        scope:
+          type: string
+          description: Canonical scope string of the counter.
+        action_kind:
+          type: string
+          maxLength: 64
+          description: >-
+            The action kind of the counter, or "__risk__" for risk-class counters.
+        risk_class:
+          $ref: '#/components/schemas/ActionRiskClass'
+          description: >-
+            Required when action_kind="__risk__". Identifies the risk-class
+            counter to reset.
+        window:
+          $ref: '#/components/schemas/ActionQuotaWindow'
+        window_key:
+          type: string
+          description: >-
+            Specific window instance key (run_id, UTC hour string, etc.).
+            MUST exactly match an existing counter key.
+        reason:
+          type: string
+          maxLength: 512
+          description: >-
+            Optional human-readable reason for the reset. Included in the
+            quota.counter_reset event for audit purposes.
+
+    ActionQuotaCounterResetResponse:
+      type: object
+      description: Response after a successful counter reset.
+      required: [counter, previous_used]
+      additionalProperties: false
+      properties:
+        counter:
+          $ref: '#/components/schemas/ActionQuotaState'
+          description: Counter state after the reset (used=0).
+        previous_used:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Counter used value immediately before the reset.
+
     ErrorResponse:
       type: object
       description: Error response (mirrors base spec shape).
@@ -1023,6 +1092,92 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         "403":
           description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/admin/action-quota-counters/reset:
+    post:
+      tags: [ActionQuotas]
+      operationId: resetActionQuotaCounter
+      summary: Reset a specific quota counter (incident response)
+      description: >-
+        Atomically resets a single quota counter to zero. Intended for
+        INCIDENT RESPONSE, not routine operations. See
+        ActionQuotaCounterResetRequest for full semantics.
+
+        USE CASES:
+          - A bug caused double-counting; reset to unblock the affected agent.
+          - An operator mistake needs to be unwound before the window expires.
+          - Testing: reset a counter between test runs.
+
+        NOT FOR:
+          - Production quota tuning → change the policy max_calls instead.
+          - Bypassing quota policies → reset leaves a permanent audit trail.
+
+        AUDIT (NORMATIVE):
+          Every successful reset MUST emit a quota.counter_reset event
+          containing the previous counter value, the counter key fields,
+          the acting admin identity, and the optional reason. Defined in
+          cycles-protocol-extensions-v0.1.26.yaml (EventDataQuotaCounterReset).
+
+        PERMISSION MODEL (NORMATIVE):
+          This endpoint requires ADMIN-ONLY access:
+            - AdminKeyAuth: ALWAYS permitted.
+            - ApiKeyAuth: requires action_quotas:write (reserved — not yet
+              defined in v0.1.26). In v0.1.26, servers MUST require
+              AdminKeyAuth for reset operations. A finer-grained
+              action_quotas:write permission MAY be added in v0.1.27.
+          Rationale: reset is a high-privilege operation that bypasses
+          the quota policy temporarily. Restricting to AdminKeyAuth in
+          v0.1.26 prevents accidental exposure via tenant-scoped keys.
+
+        TENANCY (NORMATIVE):
+          - AdminKeyAuth: tenant_id in request body REQUIRED.
+          - The operation targets exactly ONE counter identified by all
+            key fields (tenant_id, scope, action_kind, window, window_key).
+          - Bulk reset is NOT supported in v0.1.26. Operators submit one
+            request per counter.
+      security:
+        - AdminKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionQuotaCounterResetRequest'
+      responses:
+        "200":
+          description: Counter reset successfully
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionQuotaCounterResetResponse'
+        "400":
+          description: "Invalid request: missing required field, invalid key combination, or malformed body"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "401":
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "403":
+          description: Insufficient permissions (requires AdminKeyAuth in v0.1.26)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "404":
+          description: Counter not found (no counter matches the specified key fields)
           content:
             application/json:
               schema:

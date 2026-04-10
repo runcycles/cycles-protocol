@@ -475,17 +475,20 @@ components:
 
     # EXTENDS: EventType enum (governance spec)
     # NOTE ON PURITY: The EventType enum is defined in the governance spec, but
-    # the three new event types below (reservation.observed_denied,
-    # reservation.observed_allowed, quota.threshold_approaching) are runtime-plane
-    # events triggered by the reservation enforcement path. They logically belong
-    # here in the protocol extension. The full enum is reproduced for completeness
-    # because OpenAPI does not support additive enum extension; implementers only
-    # need to add these three new values to the existing enum in practice.
+    # the four new event types below (reservation.observed_denied,
+    # reservation.observed_allowed, quota.threshold_approaching,
+    # quota.counter_reset) are runtime/operator-plane events triggered by
+    # the reservation enforcement path or by admin counter management.
+    # They logically belong here in the protocol extension. The full enum
+    # is reproduced for completeness because OpenAPI does not support
+    # additive enum extension; implementers only need to add these four
+    # new values to the existing enum in practice.
     EventTypeExtension:
       type: string
       description: >-
         Extended EventType enum. Adds reservation.observed_denied,
-        reservation.observed_allowed, and quota.threshold_approaching.
+        reservation.observed_allowed, quota.threshold_approaching, and
+        quota.counter_reset.
         All 40 v0.1.25 types unchanged.
       enum:
         - budget.created
@@ -532,6 +535,64 @@ components:
         - reservation.observed_denied
         - reservation.observed_allowed
         - quota.threshold_approaching
+        - quota.counter_reset
+
+    # EXTENDS: EventDataReservationDenied (governance base spec)
+    EventDataReservationDeniedExtension:
+      type: object
+      description: >-
+        Additive extension to the base EventDataReservationDenied schema.
+        Extends the reason_code enum with v0.1.26 values and adds deny_detail.
+
+        WHY THIS EXISTS:
+          The base EventDataReservationDenied schema has a reason_code enum
+          limited to v0.1.25 values:
+            [BUDGET_EXCEEDED, OVERDRAFT_LIMIT_EXCEEDED, DEBT_OUTSTANDING,
+             BUDGET_FROZEN, BUDGET_CLOSED]
+          A strict OpenAPI validator would reject v0.1.26 denial events
+          emitted with the new reason codes. This extension declares the
+          extended enum and adds a deny_detail field so dashboards and
+          event consumers can filter denials by the full v0.1.26 reason
+          code set and see operator-grade context (which policy caused the
+          denial, which quota was violated) without joining against other
+          data sources.
+
+          This mirrors the observed_denied event structure for consistency
+          between ENFORCE and OBSERVE mode dashboards.
+
+        IMPLEMENTATION RULE (NORMATIVE):
+          v0.1.26 servers MUST emit reservation.denied events with:
+            - reason_code from the extended enum (includes v0.1.26 values)
+            - deny_detail populated (same structure as DecisionResponse.deny_detail)
+          Servers MUST NOT omit deny_detail from v0.1.26 reservation.denied
+          events; dashboards depend on it for operational visibility.
+
+        DEDUPLICATION: consumers MUST deduplicate on event_id.
+      properties:
+        reason_code:
+          type: string
+          enum:
+            # v0.1.25 values (preserved):
+            - BUDGET_EXCEEDED
+            - OVERDRAFT_LIMIT_EXCEEDED
+            - DEBT_OUTSTANDING
+            - BUDGET_FROZEN
+            - BUDGET_CLOSED
+            # NEW in v0.1.26:
+            - ACTION_QUOTA_EXCEEDED
+            - ACTION_KIND_DENIED
+            - ACTION_KIND_NOT_ALLOWED
+          description: >-
+            Extended reason_code enum. Servers MUST populate this field
+            with the actual denial reason, including v0.1.26 values when
+            applicable.
+        deny_detail:
+          $ref: '#/components/schemas/DenyDetail'
+          description: >-
+            MUST be populated on v0.1.26 reservation.denied events.
+            Provides full operator-grade context: quota_violation (if
+            applicable), blocked_by_policy, blocked_by_scope, suggested_fix,
+            budget_remaining.
 
     EventDataObservedDenied:
       type: object
@@ -749,7 +810,73 @@ components:
         tenant_id:
           type: string
 
+    EventDataQuotaCounterReset:
+      type: object
+      description: >-
+        Payload for quota.counter_reset events.
+        Emitted when an operator manually resets a quota counter via
+        POST /v1/admin/action-quota-counters/reset
+        (defined in cycles-action-kinds-v0.1.26.yaml).
+
+        WHY THIS EVENT EXISTS:
+          Counter reset is a high-privilege administrative action. It can
+          unblock stuck agents (e.g., after a bug caused double-counting)
+          but it also bypasses the quota policy. Dashboards and audit
+          systems need a first-class signal when resets happen.
+
+        AUDIT TRAIL (NORMATIVE):
+          Servers MUST emit this event for every successful counter reset.
+          The event MUST include the acting admin identity (actor_id),
+          the counter key fields, the previous used value, and the reset
+          reason if provided.
+
+        CORRELATION:
+          Servers MUST populate event.correlation_id using a deterministic
+          hash over (tenant_id, scope, action_kind_or_risk_class, window,
+          window_key). This lets dashboards correlate a reset with the
+          counter's earlier threshold crossings and denial events.
+
+        DEDUPLICATION: consumers MUST deduplicate on event_id.
+      required: [scope, action_kind, window, window_key, previous_used, actor_id]
+      properties:
+        scope:
+          type: string
+        action_kind:
+          type: string
+          maxLength: 64
+          description: The action kind, or "__risk__" for risk-class counters.
+        risk_class:
+          type: string
+          enum: [read_only, local_mutation, side_effect, external_side_effect, high_risk]
+          description: Present for risk-class counter resets.
+        window:
+          type: string
+          enum: [per_run, per_minute_tumbling, per_hour_tumbling, per_day_tumbling, per_tenant_per_day]
+        window_key:
+          type: string
+          description: Specific window instance that was reset.
+        previous_used:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Counter value immediately before the reset (for audit).
+        limit:
+          type: integer
+          format: int64
+          description: Configured max_calls for the counter (for audit context).
+        actor_id:
+          type: string
+          description: Identity of the admin that performed the reset (API key ID or admin user ID).
+        reason:
+          type: string
+          maxLength: 512
+          description: Optional human-readable reason for the reset.
+        policy_id:
+          type: string
+        tenant_id:
+          type: string
+
 # No new paths — all runtime paths are in cycles-protocol-v0.yaml.
-# Registry and counter paths are in cycles-action-kinds-v0.1.26.yaml.
+# Registry, counter, and counter-reset paths are in cycles-action-kinds-v0.1.26.yaml.
 # Governance PATCH extensions are in cycles-governance-extensions-v0.1.26.yaml.
 paths: {}

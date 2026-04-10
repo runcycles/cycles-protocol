@@ -100,6 +100,8 @@ documents:
       - threshold_pct on ActionQuota and RiskClassQuota (quota threshold warnings)
       - Registry endpoints: GET /v1/action-kinds, GET /v1/action-kinds/{kind}
       - Counter debug endpoint: GET /v1/admin/action-quota-counters
+      - Counter reset endpoint: POST /v1/admin/action-quota-counters/reset
+        (incident response; AdminKeyAuth-only in v0.1.26)
     integration_points:
       - runtime_base: >-
           Quota counters are incremented atomically within reserve.lua.
@@ -138,6 +140,9 @@ documents:
       - reservation.observed_denied event type and EventDataObservedDenied
       - reservation.observed_allowed event type and EventDataObservedAllowed
       - quota.threshold_approaching event type and EventDataQuotaThresholdApproaching
+      - quota.counter_reset event type and EventDataQuotaCounterReset
+      - EventDataReservationDeniedExtension (extends base reason_code enum,
+        adds deny_detail — aligns ENFORCE-mode event visibility with OBSERVE-mode)
       - Full RESERVATION EVALUATION ORDER normative text (access control → risk-class quotas → per-kind quotas → budget)
       - Additive fields on Action, DecisionResponse, ReservationCreateRequest,
         ReservationCreateResponse, ErrorResponse
@@ -220,7 +225,8 @@ merge_recipes:
         merge_strategy:
           schemas: add to components/schemas (no conflicts)
           error_codes: merge ACTION_QUOTA_EXCEEDED, ACTION_KIND_NOT_ALLOWED, ACTION_KIND_DENIED into ErrorCode enum
-          event_types: merge reservation.observed_denied, reservation.observed_allowed, quota.threshold_approaching into EventType enum
+          event_types: merge reservation.observed_denied, reservation.observed_allowed, quota.threshold_approaching, quota.counter_reset into EventType enum
+          event_data_extensions: merge EventDataReservationDeniedExtension into EventDataReservationDenied (extends reason_code enum, adds deny_detail)
           action_field: add policy_keys to Action schema
           decision_response: add deny_detail to DecisionResponse
           reservation_create_request: add observe_mode to ReservationCreateRequest
@@ -295,8 +301,14 @@ merge_recipes:
             ACTION_KIND_DENIED into the governance base ErrorCode enum.
           event_types: >-
             Merge reservation.observed_denied, reservation.observed_allowed,
-            and quota.threshold_approaching into the governance base
-            EventType enum.
+            quota.threshold_approaching, and quota.counter_reset into the
+            governance base EventType enum.
+          event_data_extensions: >-
+            Merge EventDataReservationDeniedExtension into the base
+            EventDataReservationDenied schema: extend the reason_code
+            enum with ACTION_QUOTA_EXCEEDED / ACTION_KIND_DENIED /
+            ACTION_KIND_NOT_ALLOWED, and add deny_detail as an optional
+            field populated on v0.1.26 servers.
     resolution_rules:
       - ErrorResponse is deduplicated (governance_base version is canonical)
       - ObserveModeEnum is defined once (runtime_extension version)

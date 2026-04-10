@@ -85,6 +85,61 @@ info:
       them. The merge recipe in cycles-spec-index.yaml produces a single
       artifact with the extensions applied to all paths.
 
+    ADMIN OVERVIEW EXTENSIONS (SHOULD-level):
+      The base governance spec defines GET /v1/admin/overview returning
+      AdminOverviewResponse — a single-request dashboard aggregation.
+      v0.1.26 servers SHOULD enrich this response with governance state
+      so dashboards can surface v0.1.26 features from a single call.
+
+      RECOMMENDED ADDITIONS (SHOULD, not MUST):
+        tenant_counts.in_observe_mode:
+          type: integer
+          description: Count of tenants with observe_mode=OBSERVE. Useful
+            for tracking shadow rollout progress.
+
+        quota_health:
+          type: object
+          description: Aggregate quota counter health summary.
+          properties:
+            counters_above_80pct:
+              type: integer
+              description: Count of active counters at >=80% of max_calls.
+            counters_at_limit:
+              type: integer
+              description: Count of active counters at 100% of max_calls.
+            top_offenders:
+              type: array
+              maxItems: 10
+              description: Top agents/scopes by quota utilization.
+
+        recent_denials_by_reason:
+          type: object
+          description: Denial counts broken down by reason_code over
+            event_window_seconds.
+          additionalProperties:
+            type: integer
+          description_example: >-
+            { "BUDGET_EXCEEDED": 12, "ACTION_QUOTA_EXCEEDED": 7,
+              "ACTION_KIND_DENIED": 3, "ACTION_KIND_NOT_ALLOWED": 1 }
+
+        policies_with_access_control:
+          type: integer
+          description: Count of policies with non-empty allowed_action_kinds
+            or denied_action_kinds.
+
+      These fields are SHOULD-level because adding them modifies a base
+      governance schema (AdminOverviewResponse) which is frozen at
+      v0.1.25.7. Servers MAY choose to omit them if their dashboards
+      use alternative aggregation endpoints.
+
+      NOTE ON observe_mode FILTER:
+        Dashboards frequently need "tenants currently in observe mode."
+        v0.1.26 servers SHOULD support an ?observe_mode=OBSERVE query
+        parameter on GET /v1/admin/tenants to enable server-side filtering
+        without fetching all tenants. This is a SHOULD-level extension to
+        the base listTenants operation; filter implementation is at server
+        discretion until standardized in a future spec version.
+
     DEFAULT VALUE SEMANTICS (NORMATIVE):
       On POLICY CREATION (POST /v1/admin/policies):
         - action_quotas absent → stored as empty list []
