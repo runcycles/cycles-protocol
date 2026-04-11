@@ -1903,9 +1903,9 @@ paths:
         '403':
           $ref: '#/components/responses/ErrorResponse'
         '404':
-          description: BUDGET_NOT_FOUND — no budget exists at any of the reservation's derived scopes
-            in any unit. Distinct from 400 UNIT_MISMATCH (a budget exists at the scope but in a different
-            unit).
+          description: 'NOT_FOUND — no budget exists at any of the reservation''s derived scopes in any
+            unit. The message field carries the specific "Budget not found for provided scope: ..." detail.
+            Distinct from 400 UNIT_MISMATCH (a budget exists at the scope but in a different unit).'
           headers:
             X-Request-Id:
               $ref: '#/components/headers/X-Request-Id'
@@ -2277,8 +2277,9 @@ paths:
         '403':
           $ref: '#/components/responses/ErrorResponse'
         '404':
-          description: BUDGET_NOT_FOUND — no budget exists at any of the event's derived scopes in any
-            unit. Distinct from 400 UNIT_MISMATCH (a budget exists at the scope but in a different unit).
+          description: 'NOT_FOUND — no budget exists at any of the event''s derived scopes in any unit.
+            The message field carries the specific "Budget not found for provided scope: ..." detail.
+            Distinct from 400 UNIT_MISMATCH (a budget exists at the scope but in a different unit).'
           headers:
             X-Request-Id:
               $ref: '#/components/headers/X-Request-Id'

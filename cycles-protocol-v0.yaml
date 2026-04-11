@@ -68,8 +68,11 @@ info:
           - `scope` — the canonical scope identifier where the mismatch was detected
           - `requested_unit` — the unit supplied by the client
           - `expected_units` — array of units for which a budget does exist at that scope
-        so clients can self-correct without a separate lookup. BUDGET_NOT_FOUND (404) is
-        reserved for the case where the target scope has no budget in ANY unit.
+        so clients can self-correct without a separate lookup. HTTP 404 with error=NOT_FOUND
+        is reserved for the case where the target scope has no budget in ANY unit (the
+        runtime plane uses the single NOT_FOUND code for all resource-not-found conditions;
+        the message field carries the specific reason, e.g. "Budget not found for provided
+        scope: ...").
       - For expiry comparisons, “now” refers to server time (not client-provided time).
       - When is_over_limit=true, server MUST return 409 OVERDRAFT_LIMIT_EXCEEDED for new reservations. 
         This takes precedence over DEBT_OUTSTANDING even when debt > 0.
@@ -1214,7 +1217,8 @@ paths:
         "403": {$ref: '#/components/responses/ErrorResponse'}
         "404":
           description: >-
-            BUDGET_NOT_FOUND — no budget exists at any of the reservation's derived scopes in any unit.
+            NOT_FOUND — no budget exists at any of the reservation's derived scopes in any unit.
+            The message field carries the specific "Budget not found for provided scope: ..." detail.
             Distinct from 400 UNIT_MISMATCH (a budget exists at the scope but in a different unit).
           headers:
             X-Request-Id: {$ref: '#/components/headers/X-Request-Id'}
@@ -1543,7 +1547,8 @@ paths:
         "403": {$ref: '#/components/responses/ErrorResponse'}
         "404":
           description: >-
-            BUDGET_NOT_FOUND — no budget exists at any of the event's derived scopes in any unit.
+            NOT_FOUND — no budget exists at any of the event's derived scopes in any unit.
+            The message field carries the specific "Budget not found for provided scope: ..." detail.
             Distinct from 400 UNIT_MISMATCH (a budget exists at the scope but in a different unit).
           headers:
             X-Request-Id: {$ref: '#/components/headers/X-Request-Id'}
