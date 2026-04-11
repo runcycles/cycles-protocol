@@ -111,37 +111,53 @@ components:
       - DENY
     DecisionReasonCode:
       type: string
+      maxLength: 128
       description: |-
-        Stable machine-readable reason for why a /decide call or a dry_run reservation returned decision=DENY. Populated on DecisionResponse.reason_code and on ReservationCreateResponse.reason_code (dry_run path only). Clients SHOULD treat this as a closed set for v0 but MUST be prepared to encounter new values in future protocol versions. The human-readable `message` field on the parent response (when present) may carry additional context.
+        Stable machine-readable reason for why a /decide call or a reservation returned decision=DENY. Populated on DecisionResponse.reason_code and on ReservationCreateResponse.reason_code. The human-readable `message` field on the parent response (when present) may carry additional context.
+        EXTENSIBILITY (NORMATIVE):
+          DecisionReasonCode is intentionally an OPEN string (not a closed enum)
+          so that:
+            (a) future minor versions of this base spec can add new values without
+                a breaking change, and
+            (b) companion extension specs (e.g., cycles-protocol-extensions-v0.1.26.yaml)
+                can define additional reason codes without modifying the base schema.
+          Clients MUST gracefully handle unknown values — log them and map to
+          generic DENY handling (i.e., "the request was denied; treat as a terminal
+          failure even if we don't recognize the specific reason").
+
+        KNOWN VALUES (v0.1.25 base):
+          - BUDGET_EXCEEDED — remaining amount insufficient on at least one derived scope
+            (evaluated against the requested estimate.amount).
+          - BUDGET_FROZEN — a derived scope has a budget in FROZEN status
+            (operator-set, no mutations allowed).
+          - BUDGET_CLOSED — a derived scope has a budget in CLOSED status
+            (permanently closed).
+          - BUDGET_NOT_FOUND — no budget exists at any derived scope in the requested unit.
+            On non-dry reserve and /v1/events paths this same condition surfaces as HTTP
+            404 with error=NOT_FOUND instead.
+          - OVERDRAFT_LIMIT_EXCEEDED — either (a) debt + delta > overdraft_limit on commit,
+            or (b) the scope is in over-limit state (is_over_limit=true) and no new
+            reservations are permitted until reconciled.
+          - DEBT_OUTSTANDING — a derived scope has debt > 0 and overdraft_limit == 0
+            (no policy permits further debt accrual).
+
+        KNOWN VALUES (v0.1.26 runtime extension):
+          - ACTION_QUOTA_EXCEEDED — a per-kind or risk-class action quota rule was
+            exceeded for the target scope and window.
+          - ACTION_KIND_DENIED — the action kind is in the matching policy's
+            denied_action_kinds list.
+          - ACTION_KIND_NOT_ALLOWED — the matching policy has a non-empty
+            allowed_action_kinds list and the action kind is not in it.
+          See cycles-protocol-extensions-v0.1.26.yaml for full semantics,
+          evaluation order, and DenyDetail structure (populated alongside
+          reason_code for v0.1.26 denials).
 
         Distinct from the `ErrorCode` enum: reason codes appear only on 200 OK responses with decision=DENY; ErrorCodes appear only on 4xx/5xx responses with an `error` field. Some labels overlap (e.g. BUDGET_EXCEEDED appears in both sets) because the same underlying condition is reported two ways depending on the endpoint: /decide and dry_run surface it as a non-4xx DENY decision, while non-dry reserve surfaces it as a 409 error.
-
-        - BUDGET_EXCEEDED — remaining amount insufficient on at least one derived scope
-          (evaluated against the requested estimate.amount).
-
-        - BUDGET_FROZEN — a derived scope has a budget in FROZEN status (operator-set,
-          no mutations allowed).
-
-        - BUDGET_CLOSED — a derived scope has a budget in CLOSED status (permanently
-          closed).
-
-        - BUDGET_NOT_FOUND — no budget exists at any derived scope in the requested unit.
-          On non-dry reserve and /v1/events paths this same condition surfaces as HTTP
-          404 with error=NOT_FOUND instead.
-
-        - OVERDRAFT_LIMIT_EXCEEDED — either (a) debt + delta > overdraft_limit on commit,
-          or (b) the scope is in over-limit state (is_over_limit=true) and no new
-          reservations are permitted until reconciled.
-
-        - DEBT_OUTSTANDING — a derived scope has debt > 0 and overdraft_limit == 0
-          (no policy permits further debt accrual).
-      enum:
-      - BUDGET_EXCEEDED
-      - BUDGET_FROZEN
-      - BUDGET_CLOSED
-      - BUDGET_NOT_FOUND
-      - OVERDRAFT_LIMIT_EXCEEDED
-      - DEBT_OUTSTANDING
+        SDK GENERATION GUIDANCE:
+          Codegen tools SHOULD generate a string type (not a strict enum) and
+          expose the known values above as constants or string literal union
+          members for ergonomic use. SDK code MUST NOT reject unknown values
+          at the deserialization boundary.
     UnitEnum:
       type: string
       description: |
@@ -903,10 +919,13 @@ components:
           maxLength: 128
           description: |-
             Known values:
-              BUDGET_EXCEEDED, ACTION_QUOTA_EXCEEDED, OVERDRAFT_LIMIT_EXCEEDED,
-              DEBT_OUTSTANDING, BUDGET_FROZEN, BUDGET_CLOSED,
-              TENANT_SUSPENDED, POLICY_VIOLATION,
-              ACTION_KIND_NOT_ALLOWED, ACTION_KIND_DENIED.
+              BUDGET_EXCEEDED, BUDGET_FROZEN, BUDGET_CLOSED, BUDGET_NOT_FOUND,
+              OVERDRAFT_LIMIT_EXCEEDED, DEBT_OUTSTANDING,
+              ACTION_QUOTA_EXCEEDED, ACTION_KIND_NOT_ALLOWED, ACTION_KIND_DENIED,
+              TENANT_SUSPENDED, POLICY_VIOLATION.
+
+            The first six are the v0.1.25 base-spec known values documented on the DecisionReasonCode schema in cycles-protocol-v0.yaml (an OPEN string with documented known values — not a closed enum, so extensions can add new reason codes without base spec changes). v0.1.26 adds ACTION_QUOTA_EXCEEDED, ACTION_KIND_NOT_ALLOWED, and ACTION_KIND_DENIED to the known values for this field. TENANT_SUSPENDED and POLICY_VIOLATION are additional governance-context reasons that MAY appear on DenyDetail but are not listed on the base DecisionReasonCode known values.
+            Consumers MUST gracefully handle unrecognized values (e.g., log and display as-is) — future extensions may add more.
         quota_violation:
           $ref: '#/components/schemas/ActionQuotaViolation'
           description: Present only when reason_code=ACTION_QUOTA_EXCEEDED.
@@ -952,16 +971,58 @@ components:
             for the full schema. Fields: host, recipient_domain, resource_type, path_prefix, custom.'
     DecisionResponseExtension:
       type: object
-      description: Additive extension to DecisionResponse. deny_detail MUST be populated when decision=DENY.
+      description: |-
+        Additive extension to DecisionResponse.
+        deny_detail MUST be populated when decision=DENY.
         Absent on ALLOW and ALLOW_WITH_CAPS.
+
+        REASON CODE POPULATION (NORMATIVE):
+          The base DecisionResponse.reason_code field is an OPEN string
+          (DecisionReasonCode schema in cycles-protocol-v0.yaml). It accepts
+          any reason string including v0.1.26 extension values. v0.1.26
+          servers populate it as follows:
+
+          - For base v0.1.25 denials (BUDGET_EXCEEDED, BUDGET_FROZEN,
+            BUDGET_CLOSED, BUDGET_NOT_FOUND, OVERDRAFT_LIMIT_EXCEEDED,
+            DEBT_OUTSTANDING):
+              * Populate DecisionResponse.reason_code with the matching value.
+              * Populate deny_detail.reason_code with the same value (mirror).
+
+          - For v0.1.26 extension denials (ACTION_QUOTA_EXCEEDED,
+            ACTION_KIND_DENIED, ACTION_KIND_NOT_ALLOWED):
+              * Populate DecisionResponse.reason_code with the v0.1.26 reason string.
+              * Populate deny_detail.reason_code with the same value (mirror).
+              * deny_detail carries the structured context: quota_violation,
+                blocked_by_policy, blocked_by_scope, suggested_fix.
+
+          The same string appears in both fields. reason_code is the
+          quick-filter primitive; deny_detail is the rich structured view.
+          Dashboards and strict clients that need to filter by reason can
+          use reason_code directly without parsing deny_detail.
+
+          v0.1.25.7 CLIENTS: continue to work unchanged. They see the string
+          on reason_code and either recognize it (base codes) or log it as
+          unknown (v0.1.26 codes) and fall back to generic DENY handling.
+          The DecisionReasonCode schema is an open string so strict
+          validators MUST accept unknown values.
       properties:
         deny_detail:
           $ref: '#/components/schemas/DenyDetail'
     ReservationCreateResponseExtension:
       type: object
-      description: 'Additive extension to ReservationCreateResponse. deny_detail MUST be populated when
-        decision=DENY in dry_run or observe_mode=OBSERVE context. On live 409 DENY: deny_detail appears
-        in ErrorResponse.details.'
+      description: |-
+        Additive extension to ReservationCreateResponse.
+        deny_detail MUST be populated when decision=DENY in dry_run or
+        observe_mode=OBSERVE context.
+        On live 409 DENY: deny_detail appears in ErrorResponse.details.
+
+        REASON CODE POPULATION (NORMATIVE):
+          Same rules as DecisionResponseExtension: ReservationCreateResponse.reason_code
+          is populated with the denial reason string (base or v0.1.26 extension
+          value), and deny_detail.reason_code mirrors it with additional
+          structured context. The base DecisionReasonCode schema is an open
+          string that accepts both base and extension values.
+          See DecisionResponseExtension for the full population rule.
       properties:
         deny_detail:
           $ref: '#/components/schemas/DenyDetail'

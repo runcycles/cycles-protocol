@@ -247,25 +247,37 @@ info:
           (The admin plane, `cycles-governance-admin-v0.1.25.yaml`, has its own
           `ErrorCode` enum which does include `BUDGET_NOT_FOUND` as a first-class
           wire code; that plane is unaffected.)
-        - Added new `DecisionReasonCode` schema under `components/schemas` — a closed
-          enum of six values:
+        - Added new `DecisionReasonCode` schema under `components/schemas` — an
+          OPEN string (not a closed enum) with documented known values and
+          explicit extensibility language. Initial known values:
             BUDGET_EXCEEDED, BUDGET_FROZEN, BUDGET_CLOSED, BUDGET_NOT_FOUND,
             OVERDRAFT_LIMIT_EXCEEDED, DEBT_OUTSTANDING
-          with per-value descriptions of the underlying condition each represents, and
-          an explicit note that `reason_code` labels may overlap conceptually with
-          `ErrorCode` entries (e.g. `BUDGET_EXCEEDED` appears in both sets) because
-          they surface the same underlying budget state on different response types —
-          `reason_code` on 200 DENY, `ErrorCode` on 4xx/5xx error bodies.
-        - Tightened `DecisionResponse.reason_code` and
-          `ReservationCreateResponse.reason_code` from free-form `type: string,
-          maxLength: 128` to `$ref: '#/components/schemas/DecisionReasonCode'`.
-          Codifies what the reference server has always emitted; strict clients now
-          reject unknown `reason_code` values instead of silently accepting them.
-          Permissive clients unchanged. Clients SHOULD treat the set as closed at v0
-          but MUST be prepared to encounter new values in future protocol versions
-          (additive extensions are a minor version bump).
+          The schema includes per-value descriptions of the underlying condition
+          each represents, and an explicit note that `reason_code` labels may
+          overlap conceptually with `ErrorCode` entries (e.g. `BUDGET_EXCEEDED`
+          appears in both sets) because they surface the same underlying budget
+          state on different response types — `reason_code` on 200 DENY,
+          `ErrorCode` on 4xx/5xx error bodies.
+        - Changed `DecisionResponse.reason_code` and
+          `ReservationCreateResponse.reason_code` from inline free-form `type:
+          string, maxLength: 128` to `$ref: '#/components/schemas/DecisionReasonCode'`.
+          The referenced schema is an open string with documented known values,
+          preserving the extensibility needed for companion extension specs
+          (e.g., v0.1.26 adds ACTION_QUOTA_EXCEEDED, ACTION_KIND_DENIED,
+          ACTION_KIND_NOT_ALLOWED).
+        - Why OPEN, not a closed enum: the v0 protocol is designed for additive
+          companion extensions. A closed enum at the base would force extensions
+          to either (a) invent a new reason_code field and live with a dual-
+          population pattern, or (b) require base spec version bumps for every
+          new extension reason code. Neither is sustainable. The open string with
+          documented known values preserves type-safety via codegen conventions
+          (SDK codegen SHOULD produce a string-subtype with constants for known
+          values) while keeping extensibility intact.
+        - Clients MUST gracefully handle unknown `reason_code` values — log them
+          and map to generic DENY handling. Strict validators MUST NOT reject
+          unknown values.
         - **No wire-format change.** All refinements document or narrow existing
-          behavior — the reference server was already conformant with the tightened
+          behavior — the reference server was already conformant with the updated
           spec. No protocol version bump required.
 
       v0.1.24 (2026-03-24):
@@ -454,49 +466,63 @@ components:
 
     DecisionReasonCode:
       type: string
+      maxLength: 128
       description: >-
-        Stable machine-readable reason for why a /decide call or a dry_run reservation
+        Stable machine-readable reason for why a /decide call or a reservation
         returned decision=DENY. Populated on DecisionResponse.reason_code and on
-        ReservationCreateResponse.reason_code (dry_run path only). Clients SHOULD treat
-        this as a closed set for v0 but MUST be prepared to encounter new values in
-        future protocol versions. The human-readable `message` field on the parent
-        response (when present) may carry additional context.
+        ReservationCreateResponse.reason_code. The human-readable `message` field
+        on the parent response (when present) may carry additional context.
 
+        EXTENSIBILITY (NORMATIVE):
+          DecisionReasonCode is intentionally an OPEN string (not a closed enum)
+          so that:
+            (a) future minor versions of this base spec can add new values without
+                a breaking change, and
+            (b) companion extension specs (e.g., cycles-protocol-extensions-v0.1.26.yaml)
+                can define additional reason codes without modifying the base schema.
+          Clients MUST gracefully handle unknown values — log them and map to
+          generic DENY handling (i.e., "the request was denied; treat as a terminal
+          failure even if we don't recognize the specific reason").
 
-        Distinct from the `ErrorCode` enum: reason codes appear only on 200 OK responses
-        with decision=DENY; ErrorCodes appear only on 4xx/5xx responses with an `error`
-        field. Some labels overlap (e.g. BUDGET_EXCEEDED appears in both sets) because
-        the same underlying condition is reported two ways depending on the endpoint:
-        /decide and dry_run surface it as a non-4xx DENY decision, while non-dry reserve
-        surfaces it as a 409 error.
+        KNOWN VALUES (v0.1.25 base):
+          - BUDGET_EXCEEDED — remaining amount insufficient on at least one derived scope
+            (evaluated against the requested estimate.amount).
+          - BUDGET_FROZEN — a derived scope has a budget in FROZEN status
+            (operator-set, no mutations allowed).
+          - BUDGET_CLOSED — a derived scope has a budget in CLOSED status
+            (permanently closed).
+          - BUDGET_NOT_FOUND — no budget exists at any derived scope in the requested unit.
+            On non-dry reserve and /v1/events paths this same condition surfaces as HTTP
+            404 with error=NOT_FOUND instead.
+          - OVERDRAFT_LIMIT_EXCEEDED — either (a) debt + delta > overdraft_limit on commit,
+            or (b) the scope is in over-limit state (is_over_limit=true) and no new
+            reservations are permitted until reconciled.
+          - DEBT_OUTSTANDING — a derived scope has debt > 0 and overdraft_limit == 0
+            (no policy permits further debt accrual).
 
+        KNOWN VALUES (v0.1.26 runtime extension):
+          - ACTION_QUOTA_EXCEEDED — a per-kind or risk-class action quota rule was
+            exceeded for the target scope and window.
+          - ACTION_KIND_DENIED — the action kind is in the matching policy's
+            denied_action_kinds list.
+          - ACTION_KIND_NOT_ALLOWED — the matching policy has a non-empty
+            allowed_action_kinds list and the action kind is not in it.
+          See cycles-protocol-extensions-v0.1.26.yaml for full semantics,
+          evaluation order, and DenyDetail structure (populated alongside
+          reason_code for v0.1.26 denials).
 
-        - BUDGET_EXCEEDED — remaining amount insufficient on at least one derived scope
-          (evaluated against the requested estimate.amount).
+        Distinct from the `ErrorCode` enum: reason codes appear only on 200 OK
+        responses with decision=DENY; ErrorCodes appear only on 4xx/5xx responses
+        with an `error` field. Some labels overlap (e.g. BUDGET_EXCEEDED appears
+        in both sets) because the same underlying condition is reported two ways
+        depending on the endpoint: /decide and dry_run surface it as a non-4xx
+        DENY decision, while non-dry reserve surfaces it as a 409 error.
 
-        - BUDGET_FROZEN — a derived scope has a budget in FROZEN status (operator-set,
-          no mutations allowed).
-
-        - BUDGET_CLOSED — a derived scope has a budget in CLOSED status (permanently
-          closed).
-
-        - BUDGET_NOT_FOUND — no budget exists at any derived scope in the requested unit.
-          On non-dry reserve and /v1/events paths this same condition surfaces as HTTP
-          404 with error=NOT_FOUND instead.
-
-        - OVERDRAFT_LIMIT_EXCEEDED — either (a) debt + delta > overdraft_limit on commit,
-          or (b) the scope is in over-limit state (is_over_limit=true) and no new
-          reservations are permitted until reconciled.
-
-        - DEBT_OUTSTANDING — a derived scope has debt > 0 and overdraft_limit == 0
-          (no policy permits further debt accrual).
-      enum:
-        - BUDGET_EXCEEDED
-        - BUDGET_FROZEN
-        - BUDGET_CLOSED
-        - BUDGET_NOT_FOUND
-        - OVERDRAFT_LIMIT_EXCEEDED
-        - DEBT_OUTSTANDING
+        SDK GENERATION GUIDANCE:
+          Codegen tools SHOULD generate a string type (not a strict enum) and
+          expose the known values above as constants or string literal union
+          members for ergonomic use. SDK code MUST NOT reject unknown values
+          at the deserialization boundary.
 
     UnitEnum:
       type: string

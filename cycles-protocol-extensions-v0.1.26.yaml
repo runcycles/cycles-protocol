@@ -234,6 +234,28 @@ info:
         highest-priority matching policy's allow/deny lists apply.
 
     CHANGELOG:
+      v0.1.26 (2026-04-11 revision):
+        - Aligned DenyDetail.reason_code documented known values with the
+          base v0.1.25 DecisionReasonCode schema. Added BUDGET_NOT_FOUND
+          to the known values list (it was missing). Reordered the list
+          so the six base DecisionReasonCode values come first, followed
+          by v0.1.26 additions and governance-context reasons.
+        - Added NORMATIVE "REASON CODE POPULATION" block to
+          DecisionResponseExtension and ReservationCreateResponseExtension.
+          Clarifies that v0.1.26 reason codes (ACTION_QUOTA_EXCEEDED,
+          ACTION_KIND_DENIED, ACTION_KIND_NOT_ALLOWED) populate BOTH the
+          base reason_code field AND deny_detail.reason_code. The base
+          DecisionReasonCode schema was reopened in a coordinated base
+          spec update (v0.1.25 revision, same date) from a closed enum
+          to an open string with documented known values — specifically
+          to enable this simple mirroring pattern without forcing
+          extensions into awkward dual-field workarounds.
+        - RELATED BASE CHANGE: cycles-protocol-v0.yaml DecisionReasonCode
+          was reopened. Clients MUST gracefully handle unknown reason_code
+          values and MUST NOT reject them at strict validators.
+        - This is a documentation-only clarification in the extension;
+          no wire format change, no version bump.
+
       v0.1.26 (2026-04-09):
         Split from monolithic cycles-protocol-extensions-v0.1.26-final.yaml.
         Runtime enforcement plane content only. Registry and governance
@@ -324,10 +346,23 @@ components:
           maxLength: 128
           description: >-
             Known values:
-              BUDGET_EXCEEDED, ACTION_QUOTA_EXCEEDED, OVERDRAFT_LIMIT_EXCEEDED,
-              DEBT_OUTSTANDING, BUDGET_FROZEN, BUDGET_CLOSED,
-              TENANT_SUSPENDED, POLICY_VIOLATION,
-              ACTION_KIND_NOT_ALLOWED, ACTION_KIND_DENIED.
+              BUDGET_EXCEEDED, BUDGET_FROZEN, BUDGET_CLOSED, BUDGET_NOT_FOUND,
+              OVERDRAFT_LIMIT_EXCEEDED, DEBT_OUTSTANDING,
+              ACTION_QUOTA_EXCEEDED, ACTION_KIND_NOT_ALLOWED, ACTION_KIND_DENIED,
+              TENANT_SUSPENDED, POLICY_VIOLATION.
+
+            The first six are the v0.1.25 base-spec known values documented
+            on the DecisionReasonCode schema in cycles-protocol-v0.yaml
+            (an OPEN string with documented known values — not a closed enum,
+            so extensions can add new reason codes without base spec changes).
+            v0.1.26 adds ACTION_QUOTA_EXCEEDED, ACTION_KIND_NOT_ALLOWED, and
+            ACTION_KIND_DENIED to the known values for this field.
+            TENANT_SUSPENDED and POLICY_VIOLATION are additional
+            governance-context reasons that MAY appear on DenyDetail but
+            are not listed on the base DecisionReasonCode known values.
+
+            Consumers MUST gracefully handle unrecognized values (e.g., log
+            and display as-is) — future extensions may add more.
         quota_violation:
           $ref: '#/components/schemas/ActionQuotaViolation'
           description: Present only when reason_code=ACTION_QUOTA_EXCEEDED.
@@ -395,10 +430,40 @@ components:
     # EXTENDS: DecisionResponse (cycles-protocol-v0.yaml)
     DecisionResponseExtension:
       type: object
-      description: >-
+      description: |-
         Additive extension to DecisionResponse.
         deny_detail MUST be populated when decision=DENY.
         Absent on ALLOW and ALLOW_WITH_CAPS.
+
+        REASON CODE POPULATION (NORMATIVE):
+          The base DecisionResponse.reason_code field is an OPEN string
+          (DecisionReasonCode schema in cycles-protocol-v0.yaml). It accepts
+          any reason string including v0.1.26 extension values. v0.1.26
+          servers populate it as follows:
+
+          - For base v0.1.25 denials (BUDGET_EXCEEDED, BUDGET_FROZEN,
+            BUDGET_CLOSED, BUDGET_NOT_FOUND, OVERDRAFT_LIMIT_EXCEEDED,
+            DEBT_OUTSTANDING):
+              * Populate DecisionResponse.reason_code with the matching value.
+              * Populate deny_detail.reason_code with the same value (mirror).
+
+          - For v0.1.26 extension denials (ACTION_QUOTA_EXCEEDED,
+            ACTION_KIND_DENIED, ACTION_KIND_NOT_ALLOWED):
+              * Populate DecisionResponse.reason_code with the v0.1.26 reason string.
+              * Populate deny_detail.reason_code with the same value (mirror).
+              * deny_detail carries the structured context: quota_violation,
+                blocked_by_policy, blocked_by_scope, suggested_fix.
+
+          The same string appears in both fields. reason_code is the
+          quick-filter primitive; deny_detail is the rich structured view.
+          Dashboards and strict clients that need to filter by reason can
+          use reason_code directly without parsing deny_detail.
+
+          v0.1.25.7 CLIENTS: continue to work unchanged. They see the string
+          on reason_code and either recognize it (base codes) or log it as
+          unknown (v0.1.26 codes) and fall back to generic DENY handling.
+          The DecisionReasonCode schema is an open string so strict
+          validators MUST accept unknown values.
       properties:
         deny_detail:
           $ref: '#/components/schemas/DenyDetail'
@@ -406,11 +471,19 @@ components:
     # EXTENDS: ReservationCreateResponse (cycles-protocol-v0.yaml)
     ReservationCreateResponseExtension:
       type: object
-      description: >-
+      description: |-
         Additive extension to ReservationCreateResponse.
         deny_detail MUST be populated when decision=DENY in dry_run or
         observe_mode=OBSERVE context.
         On live 409 DENY: deny_detail appears in ErrorResponse.details.
+
+        REASON CODE POPULATION (NORMATIVE):
+          Same rules as DecisionResponseExtension: ReservationCreateResponse.reason_code
+          is populated with the denial reason string (base or v0.1.26 extension
+          value), and deny_detail.reason_code mirrors it with additional
+          structured context. The base DecisionReasonCode schema is an open
+          string that accepts both base and extension values.
+          See DecisionResponseExtension for the full population rule.
       properties:
         deny_detail:
           $ref: '#/components/schemas/DenyDetail'
