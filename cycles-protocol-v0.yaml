@@ -206,13 +206,67 @@ info:
         * Custom event types MUST use a "custom." prefix (e.g., "custom.billing.invoice_sent").
 
     CHANGELOG:
-      v0.1.25 (2026-04-01):
+      v0.1.25 (initial 2026-04-01, revisions 2026-04-10 / 2026-04-11):
+
+        Initial (2026-04-01):
         - Added WEBHOOK EVENT GUIDANCE section documenting 40 event types across 6 categories,
           standard event payload schema, webhook delivery protocol, X-Cycles-Signature HMAC
           verification, retry/failure handling, retention policy, and extensibility contract.
         - No new API endpoints — webhook guidance is informational, not normative.
         - Runtime server implementations now emit events for reservation.denied,
           reservation.commit_overage, and budget state changes to a shared dispatch queue.
+
+        Error semantics refinements (2026-04-10, PR #25 — surfaced by
+        runcycles/cycles-client-rust#8 / runcycles/cycles-server#79):
+        - Broadened the normative UNIT_MISMATCH error-semantics block (section "ERROR
+          SEMANTICS (NORMATIVE)") to enumerate all four runtime entry points that MAY
+          return 400 UNIT_MISMATCH: (a) reserve, (b) commit, (c) event, (d) decide.
+          Previously documented only commit and event; reserve and decide emissions were
+          implemented by the reference server but undocumented.
+        - Recommended populated `details` object on 400 UNIT_MISMATCH responses from
+          reserve / event / decide paths: `scope` (canonical scope where the mismatch
+          was detected), `requested_unit` (the unit supplied by the client), and
+          `expected_units` (array of units for which a budget does exist at that scope),
+          so clients can self-correct without a separate lookup.
+        - Documented HTTP 404 response on POST /v1/reservations and POST /v1/events
+          endpoints. The reference server has always emitted 404 with error=NOT_FOUND
+          on these endpoints when no budget exists at the target scope in any unit, but
+          the response was not previously declared in the endpoints' response list — a
+          strict spec-conformance gap for client code generators building typed error
+          unions from the spec. /v1/decide continues to return 200 DENY (with
+          reason_code=BUDGET_NOT_FOUND) for the no-budget case; its response list is
+          unchanged.
+
+        Wire-code naming + reason_code enumeration (2026-04-11, PR #26 — follow-up
+        cleanup to PR #25):
+        - Clarified that on the runtime plane, HTTP 404 uses the single `NOT_FOUND`
+          error code for all resource-not-found conditions, with the `message` field
+          carrying the specific reason (e.g. "Budget not found for provided scope: ...").
+          `BUDGET_NOT_FOUND` is NOT a valid `error` wire value on the runtime plane —
+          three passages added in PR #25 that had named it as such were rewritten.
+          (The admin plane, `cycles-governance-admin-v0.1.25.yaml`, has its own
+          `ErrorCode` enum which does include `BUDGET_NOT_FOUND` as a first-class
+          wire code; that plane is unaffected.)
+        - Added new `DecisionReasonCode` schema under `components/schemas` — a closed
+          enum of six values:
+            BUDGET_EXCEEDED, BUDGET_FROZEN, BUDGET_CLOSED, BUDGET_NOT_FOUND,
+            OVERDRAFT_LIMIT_EXCEEDED, DEBT_OUTSTANDING
+          with per-value descriptions of the underlying condition each represents, and
+          an explicit note that `reason_code` labels may overlap conceptually with
+          `ErrorCode` entries (e.g. `BUDGET_EXCEEDED` appears in both sets) because
+          they surface the same underlying budget state on different response types —
+          `reason_code` on 200 DENY, `ErrorCode` on 4xx/5xx error bodies.
+        - Tightened `DecisionResponse.reason_code` and
+          `ReservationCreateResponse.reason_code` from free-form `type: string,
+          maxLength: 128` to `$ref: '#/components/schemas/DecisionReasonCode'`.
+          Codifies what the reference server has always emitted; strict clients now
+          reject unknown `reason_code` values instead of silently accepting them.
+          Permissive clients unchanged. Clients SHOULD treat the set as closed at v0
+          but MUST be prepared to encounter new values in future protocol versions
+          (additive extensions are a minor version bump).
+        - **No wire-format change.** All refinements document or narrow existing
+          behavior — the reference server was already conformant with the tightened
+          spec. No protocol version bump required.
 
       v0.1.24 (2026-03-24):
         - BREAKING: Changed default CommitOveragePolicy from REJECT to ALLOW_IF_AVAILABLE.
