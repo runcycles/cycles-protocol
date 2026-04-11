@@ -109,6 +109,39 @@ components:
       - ALLOW
       - ALLOW_WITH_CAPS
       - DENY
+    DecisionReasonCode:
+      type: string
+      description: |-
+        Stable machine-readable reason for why a /decide call or a dry_run reservation returned decision=DENY. Populated on DecisionResponse.reason_code and on ReservationCreateResponse.reason_code (dry_run path only). Clients SHOULD treat this as a closed set for v0 but MUST be prepared to encounter new values in future protocol versions. The human-readable `message` field on the parent response (when present) may carry additional context.
+
+        Distinct from the `ErrorCode` enum: reason codes appear only on 200 OK responses with decision=DENY; ErrorCodes appear only on 4xx/5xx responses with an `error` field. Some labels overlap (e.g. BUDGET_EXCEEDED appears in both sets) because the same underlying condition is reported two ways depending on the endpoint: /decide and dry_run surface it as a non-4xx DENY decision, while non-dry reserve surfaces it as a 409 error.
+
+        - BUDGET_EXCEEDED — remaining amount insufficient on at least one derived scope
+          (evaluated against the requested estimate.amount).
+
+        - BUDGET_FROZEN — a derived scope has a budget in FROZEN status (operator-set,
+          no mutations allowed).
+
+        - BUDGET_CLOSED — a derived scope has a budget in CLOSED status (permanently
+          closed).
+
+        - BUDGET_NOT_FOUND — no budget exists at any derived scope in the requested unit.
+          On non-dry reserve and /v1/events paths this same condition surfaces as HTTP
+          404 with error=NOT_FOUND instead.
+
+        - OVERDRAFT_LIMIT_EXCEEDED — either (a) debt + delta > overdraft_limit on commit,
+          or (b) the scope is in over-limit state (is_over_limit=true) and no new
+          reservations are permitted until reconciled.
+
+        - DEBT_OUTSTANDING — a derived scope has debt > 0 and overdraft_limit == 0
+          (no policy permits further debt accrual).
+      enum:
+      - BUDGET_EXCEEDED
+      - BUDGET_FROZEN
+      - BUDGET_CLOSED
+      - BUDGET_NOT_FOUND
+      - OVERDRAFT_LIMIT_EXCEEDED
+      - DEBT_OUTSTANDING
     UnitEnum:
       type: string
       description: |
@@ -284,9 +317,7 @@ components:
           $ref: '#/components/schemas/Caps'
           description: Present only when decision=ALLOW_WITH_CAPS; MUST be absent otherwise.
         reason_code:
-          type: string
-          maxLength: 128
-          description: Stable machine-readable reason (extensible).
+          $ref: '#/components/schemas/DecisionReasonCode'
         retry_after_ms:
           type: integer
           minimum: 0
@@ -483,8 +514,7 @@ components:
           items:
             $ref: '#/components/schemas/Balance'
         reason_code:
-          type: string
-          maxLength: 128
+          $ref: '#/components/schemas/DecisionReasonCode'
         retry_after_ms:
           type: integer
           minimum: 0
