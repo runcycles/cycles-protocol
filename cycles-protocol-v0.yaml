@@ -279,6 +279,25 @@ info:
         - **No wire-format change.** All refinements document or narrow existing
           behavior — the reference server was already conformant with the updated
           spec. No protocol version bump required.
+        - SERVER IMPLEMENTATION NOTE (non-normative): server implementations MAY
+          represent `reason_code` internally as a closed typed structure (e.g., a
+          language-native enum) covering exactly the values the server actually
+          emits, without violating the spec's openness. The "Clients MUST gracefully
+          handle unknown values" and "SDK code MUST NOT reject unknown values"
+          clauses target CLIENT consumers (language SDKs, downstream services,
+          dashboards) of server responses, not reference server internals. A server
+          is the EMITTER of `reason_code`, not a consumer, and its idempotency
+          replay cache — the only place it ever deserializes a `reason_code` value —
+          contains only values the server itself previously wrote. A typed
+          closed enum on the server side therefore gives compile-time safety for
+          the emitter's own emission set while the wire format remains spec-open
+          for extension-plane flexibility. This is the standard "tighter subset
+          is still compliant" pattern. Verified on runcycles/cycles-server v0.1.25.7:
+          `Enums.ReasonCode` is a closed Java enum with exactly the 6 v0.1.25 base
+          values, and all emission sites + the two idempotency replay paths
+          (`RedisReservationRepository.java:179` dry_run, `:695` decide) are
+          exercised by the existing integration test suite with the full wire
+          round-trip.
 
       v0.1.24 (2026-03-24):
         - BREAKING: Changed default CommitOveragePolicy from REJECT to ALLOW_IF_AVAILABLE.
