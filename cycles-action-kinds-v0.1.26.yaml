@@ -443,6 +443,13 @@ components:
         policy rules and quota definitions.
       required: [kind, risk_class]
       additionalProperties: false
+      example:
+        kind: llm.completion
+        risk_class: side_effect
+        description: Synchronous text completion via any LLM provider
+        mcp_tool_prefixes:
+          - llm_complete
+          - text_generate
       properties:
         kind:
           type: string
@@ -701,6 +708,17 @@ components:
         identifies the aggregated risk class.
       required: [action_kind, scope, window, used, limit]
       additionalProperties: false
+      example:
+        action_kind: llm.completion
+        scope: "tenant:acme-corp/workspace:prod"
+        scope_path: "tenant:acme-corp/workspace:prod"
+        window: per_hour_tumbling
+        used: 142
+        limit: 200
+        remaining: 58
+        policy_id: pol_eng_default
+        expires_at: "2026-04-12T15:00:00Z"
+        last_incremented_at: "2026-04-12T14:32:17Z"
       properties:
         action_kind:
           type: string
@@ -989,6 +1007,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /v1/admin/action-quota-counters:
     get:
@@ -1096,6 +1120,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /v1/admin/action-quota-counters/reset:
     post:
@@ -1178,6 +1208,12 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         "404":
           description: Counter not found (no counter matches the specified key fields)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "500":
+          description: Internal server error
           content:
             application/json:
               schema:

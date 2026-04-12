@@ -290,6 +290,13 @@ components:
         ActionQuotaWindow is defined in cycles-action-kinds-v0.1.26.yaml.
       required: [action_kind, window, used, limit, scope]
       additionalProperties: false
+      example:
+        action_kind: email.send
+        window: per_run
+        used: 5
+        limit: 5
+        scope: "tenant:acme-corp/workspace:prod/agent:support-bot"
+        policy_id: pol_support_limits
       properties:
         action_kind:
           type: string
@@ -340,6 +347,18 @@ components:
           - budget_remaining SHOULD be populated on BUDGET_EXCEEDED.
       required: [reason_code]
       additionalProperties: false
+      example:
+        reason_code: ACTION_QUOTA_EXCEEDED
+        quota_violation:
+          action_kind: email.send
+          window: per_run
+          used: 5
+          limit: 5
+          scope: "tenant:acme-corp/workspace:prod/agent:support-bot"
+          policy_id: pol_support_limits
+        blocked_by_policy: pol_support_limits
+        blocked_by_scope: "tenant:acme-corp/workspace:prod/agent:support-bot"
+        suggested_fix: "Increase email.send quota from 5 to 10 per_run in policy 'pol_support_limits'"
       properties:
         reason_code:
           type: string

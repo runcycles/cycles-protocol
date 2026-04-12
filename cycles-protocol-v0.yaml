@@ -463,6 +463,10 @@ components:
       type: object
       required: [error, message, request_id]
       additionalProperties: false
+      example:
+        error: BUDGET_EXCEEDED
+        message: Insufficient remaining budget for scope tenant:acme-corp
+        request_id: req_abc123def456
       properties:
         error:
           $ref: '#/components/schemas/ErrorCode'
@@ -556,6 +560,9 @@ components:
       type: object
       required: [unit, amount]
       additionalProperties: false
+      example:
+        unit: USD_MICROCENTS
+        amount: 500000
       properties:
         unit:
           $ref: '#/components/schemas/UnitEnum'
@@ -570,6 +577,9 @@ components:
       additionalProperties: false
       description: >-
         Like Amount, but allows negative values. Used for Balance.remaining which can be negative in overdraft scenarios.
+      example:
+        unit: USD_MICROCENTS
+        amount: -120000
       properties:
         unit:
           $ref: '#/components/schemas/UnitEnum'
@@ -707,6 +717,11 @@ components:
       type: object
       required: [decision]
       additionalProperties: false
+      example:
+        decision: ALLOW
+        affected_scopes:
+          - "tenant:acme-corp"
+          - "tenant:acme-corp/workspace:prod"
       properties:
         decision:
           $ref: '#/components/schemas/DecisionEnum'
@@ -770,6 +785,19 @@ components:
       type: object
       required: [idempotency_key, subject, action, estimate]
       additionalProperties: false
+      example:
+        idempotency_key: "idem_20260412_run42_step1"
+        subject:
+          tenant: acme-corp
+          workspace: prod
+          agent: summarizer
+        action:
+          kind: llm.completion
+          name: summarize-document
+        estimate:
+          unit: USD_MICROCENTS
+          amount: 500000
+        ttl_ms: 30000
       properties:
         idempotency_key:
           $ref: '#/components/schemas/IdempotencyKey'
@@ -820,6 +848,21 @@ components:
       type: object
       required: [scope, scope_path, remaining]
       additionalProperties: false
+      example:
+        scope: "tenant:acme-corp/workspace:prod"
+        scope_path: "tenant:acme-corp/workspace:prod"
+        remaining:
+          unit: USD_MICROCENTS
+          amount: 4577000
+        reserved:
+          unit: USD_MICROCENTS
+          amount: 500000
+        spent:
+          unit: USD_MICROCENTS
+          amount: 423000
+        allocated:
+          unit: USD_MICROCENTS
+          amount: 5500000
       description: >-
         Ledger state for a single (scope, unit) balance.
 
@@ -899,6 +942,18 @@ components:
       type: object
       required: [decision, affected_scopes]
       additionalProperties: false
+      example:
+        decision: ALLOW
+        reservation_id: "rsv_a1b2c3d4"
+        reserved:
+          unit: USD_MICROCENTS
+          amount: 500000
+        expires_at_ms: 1712956830000
+        scope_path: "tenant:acme-corp/workspace:prod/agent:summarizer"
+        affected_scopes:
+          - "tenant:acme-corp"
+          - "tenant:acme-corp/workspace:prod"
+          - "tenant:acme-corp/workspace:prod/agent:summarizer"
       properties:
         decision:
           $ref: '#/components/schemas/DecisionEnum'
@@ -965,6 +1020,16 @@ components:
       type: object
       required: [idempotency_key, actual]
       additionalProperties: false
+      example:
+        idempotency_key: "idem_20260412_run42_step1_commit"
+        actual:
+          unit: USD_MICROCENTS
+          amount: 423000
+        metrics:
+          tokens_input: 1500
+          tokens_output: 800
+          latency_ms: 2340
+          model_version: claude-sonnet-4-20250514
       properties:
         idempotency_key:
           $ref: '#/components/schemas/IdempotencyKey'
