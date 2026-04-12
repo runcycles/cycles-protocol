@@ -53,10 +53,8 @@ tags:
   description: 'Pillar 2: Key validation and tenant resolution'
 - name: Audit
   description: 'Pillar 2: Access logging and compliance'
-- name: Reservations
-  description: 'Pillar 3: Runtime budget enforcement (from Cycles v0.1.24)'
 - name: Balances
-  description: 'Pillar 3: Balance queries and monitoring'
+  description: 'Pillar 3: Balance queries and monitoring (admin-plane view)'
 - name: Webhooks
   description: 'Pillar 4: Webhook subscription management (admin and tenant self-service)'
 - name: Events
@@ -6298,83 +6296,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-  /v1/reservations:
-    post:
-      tags:
-      - Reservations
-      operationId: createReservation
-      summary: Create budget reservation (Cycles v0.1.24)
-      description: |-
-        See Cycles Protocol v0.1.24 specification.
-        GOVERNANCE INTEGRATION: 1. Validates X-Cycles-API-Key via /v1/auth/validate 2. Derives effective tenant from key 3. Validates Subject.tenant matches effective tenant (403 if mismatch) 4. Checks tenant status (blocks if SUSPENDED or CLOSED) 5. Checks budget ledger exists for scope 6. Applies matching policies (caps, rate limits) 7. Executes Cycles reservation logic (reserve.lua) 8. Logs operation to audit trail
-      security:
-      - ApiKeyAuth: []
-      responses:
-        '200':
-          description: Reservation created (see Cycles v0.1.24)
-        '401':
-          description: Missing or invalid API key
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '403':
-          description: Tenant mismatch, suspended, or insufficient permissions
-        '409':
-          description: Budget exceeded, debt outstanding, or over-limit
-        '500':
-          description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-  /v1/reservations/{reservation_id}/commit:
-    post:
-      tags:
-      - Reservations
-      operationId: commitReservation
-      summary: Commit actual spend (Cycles v0.1.24)
-      description: |-
-        See Cycles Protocol v0.1.24 specification.
-        GOVERNANCE INTEGRATION: - Validates key and tenant as in reservation - Supports ALLOW_WITH_OVERDRAFT policy - Creates debt if overdraft_limit configured - Logs commit to audit trail
-      parameters:
-      - name: reservation_id
-        in: path
-        required: true
-        schema:
-          type: string
-      security:
-      - ApiKeyAuth: []
-      responses:
-        '200':
-          description: Commit succeeded (see Cycles v0.1.24)
-        '401':
-          description: Missing or invalid API key
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '403':
-          description: Tenant mismatch or insufficient permissions
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '500':
-          description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
   /v1/balances:
     get:
       tags:
       - Balances
       operationId: getBalances
-      summary: Query budget balances (Cycles v0.1.24)
+      summary: Query budget balances (admin-plane view)
       description: |-
-        See Cycles Protocol v0.1.24 specification.
-        GOVERNANCE INTEGRATION: - Returns full ledger state including debt, overdraft_limit, is_over_limit - Scoped to effective tenant - Supports scope filtering via query params
+        Returns budget ledger balances for the authenticated tenant, with optional filtering by scope prefix and unit. This is the admin-plane balance query — the runtime-plane equivalent with subject-based filtering is defined in cycles-protocol-v0.yaml.
+        ADMIN-PLANE SEMANTICS: - Returns full ledger state including debt, overdraft_limit, is_over_limit - Scoped to effective tenant (derived from API key) - Supports scope_prefix filtering (prefix match on canonical scope) - Supports unit filtering
       security:
       - ApiKeyAuth: []
       parameters:
@@ -6409,7 +6339,11 @@ paths:
           type: string
       responses:
         '200':
-          description: Balance data (see Cycles v0.1.24)
+          description: Budget ledgers matching the query filters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetListResponse'
         '401':
           description: Missing or invalid API key
           content:
