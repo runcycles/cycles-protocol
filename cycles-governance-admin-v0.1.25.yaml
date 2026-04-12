@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.8
+  version: 0.1.25.9
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Stable governance base (v0.1.25.8). Serves as the base for the Cycles
+    Stable governance base (v0.1.25.9). Serves as the base for the Cycles
     Protocol v0.1.26 spec family. Covers tenant management, authentication,
     and runtime enforcement. NOTE: This file alone is NOT sufficient for
     v0.1.26 admin tooling — use the merged artifact or read with the
@@ -14,7 +14,7 @@ info:
   description: |-
     SPEC FAMILY CONTEXT (v0.1.26):
       This is the STABLE GOVERNANCE BASE for the Cycles Protocol v0.1.26
-      family. It is intentionally frozen at v0.1.25.8 — new capabilities
+      family. It is intentionally frozen at v0.1.25.9 — new capabilities
       (action quotas, risk-class quotas, access control lists, tenant
       observe_mode, action_quotas:read permission) are delivered via
       cycles-governance-extensions-v0.1.26.yaml as additive extensions.
@@ -72,6 +72,18 @@ info:
       - Federated: Multiple runtime enforcement instances, shared admin plane
 
     CHANGELOG:
+      v0.1.25.9 (2026-04-12):
+        - Error response completeness for SDK codegen and client error handling.
+          All changes are additive and backward compatible with v0.1.25.8.
+        - Added '500' (Internal server error) response to all 45 endpoints.
+          Previously undocumented; documents existing server behavior.
+        - Added '403' (Forbidden) response to 29 endpoints that lacked it.
+          AdminKeyAuth endpoints use generic "Forbidden" description;
+          ApiKeyAuth endpoints (commitReservation, getBalances) use
+          permission-specific descriptions. The 16 ApiKeyAuth endpoints
+          that already had '403' are unchanged.
+        - No schema changes, no new endpoints, no new required fields.
+
       v0.1.25.8 (2026-04-10):
         - Dashboard and observability hardening for v0.1.26 readiness.
           All changes are additive and backward compatible with v0.1.25.7.
@@ -407,10 +419,20 @@ components:
     Tenant:
       type: object
       description: >-
-        Tenant is the top-level isolation boundary. All budgets, keys, and 
+        Tenant is the top-level isolation boundary. All budgets, keys, and
         reservations are scoped to a tenant.
       required: [tenant_id, name, status, created_at]
       additionalProperties: false
+      example:
+        tenant_id: acme-corp
+        name: Acme Corporation
+        status: ACTIVE
+        default_commit_overage_policy: ALLOW_IF_AVAILABLE
+        default_reservation_ttl_ms: 60000
+        max_reservation_ttl_ms: 3600000
+        max_reservation_extensions: 10
+        created_at: "2026-01-15T09:00:00Z"
+        updated_at: "2026-04-10T14:30:00Z"
       properties:
         tenant_id:
           type: string
@@ -548,10 +570,10 @@ components:
     BudgetLedger:
       type: object
       description: >-
-        Budget ledger tracks allocated, remaining, reserved, spent, and debt 
-        for a specific (scope, unit) pair. This is the source of truth for 
+        Budget ledger tracks allocated, remaining, reserved, spent, and debt
+        for a specific (scope, unit) pair. This is the source of truth for
         balance queries.
-        
+
         SCOPE HIERARCHY SEMANTICS:
         - Each scope is independent (no automatic propagation)
         - Parent scopes do NOT automatically aggregate child scope charges
@@ -561,6 +583,17 @@ components:
           unless explicitly specified via multi-scope reservation
       required: [ledger_id, scope, unit, allocated, remaining, status, created_at]
       additionalProperties: false
+      example:
+        ledger_id: ldg_abc123
+        scope: "tenant:acme-corp/workspace:prod"
+        scope_path: "tenant:acme-corp/workspace:prod"
+        unit: USD_MICROCENTS
+        allocated: {unit: USD_MICROCENTS, amount: 10000000}
+        remaining: {unit: USD_MICROCENTS, amount: 7500000}
+        reserved: {unit: USD_MICROCENTS, amount: 500000}
+        spent: {unit: USD_MICROCENTS, amount: 2000000}
+        status: ACTIVE
+        created_at: "2026-03-01T00:00:00Z"
       properties:
         ledger_id:
           type: string
@@ -643,6 +676,10 @@ components:
       type: object
       required: [scope, unit, allocated]
       additionalProperties: false
+      example:
+        scope: "tenant:acme-corp/workspace:prod"
+        unit: USD_MICROCENTS
+        allocated: {unit: USD_MICROCENTS, amount: 10000000}
       properties:
         scope:
           type: string
@@ -759,6 +796,16 @@ components:
         Policies are evaluated during reservation and commit operations.
       required: [policy_id, scope_pattern, status, created_at]
       additionalProperties: false
+      example:
+        policy_id: pol_eng_default
+        name: Engineering default policy
+        scope_pattern: "tenant:acme-corp/workspace:eng/*"
+        priority: 10
+        caps:
+          max_tokens: 4096
+          max_steps_remaining: 10
+        status: ACTIVE
+        created_at: "2026-02-01T00:00:00Z"
       properties:
         policy_id:
           type: string
@@ -837,6 +884,13 @@ components:
       type: object
       required: [name, scope_pattern]
       additionalProperties: false
+      example:
+        name: Engineering default policy
+        scope_pattern: "tenant:acme-corp/workspace:eng/*"
+        priority: 10
+        caps:
+          max_tokens: 4096
+          max_steps_remaining: 10
       properties:
         name:
           type: string
@@ -981,6 +1035,19 @@ components:
         permissions. Keys are the trust boundary for tenant derivation.
       required: [key_id, tenant_id, key_prefix, status, created_at, expires_at]
       additionalProperties: false
+      example:
+        key_id: key_a1b2c3d4
+        tenant_id: acme-corp
+        key_prefix: cyc_live_abc123
+        name: Production agent key
+        permissions:
+          - "reservations:create"
+          - "reservations:commit"
+          - "reservations:release"
+          - "balances:read"
+        status: ACTIVE
+        created_at: "2026-03-15T12:00:00Z"
+        expires_at: "2026-06-15T12:00:00Z"
       properties:
         key_id:
           type: string
@@ -1045,6 +1112,15 @@ components:
       type: object
       required: [tenant_id, name]
       additionalProperties: false
+      example:
+        tenant_id: acme-corp
+        name: Production agent key
+        permissions:
+          - "reservations:create"
+          - "reservations:commit"
+          - "reservations:release"
+          - "balances:read"
+        expires_at: "2026-06-15T12:00:00Z"
       properties:
         tenant_id:
           type: string
@@ -2598,6 +2674,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
     
     get:
       tags: [Tenants]
@@ -2652,6 +2740,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /v1/admin/tenants/{tenant_id}:
     get:
       tags: [Tenants]
@@ -2681,6 +2781,18 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: Tenant not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
           content:
             application/json:
               schema:
@@ -2749,6 +2861,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /v1/admin/budgets:
     post:
       tags: [Budgets]
@@ -2806,6 +2930,12 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
           description: Budget already exists for this (scope, unit)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
           content:
             application/json:
               schema:
@@ -2886,6 +3016,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
     patch:
       tags: [Budgets]
       operationId: updateBudget
@@ -2941,6 +3077,18 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
           description: Conflict (e.g., concurrent modification)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
           content:
             application/json:
               schema:
@@ -3017,6 +3165,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /v1/admin/budgets/unfreeze:
     post:
@@ -3083,6 +3243,18 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
           description: Invalid transition (already active or closed)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
           content:
             application/json:
               schema:
@@ -3193,6 +3365,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   
   /v1/admin/budgets/lookup:
     get:
@@ -3249,6 +3427,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /v1/admin/policies:
     post:
@@ -3298,6 +3482,12 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: API key lacks policies:write permission or scope_filter denies access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
           content:
             application/json:
               schema:
@@ -3389,6 +3579,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /v1/admin/policies/{policy_id}:
     patch:
@@ -3443,6 +3639,12 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: Policy not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
           content:
             application/json:
               schema:
@@ -3513,6 +3715,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
     
     get:
       tags: [API Keys]
@@ -3553,6 +3767,18 @@ paths:
   
         '401':
           description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
           content:
             application/json:
               schema:
@@ -3643,6 +3869,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
     delete:
       tags: [API Keys]
@@ -3685,6 +3923,18 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: Key not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
           content:
             application/json:
               schema:
@@ -3735,6 +3985,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /v1/auth/introspect:
     get:
       tags: [Dashboard]
@@ -3765,6 +4027,18 @@ paths:
                 $ref: '#/components/schemas/AuthIntrospectResponse'
         '401':
           description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
           content:
             application/json:
               schema:
@@ -3847,6 +4121,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   # ==========================================================================
   # DASHBOARD: OPERATIONAL OVERVIEW
@@ -3883,6 +4169,18 @@ paths:
                 $ref: '#/components/schemas/AdminOverviewResponse'
         '401':
           description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
           content:
             application/json:
               schema:
@@ -3950,6 +4248,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
     get:
       tags: [Webhooks]
@@ -4000,6 +4310,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /v1/admin/webhooks/{subscription_id}:
     get:
       tags: [Webhooks]
@@ -4031,6 +4353,18 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: Subscription not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
           content:
             application/json:
               schema:
@@ -4087,6 +4421,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
     delete:
       tags: [Webhooks]
@@ -4114,6 +4460,18 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: Subscription not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
           content:
             application/json:
               schema:
@@ -4156,6 +4514,18 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: Subscription not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
           content:
             application/json:
               schema:
@@ -4219,6 +4589,18 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: Subscription not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
           content:
             application/json:
               schema:
@@ -4303,6 +4685,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /v1/admin/events/{event_id}:
     get:
       tags: [Events]
@@ -4334,6 +4728,18 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: Event not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
           content:
             application/json:
               schema:
@@ -4433,6 +4839,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /v1/admin/config/webhook-security:
     get:
@@ -4454,6 +4872,18 @@ paths:
 
         '401':
           description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
           content:
             application/json:
               schema:
@@ -4491,6 +4921,18 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '400':
           description: Invalid configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
           content:
             application/json:
               schema:
@@ -4547,6 +4989,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
     get:
       tags: [Webhooks]
@@ -4595,6 +5043,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /v1/webhooks/{subscription_id}:
     get:
@@ -4635,6 +5089,12 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: Subscription not found or belongs to different tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
           content:
             application/json:
               schema:
@@ -4694,6 +5154,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
     delete:
       tags: [Webhooks]
@@ -4729,6 +5195,12 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: Subscription not found or belongs to different tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
           content:
             application/json:
               schema:
@@ -4773,6 +5245,12 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: Subscription not found or belongs to different tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
           content:
             application/json:
               schema:
@@ -4848,6 +5326,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /v1/events:
     get:
@@ -4919,6 +5403,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   # ==========================================================================
   # PILLAR 3: RUNTIME ENFORCEMENT (from Cycles v0.1.24)
@@ -4958,6 +5448,12 @@ paths:
           description: Tenant mismatch, suspended, or insufficient permissions
         '409':
           description: Budget exceeded, debt outstanding, or over-limit
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   
   /v1/reservations/{reservation_id}/commit:
     post:
@@ -4986,6 +5482,18 @@ paths:
   
         '401':
           description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Tenant mismatch or insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
           content:
             application/json:
               schema:
@@ -5035,6 +5543,18 @@ paths:
           description: Balance data (see Cycles v0.1.24)
         '401':
           description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Scope denied by scope_filter or insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
           content:
             application/json:
               schema:

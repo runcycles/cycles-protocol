@@ -93,6 +93,10 @@ components:
       - message
       - request_id
       additionalProperties: false
+      example:
+        error: BUDGET_EXCEEDED
+        message: Insufficient remaining budget for scope tenant:acme-corp
+        request_id: req_abc123def456
       properties:
         error:
           $ref: '#/components/schemas/ErrorCode'
@@ -179,6 +183,9 @@ components:
       - unit
       - amount
       additionalProperties: false
+      example:
+        unit: USD_MICROCENTS
+        amount: 500000
       properties:
         unit:
           $ref: '#/components/schemas/UnitEnum'
@@ -194,6 +201,9 @@ components:
       additionalProperties: false
       description: Like Amount, but allows negative values. Used for Balance.remaining which can be negative
         in overdraft scenarios.
+      example:
+        unit: USD_MICROCENTS
+        amount: -120000
       properties:
         unit:
           $ref: '#/components/schemas/UnitEnum'
@@ -324,6 +334,11 @@ components:
       required:
       - decision
       additionalProperties: false
+      example:
+        decision: ALLOW
+        affected_scopes:
+        - tenant:acme-corp
+        - tenant:acme-corp/workspace:prod
       properties:
         decision:
           $ref: '#/components/schemas/DecisionEnum'
@@ -383,6 +398,19 @@ components:
       - action
       - estimate
       additionalProperties: false
+      example:
+        idempotency_key: idem_20260412_run42_step1
+        subject:
+          tenant: acme-corp
+          workspace: prod
+          agent: summarizer
+        action:
+          kind: llm.completion
+          name: summarize-document
+        estimate:
+          unit: USD_MICROCENTS
+          amount: 500000
+        ttl_ms: 30000
       properties:
         idempotency_key:
           $ref: '#/components/schemas/IdempotencyKey'
@@ -428,6 +456,21 @@ components:
       - scope_path
       - remaining
       additionalProperties: false
+      example:
+        scope: tenant:acme-corp/workspace:prod
+        scope_path: tenant:acme-corp/workspace:prod
+        remaining:
+          unit: USD_MICROCENTS
+          amount: 4577000
+        reserved:
+          unit: USD_MICROCENTS
+          amount: 500000
+        spent:
+          unit: USD_MICROCENTS
+          amount: 423000
+        allocated:
+          unit: USD_MICROCENTS
+          amount: 5500000
       description: "Ledger state for a single (scope, unit) balance.\nUNIT CONSISTENCY (NORMATIVE):\n\
         \  - All Amount fields within a Balance (remaining/reserved/spent/allocated/debt/overdraft_limit),\
         \ if present, MUST share the same unit.\n  - Servers MUST NOT emit a Balance with mixed units;\
@@ -500,6 +543,18 @@ components:
       - decision
       - affected_scopes
       additionalProperties: false
+      example:
+        decision: ALLOW
+        reservation_id: rsv_a1b2c3d4
+        reserved:
+          unit: USD_MICROCENTS
+          amount: 500000
+        expires_at_ms: 1712956830000
+        scope_path: tenant:acme-corp/workspace:prod/agent:summarizer
+        affected_scopes:
+        - tenant:acme-corp
+        - tenant:acme-corp/workspace:prod
+        - tenant:acme-corp/workspace:prod/agent:summarizer
       properties:
         decision:
           $ref: '#/components/schemas/DecisionEnum'
@@ -566,6 +621,16 @@ components:
       - idempotency_key
       - actual
       additionalProperties: false
+      example:
+        idempotency_key: idem_20260412_run42_step1_commit
+        actual:
+          unit: USD_MICROCENTS
+          amount: 423000
+        metrics:
+          tokens_input: 1500
+          tokens_output: 800
+          latency_ms: 2340
+          model_version: claude-sonnet-4-20250514
       properties:
         idempotency_key:
           $ref: '#/components/schemas/IdempotencyKey'
@@ -859,6 +924,13 @@ components:
       - limit
       - scope
       additionalProperties: false
+      example:
+        action_kind: email.send
+        window: per_run
+        used: 5
+        limit: 5
+        scope: tenant:acme-corp/workspace:prod/agent:support-bot
+        policy_id: pol_support_limits
       properties:
         action_kind:
           type: string
@@ -913,6 +985,18 @@ components:
       required:
       - reason_code
       additionalProperties: false
+      example:
+        reason_code: ACTION_QUOTA_EXCEEDED
+        quota_violation:
+          action_kind: email.send
+          window: per_run
+          used: 5
+          limit: 5
+          scope: tenant:acme-corp/workspace:prod/agent:support-bot
+          policy_id: pol_support_limits
+        blocked_by_policy: pol_support_limits
+        blocked_by_scope: tenant:acme-corp/workspace:prod/agent:support-bot
+        suggested_fix: Increase email.send quota from 5 to 10 per_run in policy 'pol_support_limits'
       properties:
         reason_code:
           type: string
@@ -1471,6 +1555,13 @@ components:
       - kind
       - risk_class
       additionalProperties: false
+      example:
+        kind: llm.completion
+        risk_class: side_effect
+        description: Synchronous text completion via any LLM provider
+        mcp_tool_prefixes:
+        - llm_complete
+        - text_generate
       properties:
         kind:
           type: string
@@ -1692,6 +1783,17 @@ components:
       - used
       - limit
       additionalProperties: false
+      example:
+        action_kind: llm.completion
+        scope: tenant:acme-corp/workspace:prod
+        scope_path: tenant:acme-corp/workspace:prod
+        window: per_hour_tumbling
+        used: 142
+        limit: 200
+        remaining: 58
+        policy_id: pol_eng_default
+        expires_at: '2026-04-12T15:00:00Z'
+        last_incremented_at: '2026-04-12T14:32:17Z'
       properties:
         action_kind:
           type: string
@@ -2521,6 +2623,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /v1/admin/action-quota-counters:
     get:
       tags:
@@ -2625,6 +2733,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /v1/admin/action-quota-counters/reset:
     post:
       tags:
@@ -2705,6 +2819,12 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: Counter not found (no counter matches the specified key fields)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
           content:
             application/json:
               schema:
