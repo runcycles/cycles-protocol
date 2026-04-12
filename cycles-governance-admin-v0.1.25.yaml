@@ -5437,7 +5437,14 @@ paths:
         - ApiKeyAuth: []
       responses:
         '200':
-          description: Reservation created (see Cycles v0.1.24)
+          description: >-
+            Reservation decision (ALLOW/DENY with optional caps).
+            Response schema: ReservationCreateResponse in cycles-protocol-v0.yaml.
+          content:
+            application/json:
+              schema:
+                type: object
+                description: See ReservationCreateResponse in cycles-protocol-v0.yaml
         '401':
           description: Missing or invalid API key
           content:
@@ -5446,15 +5453,23 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Tenant mismatch, suspended, or insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '409':
           description: Budget exceeded, debt outstanding, or over-limit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Internal server error
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-  
+
   /v1/reservations/{reservation_id}/commit:
     post:
       tags: [Reservations]
@@ -5478,8 +5493,14 @@ paths:
         - ApiKeyAuth: []
       responses:
         '200':
-          description: Commit succeeded (see Cycles v0.1.24)
-  
+          description: >-
+            Commit succeeded.
+            Response schema: CommitResponse in cycles-protocol-v0.yaml.
+          content:
+            application/json:
+              schema:
+                type: object
+                description: See CommitResponse in cycles-protocol-v0.yaml
         '401':
           description: Missing or invalid API key
           content:
@@ -5540,7 +5561,14 @@ paths:
             type: string
       responses:
         '200':
-          description: Balance data (see Cycles v0.1.24)
+          description: >-
+            Balance data for matching scopes.
+            Response schema: BalanceResponse in cycles-protocol-v0.yaml.
+          content:
+            application/json:
+              schema:
+                type: object
+                description: See BalanceResponse in cycles-protocol-v0.yaml
         '401':
           description: Missing or invalid API key
           content:
