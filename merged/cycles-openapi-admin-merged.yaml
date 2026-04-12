@@ -3770,6 +3770,12 @@ paths:
           maximum: 100
           default: 50
       responses:
+        '400':
+          description: Bad request (malformed JSON, missing required fields, invalid enum, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Tenant list
           content:
@@ -3810,6 +3816,12 @@ paths:
         schema:
           type: string
       responses:
+        '400':
+          description: Bad request (malformed JSON, missing required fields, invalid enum, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Tenant details
           content:
@@ -3920,6 +3932,12 @@ paths:
                     type: integer
               - $ref: '#/components/schemas/TenantPatchExtension'
       responses:
+        '400':
+          description: Invalid observe_mode value or malformed request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Tenant updated (observe_mode reflected in response)
           content:
@@ -3943,12 +3961,6 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '400':
-          description: Invalid observe_mode value or malformed request body
           content:
             application/json:
               schema:
@@ -4136,6 +4148,12 @@ paths:
                   type: object
                   additionalProperties: true
       responses:
+        '400':
+          description: Bad request (malformed JSON, missing required fields, invalid enum, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Budget updated
           content:
@@ -4439,6 +4457,12 @@ paths:
         schema:
           $ref: '#/components/schemas/UnitEnum'
       responses:
+        '400':
+          description: Bad request (malformed JSON, missing required fields, invalid enum, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Budget ledger found
           content:
@@ -4490,6 +4514,12 @@ paths:
             schema:
               $ref: '#/components/schemas/PolicyCreateRequest'
       responses:
+        '400':
+          description: Bad request (malformed JSON, missing required fields, invalid enum, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '201':
           description: Policy created
           content:
@@ -4681,6 +4711,14 @@ paths:
                     - DISABLED
               - $ref: '#/components/schemas/PolicyPatchExtension'
       responses:
+        '400':
+          description: 'Invalid request: unrecognized action_kind (including undeclared custom.* kinds),
+            missing window, per_run_counter_ttl_ms on non-per_run window, both allowed_action_kinds and
+            denied_action_kinds non-empty (mutually exclusive), etc.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Policy updated (action_quotas, risk_class_quotas, allowed_action_kinds, denied_action_kinds
             reflected in response)
@@ -4711,14 +4749,6 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '400':
-          description: 'Invalid request: unrecognized action_kind (including undeclared custom.* kinds),
-            missing window, per_run_counter_ttl_ms on non-per_run window, both allowed_action_kinds and
-            denied_action_kinds non-empty (mutually exclusive), etc.'
           content:
             application/json:
               schema:
@@ -4818,6 +4848,12 @@ paths:
           type: integer
           default: 50
       responses:
+        '400':
+          description: Bad request (malformed JSON, missing required fields, invalid enum, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: API key list
           content:
@@ -4951,6 +4987,12 @@ paths:
           type: string
           maxLength: 512
       responses:
+        '400':
+          description: Bad request (malformed JSON, missing required fields, invalid enum, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Key revoked
           content:
@@ -5001,6 +5043,12 @@ paths:
             schema:
               $ref: '#/components/schemas/ApiKeyValidationRequest'
       responses:
+        '400':
+          description: Bad request (malformed JSON, missing required fields, invalid enum, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Validation result
           content:
@@ -5039,6 +5087,12 @@ paths:
       security:
       - AdminKeyAuth: []
       responses:
+        '400':
+          description: Bad request (malformed JSON, missing required fields, invalid enum, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Authentication introspection result
           content:
@@ -5122,6 +5176,12 @@ paths:
           type: integer
           default: 50
       responses:
+        '400':
+          description: Bad request (malformed JSON, missing required fields, invalid enum, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Audit log entries
           content:
@@ -5159,6 +5219,12 @@ paths:
       security:
       - AdminKeyAuth: []
       responses:
+        '400':
+          description: Bad request (malformed JSON, missing required fields, invalid enum, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Operational overview snapshot
           content:
@@ -5284,6 +5350,12 @@ paths:
           maximum: 100
           default: 50
       responses:
+        '400':
+          description: Bad request (malformed JSON, missing required fields, invalid enum, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Subscription list
           content:
@@ -5325,6 +5397,12 @@ paths:
         schema:
           type: string
       responses:
+        '400':
+          description: Bad request (malformed JSON, missing required fields, invalid enum, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Subscription details
           content:
@@ -5430,6 +5508,12 @@ paths:
         schema:
           type: string
       responses:
+        '400':
+          description: Bad request (malformed JSON, missing required fields, invalid enum, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '204':
           description: Subscription deleted
         '401':
@@ -5474,6 +5558,12 @@ paths:
         schema:
           type: string
       responses:
+        '400':
+          description: Bad request (malformed JSON, missing required fields, invalid enum, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Test result
           content:
@@ -5552,6 +5642,12 @@ paths:
           maximum: 100
           default: 50
       responses:
+        '400':
+          description: Bad request (malformed JSON, missing required fields, invalid enum, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Delivery list
           content:
@@ -5641,6 +5737,12 @@ paths:
           maximum: 100
           default: 50
       responses:
+        '400':
+          description: Bad request (malformed JSON, missing required fields, invalid enum, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Event list
           content:
@@ -5682,6 +5784,12 @@ paths:
         schema:
           type: string
       responses:
+        '400':
+          description: Bad request (malformed JSON, missing required fields, invalid enum, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Event details
           content:
@@ -5820,6 +5928,12 @@ paths:
       security:
       - AdminKeyAuth: []
       responses:
+        '400':
+          description: Bad request (malformed JSON, missing required fields, invalid enum, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Current webhook security config
           content:
@@ -5971,6 +6085,12 @@ paths:
           maximum: 100
           default: 50
       responses:
+        '400':
+          description: Bad request (malformed JSON, missing required fields, invalid enum, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Subscription list
           content:
@@ -6013,6 +6133,12 @@ paths:
         schema:
           type: string
       responses:
+        '400':
+          description: Bad request (malformed JSON, missing required fields, invalid enum, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Subscription details
           content:
@@ -6119,6 +6245,12 @@ paths:
         schema:
           type: string
       responses:
+        '400':
+          description: Bad request (malformed JSON, missing required fields, invalid enum, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '204':
           description: Subscription deleted
         '401':
@@ -6163,6 +6295,12 @@ paths:
         schema:
           type: string
       responses:
+        '400':
+          description: Bad request (malformed JSON, missing required fields, invalid enum, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Test result
           content:
@@ -6241,6 +6379,12 @@ paths:
           maximum: 100
           default: 50
       responses:
+        '400':
+          description: Bad request (malformed JSON, missing required fields, invalid enum, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Delivery list
           content:
@@ -6321,6 +6465,12 @@ paths:
           maximum: 100
           default: 50
       responses:
+        '400':
+          description: Bad request (malformed JSON, missing required fields, invalid enum, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Event list (tenant-scoped)
           content:
@@ -6387,6 +6537,12 @@ paths:
         schema:
           type: string
       responses:
+        '400':
+          description: Bad request (malformed JSON, missing required fields, invalid enum, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Budget ledgers matching the query filters
           content:
