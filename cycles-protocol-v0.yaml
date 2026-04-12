@@ -206,6 +206,23 @@ info:
         * Custom event types MUST use a "custom." prefix (e.g., "custom.billing.invoice_sent").
 
     CHANGELOG:
+      v0.1.25 (revision 2026-04-12 — document 400 on two remaining operations):
+        - Completeness fix flagged by strict contract validation in
+          runcycles/cycles-server. The runtime server correctly emits 400
+          Bad Request on malformed JSON / missing required fields / invalid
+          enum values — Spring's default behavior on @Valid violation and
+          HttpMessageNotReadableException. Two operations were silent about
+          400 in their response lists:
+            - GET /v1/reservations/{reservation_id}
+            - POST /v1/reservations/{reservation_id}/release
+          Both now reference ErrorResponse on "400". All 9 runtime operations
+          now document 400.
+        - Unblocks strict response-status validation in downstream contract
+          tests: cycles-server's ContractValidationConfig can now remove its
+          "validation.response.status.unknown" LevelResolver IGNORE — a
+          separate follow-up in that repo.
+        - No existing response entries changed. Purely additive.
+
       v0.1.25 (initial 2026-04-01, revisions 2026-04-10 / 2026-04-11):
 
         Initial (2026-04-01):
@@ -1525,6 +1542,7 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ReservationDetail'}
+        "400": {$ref: '#/components/responses/ErrorResponse'}
         "401": {$ref: '#/components/responses/ErrorResponse'}
         "403": {$ref: '#/components/responses/ErrorResponse'}
         "404": {$ref: '#/components/responses/ErrorResponse'}
@@ -1600,6 +1618,7 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ReleaseResponse'}
+        "400": {$ref: '#/components/responses/ErrorResponse'}
         "401": {$ref: '#/components/responses/ErrorResponse'}
         "403": {$ref: '#/components/responses/ErrorResponse'}
         "404": {$ref: '#/components/responses/ErrorResponse'}
