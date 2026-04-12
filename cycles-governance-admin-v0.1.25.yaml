@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.9
+  version: 0.1.25.10
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -72,6 +72,42 @@ info:
       - Federated: Multiple runtime enforcement instances, shared admin plane
 
     CHANGELOG:
+      v0.1.25.10 (2026-04-12):
+        - Contract-test hardening uncovered by full schema audit against the
+          admin server. Four fixes, all non-breaking for conformant clients.
+
+        - NEW SignedAmount schema, ported from cycles-protocol-v0.yaml (which
+          has carried it since v0. The admin spec was missing it entirely.)
+          Like Amount but without the minimum:0 floor, so fields that can
+          legitimately go negative in overdraft/debt scenarios validate
+          correctly. References updated for:
+            * BudgetLedger.remaining (was Amount)
+            * BudgetFundingResponse.previous_remaining (was Amount)
+            * BudgetFundingResponse.new_remaining (was Amount)
+          Reason: v0.1.25 explicitly documents debt/overdraft producing
+          negative remaining (BudgetLedger description, debt semantics).
+          The prior Amount reference with minimum:0 contradicted that
+          feature and broke strict response validators.
+
+        - NEW BalanceListResponse schema + $ref swap on GET /v1/balances.
+          Was BudgetListResponse (wrapper field: ledgers). Now the wrapper
+          field is 'balances', consistent with cycles-protocol-v0 /v1/balances
+          BalanceResponse wrapper. Per design principle "admin should be
+          consistent with runtime protocol where doing the same thing": the
+          admin-plane balance query is functionally equivalent to the
+          runtime-plane query (same endpoint path, same semantic), so it
+          uses the same wrapper field name. Item type remains BudgetLedger
+          (admin plane exposes richer per-ledger fields than runtime Balance).
+
+        - Added 'additionalProperties: false' to three inline PATCH request
+          bodies that were missing it, restoring consistency with the rest of
+          the spec's strict-properties policy:
+            * PATCH /v1/admin/tenants/{tenant_id} (TenantUpdateRequest inline)
+            * PATCH /v1/admin/budgets (BudgetUpdateRequest inline)
+            * PATCH /v1/admin/policies/{policy_id} (PolicyUpdateRequest inline)
+          PATCH /v1/admin/api-keys/{key_id} already had it; PATCH webhook
+          endpoints use named schemas that already had it.
+
       v0.1.25.9 (2026-04-12):
         - Error response completeness for SDK codegen and client error handling.
           All changes are additive and backward compatible with v0.1.25.8.
@@ -367,7 +403,29 @@ components:
           type: integer
           format: int64
           minimum: 0
-    
+
+    SignedAmount:
+      type: object
+      required: [unit, amount]
+      additionalProperties: false
+      description: >-
+        Like Amount, but allows negative values. Used for fields that can
+        legitimately go negative under overdraft/debt scenarios — notably
+        BudgetLedger.remaining and funding-response previous/new remaining.
+        Ported verbatim from cycles-protocol-v0.yaml SignedAmount; admin
+        and runtime use the same shape so mixed-plane tooling can share
+        the type.
+      example:
+        unit: USD_MICROCENTS
+        amount: -120000
+      properties:
+        unit:
+          $ref: '#/components/schemas/UnitEnum'
+        amount:
+          type: integer
+          format: int64
+          description: Signed amount in unit-specific minor units. Negative when debt exceeds available budget.
+
     CommitOveragePolicy:
       type: string
       enum: [REJECT, ALLOW_IF_AVAILABLE, ALLOW_WITH_OVERDRAFT]
@@ -612,7 +670,7 @@ components:
           description: >-
             Total budget cap for this scope. Must have same unit as ledger.
         remaining:
-          $ref: '#/components/schemas/Amount'
+          $ref: '#/components/schemas/SignedAmount'
           description: >-
             Available for new reservations (can be negative with overdraft).
             Must have same unit as ledger.
@@ -763,9 +821,9 @@ components:
         new_allocated:
           $ref: '#/components/schemas/Amount'
         previous_remaining:
-          $ref: '#/components/schemas/Amount'
+          $ref: '#/components/schemas/SignedAmount'
         new_remaining:
-          $ref: '#/components/schemas/Amount'
+          $ref: '#/components/schemas/SignedAmount'
         previous_debt:
           $ref: '#/components/schemas/Amount'
         new_debt:
@@ -777,6 +835,14 @@ components:
     BudgetListResponse:
       type: object
       required: [ledgers]
+      additionalProperties: false
+      description: >-
+        Response shape for GET /v1/admin/budgets (list-budgets endpoint).
+        Uses 'ledgers' as the wrapper field because this endpoint lists
+        administrative budget configurations. For the balance-query
+        endpoint GET /v1/balances (runtime-equivalent semantic), use
+        BalanceListResponse, which wraps items in 'balances' to match
+        cycles-protocol-v0 BalanceResponse.
       properties:
         ledgers:
           type: array
@@ -786,7 +852,31 @@ components:
           type: string
         has_more:
           type: boolean
-    
+
+    BalanceListResponse:
+      type: object
+      required: [balances]
+      additionalProperties: false
+      description: >-
+        Response shape for GET /v1/balances (admin-plane balance query).
+        Wrapper field 'balances' matches cycles-protocol-v0.yaml
+        BalanceResponse, preserving consistency between admin-plane and
+        runtime-plane balance queries per the "same semantic => same
+        wire shape" design principle. Item type is BudgetLedger (admin
+        plane exposes richer per-ledger fields than runtime Balance —
+        ledger_id, period_start/end, commit_overage_policy, updated_at,
+        etc.) so admin consumers get full ledger state while keeping
+        the wrapper aligned with runtime.
+      properties:
+        balances:
+          type: array
+          items:
+            $ref: '#/components/schemas/BudgetLedger'
+        next_cursor:
+          type: string
+        has_more:
+          type: boolean
+
     Policy:
       type: object
       description: >-
@@ -2821,6 +2911,7 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: false
               properties:
                 name:
                   type: string
@@ -3045,6 +3136,7 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: false
               properties:
                 overdraft_limit:
                   $ref: '#/components/schemas/Amount'
@@ -3605,6 +3697,7 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: false
               properties:
                 name: {type: string}
                 description: {type: string}
@@ -5469,7 +5562,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BudgetListResponse'
+                $ref: '#/components/schemas/BalanceListResponse'
         '401':
           description: Missing or invalid API key
           content:

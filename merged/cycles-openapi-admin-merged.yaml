@@ -109,6 +109,27 @@ components:
           type: integer
           format: int64
           minimum: 0
+    SignedAmount:
+      type: object
+      required:
+      - unit
+      - amount
+      additionalProperties: false
+      description: Like Amount, but allows negative values. Used for fields that can legitimately go negative
+        under overdraft/debt scenarios — notably BudgetLedger.remaining and funding-response previous/new
+        remaining. Ported verbatim from cycles-protocol-v0.yaml SignedAmount; admin and runtime use the
+        same shape so mixed-plane tooling can share the type.
+      example:
+        unit: USD_MICROCENTS
+        amount: -120000
+      properties:
+        unit:
+          $ref: '#/components/schemas/UnitEnum'
+        amount:
+          type: integer
+          format: int64
+          description: Signed amount in unit-specific minor units. Negative when debt exceeds available
+            budget.
     CommitOveragePolicy:
       type: string
       enum:
@@ -347,7 +368,7 @@ components:
           $ref: '#/components/schemas/Amount'
           description: Total budget cap for this scope. Must have same unit as ledger.
         remaining:
-          $ref: '#/components/schemas/Amount'
+          $ref: '#/components/schemas/SignedAmount'
           description: Available for new reservations (can be negative with overdraft). Must have same
             unit as ledger.
         reserved:
@@ -503,9 +524,9 @@ components:
         new_allocated:
           $ref: '#/components/schemas/Amount'
         previous_remaining:
-          $ref: '#/components/schemas/Amount'
+          $ref: '#/components/schemas/SignedAmount'
         new_remaining:
-          $ref: '#/components/schemas/Amount'
+          $ref: '#/components/schemas/SignedAmount'
         previous_debt:
           $ref: '#/components/schemas/Amount'
         new_debt:
@@ -517,8 +538,33 @@ components:
       type: object
       required:
       - ledgers
+      additionalProperties: false
+      description: Response shape for GET /v1/admin/budgets (list-budgets endpoint). Uses 'ledgers' as
+        the wrapper field because this endpoint lists administrative budget configurations. For the balance-query
+        endpoint GET /v1/balances (runtime-equivalent semantic), use BalanceListResponse, which wraps
+        items in 'balances' to match cycles-protocol-v0 BalanceResponse.
       properties:
         ledgers:
+          type: array
+          items:
+            $ref: '#/components/schemas/BudgetLedger'
+        next_cursor:
+          type: string
+        has_more:
+          type: boolean
+    BalanceListResponse:
+      type: object
+      required:
+      - balances
+      additionalProperties: false
+      description: Response shape for GET /v1/balances (admin-plane balance query). Wrapper field 'balances'
+        matches cycles-protocol-v0.yaml BalanceResponse, preserving consistency between admin-plane and
+        runtime-plane balance queries per the "same semantic => same wire shape" design principle. Item
+        type is BudgetLedger (admin plane exposes richer per-ledger fields than runtime Balance — ledger_id,
+        period_start/end, commit_overage_policy, updated_at, etc.) so admin consumers get full ledger
+        state while keeping the wrapper aligned with runtime.
+      properties:
+        balances:
           type: array
           items:
             $ref: '#/components/schemas/BudgetLedger'
@@ -3819,6 +3865,7 @@ paths:
             schema:
               allOf:
               - type: object
+                additionalProperties: false
                 properties:
                   name:
                     type: string
@@ -4078,6 +4125,7 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: false
               properties:
                 overdraft_limit:
                   $ref: '#/components/schemas/Amount'
@@ -4576,6 +4624,7 @@ paths:
             schema:
               allOf:
               - type: object
+                additionalProperties: false
                 properties:
                   name:
                     type: string
@@ -6343,7 +6392,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BudgetListResponse'
+                $ref: '#/components/schemas/BalanceListResponse'
         '401':
           description: Missing or invalid API key
           content:
