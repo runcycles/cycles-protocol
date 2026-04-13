@@ -74,12 +74,15 @@ components:
       in: header
       name: X-Admin-API-Key
       description: Administrative API key with full system access. Also accepted as an alternative to
-        ApiKeyAuth on an explicit allowlist of endpoints (GET /v1/admin/budgets, GET /v1/admin/budgets/lookup,
-        GET /v1/admin/policies, POST /v1/admin/budgets/fund). When using AdminKeyAuth on list or fund
-        endpoints, the tenant_id query parameter is required for scoping (400 if missing). GET /v1/admin/budgets/lookup
-        does NOT require tenant_id because the budget is uniquely identified by the (scope, unit) pair.
-        The allowlist uses exact method:path matching — no prefix matching, no wildcards — so new endpoints
-        do not accidentally inherit admin-accessible status.
+        ApiKeyAuth on an explicit per-operation allowlist — the authoritative list is the union of operations
+        whose `security:` block declares `AdminKeyAuth` (consult per-operation security blocks rather
+        than this prose, which has historically drifted as the dual-auth surface expanded). When using
+        AdminKeyAuth on list or fund endpoints, a tenant scoping parameter (typically `tenant` or `tenant_id`)
+        is required for scoping (400 if missing) — the per-operation description specifies which. Lookup-style
+        endpoints that uniquely identify a resource by non-tenant key (e.g. GET /v1/admin/budgets/lookup,
+        where the (scope, unit) pair is unique) do NOT require a tenant parameter. Allowlisting is per-operation
+        (exact method:path matching — no prefix matching, no wildcards) so new endpoints do not accidentally
+        inherit admin-accessible status.
     ApiKeyAuth:
       type: apiKey
       in: header
@@ -3026,8 +3029,10 @@ components:
       properties:
         tenant_id:
           type: string
-          description: REQUIRED when using AdminKeyAuth. Ignored when using ApiKeyAuth (uses the authenticated
-            tenant).
+          description: 'REQUIRED. The reset endpoint is AdminKeyAuth-only in v0.1.26, so the admin caller
+            has no implicit tenant — tenant_id must identify the tenant that owns the counter. Servers
+            MUST reject requests missing tenant_id with 400 INVALID_REQUEST (`missing_required_field:
+            tenant_id`) rather than a generic auth error.'
         scope:
           type: string
           description: Canonical scope string of the counter.
@@ -6973,18 +6978,18 @@ paths:
           cycles-protocol-extensions-v0.1.26.yaml (EventDataQuotaCounterReset).
 
         PERMISSION MODEL (NORMATIVE):
-          This endpoint requires ADMIN-ONLY access:
-            - AdminKeyAuth: ALWAYS permitted.
-            - ApiKeyAuth: requires action_quotas:write (reserved — not yet
-              defined in v0.1.26). In v0.1.26, servers MUST require
-              AdminKeyAuth for reset operations. A finer-grained
-              action_quotas:write permission MAY be added in v0.1.27.
+          POST /v1/admin/action-quota-counters/reset is AdminKeyAuth-only
+          in v0.1.26. ApiKeyAuth is NOT accepted on this endpoint.
           Rationale: reset is a high-privilege operation that bypasses
           the quota policy temporarily. Restricting to AdminKeyAuth in
           v0.1.26 prevents accidental exposure via tenant-scoped keys.
+          A finer-grained `action_quotas:write` permission MAY be added in
+          v0.1.27 to allow tenant-scoped reset under ApiKeyAuth; until then
+          there is no such permission and no ApiKeyAuth code path.
 
         TENANCY (NORMATIVE):
-          - AdminKeyAuth: tenant_id in request body REQUIRED.
+          - tenant_id in the request body is REQUIRED (AdminKeyAuth-only
+            endpoint; the admin caller has no implicit tenant).
           - The operation targets exactly ONE counter identified by all
             key fields (tenant_id, scope, action_kind, window, window_key).
           - Bulk reset is NOT supported in v0.1.26. Operators submit one

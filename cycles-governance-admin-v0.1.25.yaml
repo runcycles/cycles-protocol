@@ -6,15 +6,17 @@ info:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Stable governance base (v0.1.25.9). Serves as the base for the Cycles
-    Protocol v0.1.26 spec family. Covers tenant management, authentication,
-    and runtime enforcement. NOTE: This file alone is NOT sufficient for
-    v0.1.26 admin tooling — use the merged artifact or read with the
-    governance extension spec. See cycles-spec-index.yaml.
+    Stable governance base — document revision 0.1.25.14; semantic base
+    frozen at 0.1.25.9. Serves as the base for the Cycles Protocol v0.1.26
+    spec family. Covers tenant management, authentication, and runtime
+    enforcement. NOTE: This file alone is NOT sufficient for v0.1.26 admin
+    tooling — use the merged artifact or read with the governance extension
+    spec. See cycles-spec-index.yaml.
   description: |-
     SPEC FAMILY CONTEXT (v0.1.26):
       This is the STABLE GOVERNANCE BASE for the Cycles Protocol v0.1.26
-      family. It is intentionally frozen at v0.1.25.9 — new capabilities
+      family. Document revision 0.1.25.14; semantic base frozen at 0.1.25.9
+      (see cycles-spec-index.yaml for the versioning model). New capabilities
       (action quotas, risk-class quotas, access control lists, tenant
       observe_mode, action_quotas:read permission) are delivered via
       cycles-governance-extensions-v0.1.26.yaml as additive extensions.
@@ -27,8 +29,9 @@ info:
       For v0.1.26 admin tooling, use one of:
         - Read this file together with cycles-governance-extensions-v0.1.26.yaml
           and apply the extension manually (small tooling footprint).
-        - Build cycles-openapi-full-merged.yaml via the full_merged recipe
-          in cycles-spec-index.yaml (SDK codegen, validators, OpenAPI tooling).
+        - Build merged/cycles-openapi-admin-merged.yaml via the admin_merged
+          recipe in cycles-spec-index.yaml (SDK codegen, validators, OpenAPI
+          tooling).
 
       This companion-spec design keeps the base stable across v0.1.x
       releases while allowing extensions to evolve independently.
@@ -125,7 +128,7 @@ info:
         - Audit-log requirement (NORMATIVE): admin-driven calls to these
           endpoints MUST record actor_type=admin_on_behalf_of in the
           shared audit store so the governance audit-query surface
-          (GET /v1/admin/audit-log) returns them alongside other
+          (GET /v1/admin/audit/logs) returns them alongside other
           admin-on-behalf-of actions. Callers SHOULD populate an optional
           `reason` field where one exists in the request body (PATCH,
           DELETE) with a structured prefix like `[WEBHOOK_PAUSE]` for
@@ -512,15 +515,20 @@ components:
       name: X-Admin-API-Key
       description: >-
         Administrative API key with full system access. Also accepted as an
-        alternative to ApiKeyAuth on an explicit allowlist of endpoints
-        (GET /v1/admin/budgets, GET /v1/admin/budgets/lookup, GET /v1/admin/policies,
-        POST /v1/admin/budgets/fund).
-        When using AdminKeyAuth on list or fund endpoints, the tenant_id query
-        parameter is required for scoping (400 if missing).
-        GET /v1/admin/budgets/lookup does NOT require tenant_id because
-        the budget is uniquely identified by the (scope, unit) pair. The allowlist
-        uses exact method:path matching — no prefix matching, no wildcards — so
-        new endpoints do not accidentally inherit admin-accessible status.
+        alternative to ApiKeyAuth on an explicit per-operation allowlist —
+        the authoritative list is the union of operations whose `security:`
+        block declares `AdminKeyAuth` (consult per-operation security blocks
+        rather than this prose, which has historically drifted as the
+        dual-auth surface expanded).
+        When using AdminKeyAuth on list or fund endpoints, a tenant scoping
+        parameter (typically `tenant` or `tenant_id`) is required for
+        scoping (400 if missing) — the per-operation description specifies
+        which. Lookup-style endpoints that uniquely identify a resource by
+        non-tenant key (e.g. GET /v1/admin/budgets/lookup, where the
+        (scope, unit) pair is unique) do NOT require a tenant parameter.
+        Allowlisting is per-operation (exact method:path matching — no
+        prefix matching, no wildcards) so new endpoints do not accidentally
+        inherit admin-accessible status.
 
     ApiKeyAuth:
       type: apiKey
