@@ -2130,9 +2130,22 @@ paths:
           - Filtering on Subject.dimensions is out of scope for v0 unless explicitly implemented by the server.
 
         TENANCY (NORMATIVE):
-          - The server MUST scope results to the effective tenant derived from auth.
-          - If the tenant query parameter is provided, it is validation-only and MUST match the effective tenant; otherwise the server MUST return 403 FORBIDDEN.
-          - If tenant is omitted, the effective tenant is used.
+          - Under ApiKeyAuth: the server MUST scope results to the effective
+            tenant derived from auth. If the tenant query parameter is
+            provided, it is validation-only and MUST match the effective
+            tenant; otherwise the server MUST return 403 FORBIDDEN. If
+            tenant is omitted, the effective tenant is used.
+          - Under AdminKeyAuth (added 2026-04-13): the admin caller has
+            no effective tenant, so the tenant query parameter is REQUIRED
+            and used as a FILTER (not validation). Omitting it MUST return
+            400 INVALID_REQUEST with message "tenant query parameter is
+            required when using admin key authentication". This matches
+            the existing dual-auth pattern on listBudgets / listPolicies
+            in the governance-admin spec — same single param, semantics
+            keyed on auth type.
+      security:
+      - ApiKeyAuth: []
+      - AdminKeyAuth: []
       parameters:
       - name: idempotency_key
         in: query
@@ -2206,7 +2219,15 @@ paths:
       summary: Get reservation details (optional, for debugging)
       description: |-
         Retrieve current status and details of a reservation by ID. Useful for debugging and monitoring long-running operations.
-        TENANCY (NORMATIVE):  - If the reservation exists but is owned by a different effective tenant, the server MUST return 403 FORBIDDEN.
+        TENANCY (NORMATIVE):
+          - Under ApiKeyAuth: if the reservation exists but is owned by a
+            different effective tenant, the server MUST return 403 FORBIDDEN.
+          - Under AdminKeyAuth (added 2026-04-13): admin operators can
+            read any reservation regardless of owning tenant; reservation_id
+            already pins the owner so no extra parameter is needed.
+      security:
+      - ApiKeyAuth: []
+      - AdminKeyAuth: []
       parameters:
       - $ref: '#/components/parameters/ReservationId'
       responses:
@@ -2287,7 +2308,28 @@ paths:
       description: |-
         Releases reserved amount back to remaining budget.
         IDEMPOTENCY (NORMATIVE):  - On replay with the same idempotency_key, the server MUST return the original successful response payload.
-        TENANCY (NORMATIVE):  - If the reservation exists but is owned by a different effective tenant, the server MUST return 403 FORBIDDEN.
+        TENANCY (NORMATIVE):
+          - Under ApiKeyAuth: if the reservation exists but is owned by
+            a different effective tenant, the server MUST return 403 FORBIDDEN.
+          - Under AdminKeyAuth (added 2026-04-13): admin operators can
+            release any reservation regardless of owning tenant — the
+            ops use case is "force-expire a hung reservation" during
+            incident response. reservation_id pins the owner so no
+            extra parameter is needed.
+
+        AUDIT (NORMATIVE, AdminKeyAuth path):
+          - The audit-log entry for an admin-driven release MUST record
+            actor_type=admin_on_behalf_of (existing audit field, value
+            already used on createBudget / createPolicy / updatePolicy
+            in the governance-admin spec). This lets security review
+            distinguish admin-driven releases from tenant self-service
+            without joining to the keys table.
+          - Callers SHOULD populate the optional `reason` body field
+            with a structured tag (e.g. "[INCIDENT_FORCE_RELEASE]")
+            for grep-ability in the audit log.
+      security:
+      - ApiKeyAuth: []
+      - AdminKeyAuth: []
       parameters:
       - $ref: '#/components/parameters/ReservationId'
       - $ref: '#/components/parameters/IdempotencyKeyHeader'
