@@ -6111,13 +6111,33 @@ paths:
       tags:
       - Webhooks
       operationId: listTenantWebhooks
-      summary: List webhooks for the authenticated tenant
+      summary: List webhooks for the authenticated tenant (or a specified tenant under admin auth)
       description: |-
-        Returns only webhooks belonging to the authenticated tenant.
-        PERMISSIONS: - Requires webhooks:read permission on the API key.
+        Returns webhook subscriptions scoped by the authenticated caller.
+        TENANCY (NORMATIVE):
+          - Under ApiKeyAuth: results are scoped to the effective tenant
+            derived from auth. The `tenant` query parameter MUST NOT be
+            set (or, if accepted, is validation-only and MUST match the
+            effective tenant).
+          - Under AdminKeyAuth (v0.1.25.14): admin has no effective
+            tenant. The `tenant` query parameter is REQUIRED as a FILTER.
+            Omitting it MUST return 400 INVALID_REQUEST with message
+            "tenant query parameter is required when using admin key
+            authentication". Same single-param dual-semantic pattern as
+            listBudgets / listPolicies / listReservations.
+
+        PERMISSIONS: - ApiKeyAuth: requires webhooks:read permission on the API key. - AdminKeyAuth: no permission check beyond admin key validity.
       security:
       - ApiKeyAuth: []
+      - AdminKeyAuth: []
       parameters:
+      - name: tenant
+        in: query
+        required: false
+        description: 'Under AdminKeyAuth: REQUIRED — specifies which tenant''s webhooks to list. Under
+          ApiKeyAuth: MUST NOT be set (the authenticated key''s tenant is used).'
+        schema:
+          type: string
       - name: status
         in: query
         schema:
@@ -6175,10 +6195,20 @@ paths:
       operationId: getTenantWebhook
       summary: Get a tenant's webhook subscription
       description: |-
-        Returns webhook details. Returns 404 if subscription belongs to a different tenant.
-        PERMISSIONS: - Requires webhooks:read permission on the API key.
+        Returns webhook details.
+        TENANCY:
+          - Under ApiKeyAuth: returns 404 if the subscription belongs to
+            a different tenant (cross-tenant reads look like not-found,
+            not forbidden).
+          - Under AdminKeyAuth (v0.1.25.14): the owning tenant is
+            resolved from the subscription record; admin can read any
+            tenant's subscription. 404 only when no subscription exists
+            with the given id.
+
+        PERMISSIONS: - ApiKeyAuth: requires webhooks:read permission on the API key. - AdminKeyAuth: no permission check beyond admin key validity.
       security:
       - ApiKeyAuth: []
+      - AdminKeyAuth: []
       parameters:
       - name: subscription_id
         in: path
@@ -6229,9 +6259,24 @@ paths:
       summary: Update a tenant's webhook subscription
       description: |-
         Partial update — only provided fields are modified. Restricted to tenant-accessible event types.
-        PERMISSIONS: - Requires webhooks:write permission on the API key.
+        TENANCY:
+          - Under ApiKeyAuth: 404 on cross-tenant subscription.
+          - Under AdminKeyAuth (v0.1.25.14): owning tenant resolved from
+            the subscription record. Primary ops use case is pausing a
+            flapping webhook (status=PAUSED).
+
+        AUDIT (NORMATIVE under AdminKeyAuth):
+          - Admin-driven updates MUST record actor_type=admin_on_behalf_of
+            in the shared audit store so the governance audit-query
+            surface lists them alongside other admin-on-behalf-of
+            actions. Callers SHOULD include a structured reason in the
+            request body's `metadata` (e.g., `{"reason": "[WEBHOOK_PAUSE]
+            incident INC-1234"}`) for grep-ability.
+
+        PERMISSIONS: - ApiKeyAuth: requires webhooks:write permission on the API key. - AdminKeyAuth: no permission check beyond admin key validity.
       security:
       - ApiKeyAuth: []
+      - AdminKeyAuth: []
       parameters:
       - name: subscription_id
         in: path
@@ -6288,9 +6333,23 @@ paths:
       summary: Delete a tenant's webhook subscription
       description: |-
         Permanently removes the subscription. Pending deliveries for this subscription will fail.
-        PERMISSIONS: - Requires webhooks:write permission on the API key.
+        TENANCY:
+          - Under ApiKeyAuth: 404 on cross-tenant subscription.
+          - Under AdminKeyAuth (v0.1.25.14): owning tenant resolved from
+            the subscription record. Primary ops use case is force-removing
+            a webhook that a tenant refuses to fix and is impacting
+            shared infrastructure.
+
+        AUDIT (NORMATIVE under AdminKeyAuth):
+          - Admin-driven deletes MUST record actor_type=admin_on_behalf_of
+            in the shared audit store. Callers SHOULD populate a
+            structured reason (e.g., `[WEBHOOK_FORCE_DELETE] abuse-report-42`)
+            in the audit entry metadata for traceability.
+
+        PERMISSIONS: - ApiKeyAuth: requires webhooks:write permission on the API key. - AdminKeyAuth: no permission check beyond admin key validity.
       security:
       - ApiKeyAuth: []
+      - AdminKeyAuth: []
       parameters:
       - name: subscription_id
         in: path
@@ -6338,9 +6397,18 @@ paths:
       summary: Send a test event to a tenant's webhook
       description: |-
         Sends a synthetic system.webhook_test event. Does not count toward consecutive failures.
-        PERMISSIONS: - Requires webhooks:write permission on the API key.
+        TENANCY:
+          - Under ApiKeyAuth: 404 on cross-tenant subscription.
+          - Under AdminKeyAuth (v0.1.25.14): owning tenant resolved from
+            the subscription record. Primary ops use case is verifying
+            that a paused/failing webhook is reachable after the tenant
+            fixes their endpoint, before flipping status back to ACTIVE.
+
+        AUDIT: test events are not required to produce an audit entry under AdminKeyAuth (diagnostic, idempotent, non-state-mutating on the subscription itself); a delivery record is created as usual. Servers MAY still log for operational visibility.
+        PERMISSIONS: - ApiKeyAuth: requires webhooks:write permission on the API key. - AdminKeyAuth: no permission check beyond admin key validity.
       security:
       - ApiKeyAuth: []
+      - AdminKeyAuth: []
       parameters:
       - name: subscription_id
         in: path
@@ -6392,9 +6460,17 @@ paths:
       summary: List delivery attempts for a tenant's webhook
       description: |-
         Returns delivery history with status, response codes, and error details. Supports filtering by status and date range.
-        PERMISSIONS: - Requires webhooks:read permission on the API key.
+        TENANCY:
+          - Under ApiKeyAuth: 404 on cross-tenant subscription.
+          - Under AdminKeyAuth (v0.1.25.14): owning tenant resolved from
+            the subscription record. Primary ops use case is diagnosing
+            which specific delivery failures tripped the auto-disable
+            threshold (drill down from the PATCH pause flow).
+
+        PERMISSIONS: - ApiKeyAuth: requires webhooks:read permission on the API key. - AdminKeyAuth: no permission check beyond admin key validity.
       security:
       - ApiKeyAuth: []
+      - AdminKeyAuth: []
       parameters:
       - name: subscription_id
         in: path
