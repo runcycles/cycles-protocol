@@ -206,6 +206,22 @@ info:
         * Custom event types MUST use a "custom." prefix (e.g., "custom.billing.invoice_sent").
 
     CHANGELOG:
+      v0.1.25 (revision 2026-04-13b — clarify admin-release audit
+              discoverability):
+        - Adds a NORMATIVE clause to releaseReservation's AUDIT block
+          requiring that the audit-log entry be discoverable via the
+          governance plane's GET /v1/admin/audit/logs endpoint. The
+          earlier wording only required the entry to exist with the
+          right actor_type tag — a conformant server could have
+          written it to an isolated store that the admin dashboard
+          can't read from, satisfying the letter of the spec while
+          breaking the operational intent.
+        - Implementation detail (e.g. whether both planes share a
+          store or whether cross-plane forwarding is used) is
+          deliberately not specified — only the read-surface
+          invariant is NORMATIVE.
+        - No schema or endpoint changes.
+
       v0.1.25 (revision 2026-04-13 — admin-on-behalf-of dual-auth on reservations):
         - Admin operators can now read and force-release reservations
           via the existing tenant-scoped endpoints, mirroring the
@@ -1678,6 +1694,15 @@ paths:
             in the governance-admin spec). This lets security review
             distinguish admin-driven releases from tenant self-service
             without joining to the keys table.
+          - The entry MUST be discoverable via the governance plane's
+            audit-query surface (GET /v1/admin/audit/logs in the
+            governance-admin spec). Writing the entry to a store the
+            governance audit-query endpoint cannot read from does not
+            satisfy this requirement — the operational intent is that
+            admin-driven release actions surface in the same admin-
+            facing audit view that shows governance-plane audit
+            entries. How servers achieve this is an implementation
+            concern and out of scope for the spec.
           - Callers SHOULD populate the optional `reason` body field
             with a structured tag (e.g. "[INCIDENT_FORCE_RELEASE]")
             for grep-ability in the audit log.

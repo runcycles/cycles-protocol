@@ -2324,6 +2324,15 @@ paths:
             in the governance-admin spec). This lets security review
             distinguish admin-driven releases from tenant self-service
             without joining to the keys table.
+          - The entry MUST be discoverable via the governance plane's
+            audit-query surface (GET /v1/admin/audit/logs in the
+            governance-admin spec). Writing the entry to a store the
+            governance audit-query endpoint cannot read from does not
+            satisfy this requirement — the operational intent is that
+            admin-driven release actions surface in the same admin-
+            facing audit view that shows governance-plane audit
+            entries. How servers achieve this is an implementation
+            concern and out of scope for the spec.
           - Callers SHOULD populate the optional `reason` body field
             with a structured tag (e.g. "[INCIDENT_FORCE_RELEASE]")
             for grep-ability in the audit log.
