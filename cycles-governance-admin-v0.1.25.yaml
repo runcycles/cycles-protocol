@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.11
+  version: 0.1.25.12
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -72,6 +72,34 @@ info:
       - Federated: Multiple runtime enforcement instances, shared admin plane
 
     CHANGELOG:
+      v0.1.25.12 (2026-04-12):
+        - Targeted error-response documentation for admin operations
+          that emit 404 / 409 but didn't document them. Follows up on
+          v0.1.25.11's 400 sweep. Unblocks strict response-status
+          validation in the admin server — it had to keep
+          'validation.response.status.unknown' as IGNORE in the
+          contract validator because these specific statuses weren't
+          documented.
+
+        - Added '404 Not Found' on PATCH /v1/admin/tenants/{tenant_id}.
+          The server correctly returns 404 when the target tenant
+          doesn't exist; the spec was silent. GET and DELETE on this
+          path already had 404; only PATCH was missing it.
+
+        - Added '409 Conflict' on POST /v1/admin/policies. Server
+          returns 409 DUPLICATE_RESOURCE when a policy with the same
+          name already exists for a tenant.
+
+        - Added '409 Conflict' on DELETE /v1/admin/api-keys/{key_id}.
+          Server returns 409 when the key is already revoked
+          (ALREADY_REVOKED). The operation is idempotent-friendly but
+          the conflict path is real and now documented.
+
+        - No semantic changes. Purely additive: any previously-valid
+          response is still valid. Clients that strictly-validate
+          responses will now accept documented-and-conformant 404/409
+          ErrorResponse bodies on these paths.
+
       v0.1.25.11 (2026-04-12):
         - Completeness fix for error-response documentation. Adds '400'
           (Bad request) response entry to all 28 operations that lacked
@@ -401,12 +429,11 @@ components:
     # ========================================================================
     # SHARED SCHEMAS (aligned with Cycles Protocol v0.1.24)
     # ========================================================================
-    
     UnitEnum:
       type: string
       enum: [USD_MICROCENTS, TOKENS, CREDITS, RISK_POINTS]
       description: Standard budget units from Cycles Protocol v0.1.24
-    
+
     Amount:
       type: object
       required: [unit, amount]
@@ -449,17 +476,17 @@ components:
       enum: [REJECT, ALLOW_IF_AVAILABLE, ALLOW_WITH_OVERDRAFT]
       description: >-
         How commits handle actual > reserved (from Cycles Protocol v0.1.24).
-        
+
         REJECT: Fail if actual > reserved
         ALLOW_IF_AVAILABLE: Charge delta from remaining budget if available
         ALLOW_WITH_OVERDRAFT: Create debt up to overdraft_limit if budget exhausted
-        
+
         This policy can be set at:
         - Tenant level (default for all scopes)
         - Budget ledger level (override for specific scope)
         - Policy level (pattern-based override)
         - Reservation level (per-request override)
-    
+
     Caps:
       type: object
       additionalProperties: false
@@ -485,11 +512,10 @@ components:
         cooldown_ms:
           type: integer
           minimum: 0
-    
+
     # ========================================================================
     # PILLAR 1: TENANT & BUDGET MANAGEMENT SCHEMAS
     # ========================================================================
-    
     Tenant:
       type: object
       description: >-
@@ -587,7 +613,7 @@ components:
         closed_at:
           type: string
           format: date-time
-    
+
     TenantCreateRequest:
       type: object
       required: [tenant_id, name]
@@ -640,7 +666,7 @@ components:
           type: string
         has_more:
           type: boolean
-    
+
     BudgetLedger:
       type: object
       description: >-
@@ -745,7 +771,7 @@ components:
         updated_at:
           type: string
           format: date-time
-    
+
     BudgetCreateRequest:
       type: object
       required: [scope, unit, allocated]
@@ -784,7 +810,7 @@ components:
         metadata:
           type: object
           additionalProperties: true
-    
+
     BudgetStatusTransitionRequest:
       type: object
       additionalProperties: false
@@ -827,7 +853,7 @@ components:
         metadata:
           type: object
           additionalProperties: true
-    
+
     BudgetFundingResponse:
       type: object
       required: [operation, previous_allocated, new_allocated, previous_remaining, new_remaining]
@@ -849,7 +875,7 @@ components:
         timestamp:
           type: string
           format: date-time
-    
+
     BudgetListResponse:
       type: object
       required: [ledgers]
@@ -985,7 +1011,7 @@ components:
         updated_at:
           type: string
           format: date-time
-    
+
     PolicyCreateRequest:
       type: object
       required: [name, scope_pattern]
@@ -1029,7 +1055,7 @@ components:
         effective_until:
           type: string
           format: date-time
-    
+
     PolicyListResponse:
       type: object
       required: [policies]
@@ -1213,7 +1239,7 @@ components:
         metadata:
           type: object
           additionalProperties: true
-    
+
     ApiKeyCreateRequest:
       type: object
       required: [tenant_id, name]
@@ -1248,7 +1274,7 @@ components:
           description: Optional expiry (recommended for security)
         metadata:
           type: object
-    
+
     ApiKeyCreateResponse:
       type: object
       required: [key_id, key_secret, key_prefix, tenant_id, created_at, expires_at]
@@ -1274,7 +1300,7 @@ components:
         expires_at:
           type: string
           format: date-time
-    
+
     ApiKeyListResponse:
       type: object
       required: [keys]
@@ -1287,7 +1313,7 @@ components:
           type: string
         has_more:
           type: boolean
-    
+
     ApiKeyValidationRequest:
       type: object
       required: [key_secret]
@@ -1295,7 +1321,7 @@ components:
         key_secret:
           type: string
           description: The full API key to validate
-    
+
     ApiKeyValidationResponse:
       type: object
       required: [valid, tenant_id]
@@ -1320,7 +1346,7 @@ components:
         reason:
           type: string
           description: Present if valid=false (e.g., "REVOKED", "EXPIRED")
-    
+
     AuditLogEntry:
       type: object
       description: >-
@@ -1375,7 +1401,7 @@ components:
         metadata:
           type: object
           additionalProperties: true
-    
+
     AuditLogListResponse:
       type: object
       required: [logs, has_more]
@@ -1388,19 +1414,17 @@ components:
           type: string
         has_more:
           type: boolean
-    
+
     # ========================================================================
     # PILLAR 3: RUNTIME ENFORCEMENT SCHEMAS (from Cycles v0.1.24)
     # ========================================================================
     # Note: These schemas are imported from Cycles Protocol v0.1.24
     # They are referenced here for completeness but defined in cycles-protocol-v0.yaml
-    
     # Amount, Subject, Action, Caps, Balance, StandardMetrics
     # ReservationCreateRequest, CommitRequest, ReleaseRequest, ReservationExtendRequest
     # ReservationCreateResponse, CommitResponse, ReleaseResponse, ReservationExtendResponse
     # ReservationSummary, ReservationListResponse
     # ErrorCode, ErrorResponse
-    
     ErrorCode:
       type: string
       enum:
@@ -1434,7 +1458,7 @@ components:
         - WEBHOOK_URL_INVALID
         - EVENT_NOT_FOUND
         - REPLAY_IN_PROGRESS
-    
+
     ErrorResponse:
       type: object
       required: [error, message, request_id]
@@ -2525,10 +2549,10 @@ components:
           required: [total, active, suspended, closed]
           additionalProperties: false
           properties:
-            total: { type: integer }
-            active: { type: integer }
-            suspended: { type: integer }
-            closed: { type: integer }
+            total: {type: integer}
+            active: {type: integer}
+            suspended: {type: integer}
+            closed: {type: integer}
             in_observe_mode:
               type: integer
               description: >-
@@ -2541,15 +2565,15 @@ components:
           required: [total, active, frozen, closed, over_limit, with_debt, by_unit]
           additionalProperties: false
           properties:
-            total: { type: integer }
-            active: { type: integer }
-            frozen: { type: integer }
-            closed: { type: integer }
-            over_limit: { type: integer }
-            with_debt: { type: integer }
+            total: {type: integer}
+            active: {type: integer}
+            frozen: {type: integer}
+            closed: {type: integer}
+            over_limit: {type: integer}
+            with_debt: {type: integer}
             by_unit:
               type: object
-              additionalProperties: { type: integer }
+              additionalProperties: {type: integer}
               description: Budget count per UnitEnum value
         over_limit_scopes:
           type: array
@@ -2560,11 +2584,11 @@ components:
             required: [scope, unit, allocated, remaining, debt]
             additionalProperties: false
             properties:
-              scope: { type: string }
-              unit: { $ref: '#/components/schemas/UnitEnum' }
-              allocated: { type: integer }
-              remaining: { type: integer }
-              debt: { type: integer }
+              scope: {type: string}
+              unit: {$ref: '#/components/schemas/UnitEnum'}
+              allocated: {type: integer}
+              remaining: {type: integer}
+              debt: {type: integer}
         debt_scopes:
           type: array
           maxItems: 10
@@ -2574,19 +2598,19 @@ components:
             required: [scope, unit, debt, overdraft_limit]
             additionalProperties: false
             properties:
-              scope: { type: string }
-              unit: { $ref: '#/components/schemas/UnitEnum' }
-              debt: { type: integer }
-              overdraft_limit: { type: integer }
+              scope: {type: string}
+              unit: {$ref: '#/components/schemas/UnitEnum'}
+              debt: {type: integer}
+              overdraft_limit: {type: integer}
         webhook_counts:
           type: object
           required: [total, active, disabled, with_failures]
           additionalProperties: false
           properties:
-            total: { type: integer }
-            active: { type: integer }
-            disabled: { type: integer }
-            with_failures: { type: integer }
+            total: {type: integer}
+            active: {type: integer}
+            disabled: {type: integer}
+            with_failures: {type: integer}
         failing_webhooks:
           type: array
           maxItems: 10
@@ -2596,10 +2620,10 @@ components:
             required: [subscription_id, url, consecutive_failures]
             additionalProperties: false
             properties:
-              subscription_id: { type: string }
-              url: { type: string }
-              consecutive_failures: { type: integer }
-              last_failure_at: { type: string, format: date-time }
+              subscription_id: {type: string}
+              url: {type: string}
+              consecutive_failures: {type: integer}
+              last_failure_at: {type: string, format: date-time}
         event_counts:
           type: object
           required: [total_recent, by_category]
@@ -2610,7 +2634,7 @@ components:
               description: Total events within event_window_seconds
             by_category:
               type: object
-              additionalProperties: { type: integer }
+              additionalProperties: {type: integer}
               description: Event count per EventCategory within the window
         recent_denials:
           type: array
@@ -2658,11 +2682,11 @@ components:
                 additionalProperties: false
                 required: [scope, action_kind, used, limit]
                 properties:
-                  scope: { type: string }
-                  action_kind: { type: string }
-                  window: { type: string }
-                  used: { type: integer, format: int64 }
-                  limit: { type: integer, format: int64 }
+                  scope: {type: string}
+                  action_kind: {type: string}
+                  window: {type: string}
+                  used: {type: integer, format: int64}
+                  limit: {type: integer, format: int64}
                   utilization_pct:
                     type: number
                     format: double
@@ -2698,7 +2722,7 @@ components:
           description: Type of credential used (v1 admin only; future api_key)
         permissions:
           type: array
-          items: { type: string }
+          items: {type: string}
           description: >-
             Raw effective permission strings. For admin keys this is ["*"]
             (unconstrained). For future API key support, this will contain
@@ -2709,14 +2733,14 @@ components:
           description: Derived boolean capabilities for dashboard UI. All fields are always present (explicit false, never omitted).
           required: [view_overview, view_budgets, view_events, view_webhooks, view_audit, view_tenants, view_api_keys, view_policies]
           properties:
-            view_overview: { type: boolean }
-            view_budgets: { type: boolean }
-            view_events: { type: boolean }
-            view_webhooks: { type: boolean }
-            view_audit: { type: boolean }
-            view_tenants: { type: boolean }
-            view_api_keys: { type: boolean }
-            view_policies: { type: boolean }
+            view_overview: {type: boolean}
+            view_budgets: {type: boolean}
+            view_events: {type: boolean}
+            view_webhooks: {type: boolean}
+            view_audit: {type: boolean}
+            view_tenants: {type: boolean}
+            view_api_keys: {type: boolean}
+            view_policies: {type: boolean}
 
 # ============================================================================
 # API ENDPOINTS
@@ -2726,7 +2750,6 @@ paths:
   # ==========================================================================
   # PILLAR 1: TENANT & BUDGET MANAGEMENT
   # ==========================================================================
-  
   /v1/admin/tenants:
     post:
       tags: [Tenants]
@@ -2735,10 +2758,10 @@ paths:
       description: >-
         Registers a new tenant in the system. This is typically the first
         operation in onboarding a new organization.
-        
+
         AUTHORIZATION:
         - Requires admin key (X-Admin-API-Key)
-        
+
         IDEMPOTENCY:
         - Safe to retry with same tenant_id. Returns existing tenant if already created.
       security:
@@ -2792,7 +2815,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-    
     get:
       tags: [Tenants]
       operationId: listTenants
@@ -2845,7 +2867,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TenantListResponse'
-  
         '401':
           description: Missing or invalid admin API key
           content:
@@ -2915,14 +2936,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-    
     patch:
       tags: [Tenants]
       operationId: updateTenant
       summary: Update tenant properties
       description: >-
         Modify tenant metadata, status, or hierarchy.
-        
+
         STATUS TRANSITIONS:
         - ACTIVE → SUSPENDED: Blocks new reservations, existing active reservations can still commit/release
         - SUSPENDED → ACTIVE: Resume normal operations
@@ -2979,7 +2999,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Tenant'
-  
         '401':
           description: Missing or invalid admin API key
           content:
@@ -2988,6 +3007,12 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Tenant not found
           content:
             application/json:
               schema:
@@ -3006,16 +3031,16 @@ paths:
       description: >-
         Initializes a new budget ledger for a (scope, unit) pair.
         This must be done before any reservations can be made against the scope.
-        
+
         AUTHORIZATION:
         - Tenant can create budgets for their own scopes only
         - Uses ApiKeyAuth (X-Cycles-API-Key) - tenant manages own budgets
-        
+
         SCOPE VALIDATION:
         - Scope must match pattern: tenant:* or tenant:*/workspace:* etc.
         - Tenant must exist and be ACTIVE
         - Cannot create duplicate (scope, unit) ledgers
-        
+
         INITIAL STATE:
         - allocated = requested amount
         - remaining = allocated
@@ -3503,7 +3528,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-  
   /v1/admin/budgets/lookup:
     get:
       tags: [Budgets]
@@ -3580,20 +3604,20 @@ paths:
       description: >-
         Defines caps (soft-landing constraints) and rate limits for scopes.
         Policies are evaluated during reservation requests.
-        
+
         AUTHORIZATION:
         - Tenant can create policies for their own scopes only
-        
+
         SCOPE PATTERNS:
         - "tenant:acme-corp" (exact match)
         - "tenant:acme-corp/*" (all descendants)
         - "agent:*" (all agents system-wide)
         - "*/agent:summarizer" (agent across all tenants)
-        
+
         PRIORITY:
         - Higher priority policies override lower priority
         - If multiple policies match, highest priority wins
-        
+
         EFFECTIVE DATES:
         - Optional time-bounded policies
         - Useful for temporary restrictions or trials
@@ -3626,6 +3650,12 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: API key lacks policies:write permission or scope_filter denies access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Policy with same name already exists (DUPLICATE_RESOURCE)
           content:
             application/json:
               schema:
@@ -3804,7 +3834,6 @@ paths:
   # ==========================================================================
   # PILLAR 2: AUTHENTICATION & AUTHORIZATION
   # ==========================================================================
-  
   /v1/admin/api-keys:
     post:
       tags: [API Keys]
@@ -3813,12 +3842,12 @@ paths:
       description: >-
         Provisions a new API key bound to a tenant. This is the only time
         the full key secret is returned. Store it securely.
-        
+
         KEY FORMAT:
         - Prefix: cyc_live_{random} or cyc_test_{random}
         - Random part: 32 characters, cryptographically random
         - Stored as: bcrypt hash of full key
-        
+
         PERMISSIONS:
         - Default for tenant keys: [reservations:create, reservations:commit,
           reservations:release, reservations:extend, reservations:list,
@@ -3834,7 +3863,7 @@ paths:
           compatibility but SHOULD NOT be assigned to new tenant keys.
           Use the granular tenant permissions instead.
         - Can be restricted to specific scopes via scope_filter
-        
+
         EXPIRY:
         - Recommended: 90 days for security
         - Can be set indefinitely but not recommended
@@ -3878,7 +3907,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-    
     get:
       tags: [API Keys]
       operationId: listApiKeys
@@ -3921,7 +3949,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiKeyListResponse'
-  
         '401':
           description: Missing or invalid admin API key
           content:
@@ -4047,7 +4074,7 @@ paths:
         Immediately revokes a key. The key will fail validation from this
         point forward. Active reservations using this key can still be
         committed/released, but no new operations are permitted.
-        
+
         REVOCATION IS PERMANENT:
         - Cannot be undone
         - Revoked keys remain in database for audit trail
@@ -4096,13 +4123,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: API key already revoked (ALREADY_REVOKED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Internal server error
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-  
   /v1/auth/validate:
     post:
       tags: [Authentication]
@@ -4111,18 +4143,18 @@ paths:
       description: >-
         Internal endpoint used by runtime enforcement layer to validate
         keys and derive effective tenant.
-        
+
         VALIDATION CHECKS:
         1. Key exists in database
         2. Key hash matches
         3. Status is ACTIVE (not REVOKED or EXPIRED)
         4. Current time < expires_at
         5. Tenant is ACTIVE (not SUSPENDED or CLOSED)
-        
+
         RESPONSE:
         - If valid: returns tenant_id, permissions, scope_filter
         - If invalid: returns valid=false with reason
-        
+
         CACHING:
         - Results should be cached with short TTL (60s)
         - Invalidate cache on key revocation
@@ -4227,11 +4259,11 @@ paths:
       description: >-
         Returns audit trail of all authenticated operations.
         Essential for compliance (SOC2, GDPR, etc.).
-        
+
         RETENTION:
         - Recommended: 90 days hot, 1 year cold storage
         - Critical for security incident investigation
-        
+
         FILTERING:
         - By tenant, key, time range, operation, status
         - Supports complex queries for forensics
