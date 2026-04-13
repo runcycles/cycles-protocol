@@ -6,7 +6,8 @@ info:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Additive extensions to cycles-governance-admin-v0.1.25.yaml (v0.1.25.9).
+    Additive extensions to cycles-governance-admin-v0.1.25.yaml
+    (semantic_base 0.1.25.9).
     Adds action_quotas, risk_class_quotas, allowed_action_kinds, and
     denied_action_kinds to Policy; observe_mode to Tenant; completes the
     PATCH bodies for both; and adds action_quotas:read to the Permission
@@ -15,13 +16,14 @@ info:
     Governance/admin plane only — no runtime enforcement or registry content.
   description: |-
     EXTENSION CONTRACT (NORMATIVE):
-      Strict superset of cycles-governance-admin-v0.1.25.yaml v0.1.25.9.
-      No existing schema, endpoint, field meaning, or error code changed.
-      All new fields are OPTIONAL with no defaults that change existing behavior.
-      Clients built against v0.1.25.9 work unchanged.
+      Strict superset of cycles-governance-admin-v0.1.25.yaml
+      (semantic_base 0.1.25.9). No existing schema, endpoint, field meaning,
+      or error code changed. All new fields are OPTIONAL with no defaults
+      that change existing behavior. Clients built against semantic_base
+      0.1.25.9 work unchanged.
 
     BASE SPEC:
-      cycles-governance-admin-v0.1.25.yaml v0.1.25.9
+      cycles-governance-admin-v0.1.25.yaml (semantic_base 0.1.25.9)
 
     COMPANION SPECS:
       cycles-action-kinds-v0.1.26.yaml — ActionQuota, RiskClassQuota (referenced by PolicyExtension)

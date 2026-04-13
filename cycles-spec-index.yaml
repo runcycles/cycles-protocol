@@ -9,6 +9,16 @@
 # This file is NOT an OpenAPI document. It is a composition manifest.
 # Format is intentionally simple YAML — parseable by CI scripts, readable
 # by humans, and not requiring an OpenAPI parser.
+#
+# VERSIONING MODEL:
+#   - `version`        : editorial revision of a document. Bump on any change
+#                        (typo, prose clarification, additive field, etc.).
+#   - `semantic_base`  : frozen wire-contract identity. Documents sharing a
+#                        semantic_base are guaranteed wire-compatible. Bump
+#                        only on breaking changes to the wire contract.
+#   `semantic_base` is OPTIONAL and only declared on documents whose editorial
+#   revision has drifted past their frozen wire baseline (e.g. governance_base
+#   editorial 0.1.25.14 on semantic_base 0.1.25.9).
 # ===========================================================================
 
 spec_family:
@@ -28,7 +38,8 @@ spec_family:
     The merge_recipes section below defines how to produce those artifacts.
   current_versions:
     base_runtime: "0.1.25"
-    base_governance: "0.1.25.9"
+    base_governance: "0.1.25.14"          # editorial revision
+    base_governance_semantic_base: "0.1.25.9"  # frozen wire baseline
     extension_runtime: "0.1.26"
     extension_governance: "0.1.26"
     action_kinds: "0.1.26"
@@ -66,7 +77,8 @@ documents:
 
   - id: governance_base
     file: cycles-governance-admin-v0.1.25.yaml
-    version: "0.1.25.9"
+    version: "0.1.25.14"          # editorial revision (matches info.version)
+    semantic_base: "0.1.25.9"     # frozen wire baseline
     role: base
     title: Complete Budget Governance Admin API
     plane: governance-admin
@@ -100,8 +112,7 @@ documents:
       - threshold_pct on ActionQuota and RiskClassQuota (quota threshold warnings)
       - Registry endpoints: GET /v1/action-kinds, GET /v1/action-kinds/{kind}
       - Counter debug endpoint: GET /v1/admin/action-quota-counters
-      - Counter reset endpoint: POST /v1/admin/action-quota-counters/reset
-        (incident response; AdminKeyAuth-only in v0.1.26)
+      - "Counter reset endpoint: POST /v1/admin/action-quota-counters/reset (incident response; AdminKeyAuth-only in v0.1.26)"
     integration_points:
       - runtime_base: >-
           Quota counters are incremented atomically within reserve.lua.
@@ -236,7 +247,7 @@ merge_recipes:
       - ActionQuotaViolation references ActionQuotaWindow from action_kinds
       - ActionRiskClass is defined once in action_kinds schemas
       - RiskClassQuota is defined once in action_kinds schemas
-      - No path conflicts (action_kinds adds 3 new paths; runtime_base owns the rest)
+      - No path conflicts (action_kinds adds 4 new paths; runtime_base owns the rest)
     tooling:
       build_command: "make merge   # or: python scripts/merge_specs.py"
       manual: >-
@@ -306,8 +317,7 @@ merge_recipes:
       - PolicyCreateRequest schema: governance_base + PolicyCreateRequestExtension
       - Tenant schema: governance_base Tenant + TenantExtension.observe_mode
       - Permission enum: governance_base values + action_quotas:read from extension
-      - Enforcement: action_quotas:read required on quota counter endpoint,
-        balances:read accepted as fallback through v0.1.26 only
+      - "Enforcement: action_quotas:read required on quota counter endpoint, balances:read accepted as fallback through v0.1.26 only"
     tooling:
       build_command: "make merge   # or: python scripts/merge_specs.py"
       manual: >-
