@@ -206,6 +206,22 @@ info:
         * Custom event types MUST use a "custom." prefix (e.g., "custom.billing.invoice_sent").
 
     CHANGELOG:
+      v0.1.25 (revision 2026-04-13 — clarify admin-release audit
+              requirement for runtime plane):
+        - Soften the AUDIT NORMATIVE on releaseReservation under
+          AdminKeyAuth from "MUST record an audit-log entry" to "MUST
+          record the action in a manner that lets security review
+          distinguish admin-driven releases" — the original wording
+          assumed an audit-log store the runtime plane doesn't have.
+          Spec now explicitly permits a structured WARN log with a
+          stable tag as the alternative for servers without a
+          separate audit-log store. Required tag, reservation_id,
+          tenant, and reason content unchanged.
+        - New requirement: server MUST sanitize CR/LF in the reason
+          before recording (either store) to prevent log-line forgery
+          via newline injection (max 256 chars per existing schema is
+          not enough — adversarial reasons can still inject newlines).
+
       v0.1.25 (revision 2026-04-13 — admin-on-behalf-of dual-auth on reservations):
         - Admin operators can now read and force-release reservations
           via the existing tenant-scoped endpoints, mirroring the
@@ -1672,15 +1688,23 @@ paths:
             extra parameter is needed.
 
         AUDIT (NORMATIVE, AdminKeyAuth path):
-          - The audit-log entry for an admin-driven release MUST record
-            actor_type=admin_on_behalf_of (existing audit field, value
-            already used on createBudget / createPolicy / updatePolicy
-            in the governance-admin spec). This lets security review
-            distinguish admin-driven releases from tenant self-service
-            without joining to the keys table.
+          - The runtime plane MUST record admin-driven release actions
+            in a manner that lets security review distinguish them from
+            tenant self-service. Servers that maintain a structured
+            audit-log store SHOULD record an entry tagged
+            actor_type=admin_on_behalf_of (matching the value the
+            governance-admin spec emits on createBudget / createPolicy /
+            updatePolicy). Servers without a separate audit-log store
+            MAY satisfy this requirement by emitting a structured WARN
+            log line containing a stable tag (e.g. "[ADMIN_ON_BEHALF_OF]")
+            plus reservation_id, tenant, and reason — operations teams
+            ingest these via centralized log collection and treat them
+            as audit records.
           - Callers SHOULD populate the optional `reason` body field
             with a structured tag (e.g. "[INCIDENT_FORCE_RELEASE]")
-            for grep-ability in the audit log.
+            for grep-ability. The server MUST sanitize CR/LF in the
+            reason before recording (in either store) to prevent
+            log-line forgery via newline injection.
       security:
         - ApiKeyAuth: []
         - AdminKeyAuth: []

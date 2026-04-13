@@ -2318,15 +2318,23 @@ paths:
             extra parameter is needed.
 
         AUDIT (NORMATIVE, AdminKeyAuth path):
-          - The audit-log entry for an admin-driven release MUST record
-            actor_type=admin_on_behalf_of (existing audit field, value
-            already used on createBudget / createPolicy / updatePolicy
-            in the governance-admin spec). This lets security review
-            distinguish admin-driven releases from tenant self-service
-            without joining to the keys table.
+          - The runtime plane MUST record admin-driven release actions
+            in a manner that lets security review distinguish them from
+            tenant self-service. Servers that maintain a structured
+            audit-log store SHOULD record an entry tagged
+            actor_type=admin_on_behalf_of (matching the value the
+            governance-admin spec emits on createBudget / createPolicy /
+            updatePolicy). Servers without a separate audit-log store
+            MAY satisfy this requirement by emitting a structured WARN
+            log line containing a stable tag (e.g. "[ADMIN_ON_BEHALF_OF]")
+            plus reservation_id, tenant, and reason — operations teams
+            ingest these via centralized log collection and treat them
+            as audit records.
           - Callers SHOULD populate the optional `reason` body field
             with a structured tag (e.g. "[INCIDENT_FORCE_RELEASE]")
-            for grep-ability in the audit log.
+            for grep-ability. The server MUST sanitize CR/LF in the
+            reason before recording (in either store) to prevent
+            log-line forgery via newline injection.
       security:
       - ApiKeyAuth: []
       - AdminKeyAuth: []
