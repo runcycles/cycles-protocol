@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.13
+  version: 0.1.25.14
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -72,6 +72,73 @@ info:
       - Federated: Multiple runtime enforcement instances, shared admin plane
 
     CHANGELOG:
+      v0.1.25.14 (2026-04-13):
+        - Dual-auth (ApiKeyAuth | AdminKeyAuth) added to six tenant-scoped
+          webhook endpoints so admin operators can pause / force-delete /
+          diagnose tenant self-service webhooks during incident response
+          without needing the tenant's API key. Matches the pattern
+          established by v0.1.25.13 (budgets/policies) and the 2026-04-13
+          reservations revision in cycles-protocol-v0:
+            - GET    /v1/webhooks                           (listTenantWebhooks)
+            - GET    /v1/webhooks/{subscription_id}         (getTenantWebhook)
+            - PATCH  /v1/webhooks/{subscription_id}         (updateTenantWebhook)
+            - DELETE /v1/webhooks/{subscription_id}         (deleteTenantWebhook)
+            - POST   /v1/webhooks/{subscription_id}/test    (testTenantWebhook)
+            - GET    /v1/webhooks/{subscription_id}/deliveries (listTenantWebhookDeliveries)
+
+          Motivating use case: a tenant's webhook endpoint is flapping
+          (auto-disabled after consecutive failures, or spamming a shared
+          downstream). Ops gets paged, needs to pause / delete / inspect
+          deliveries without waiting for the tenant to rotate keys or
+          provide one. Admin already owns `/v1/admin/webhooks/*` for
+          admin-provisioned subscriptions; this closes the gap for
+          tenant-provisioned ones.
+
+        - Intentionally NOT dual-auth (admin-on-behalf-of footgun):
+            - POST /v1/webhooks  (createTenantWebhook) — URL choice, event
+              subscriptions, and signing secrets are tenant policy. Admin
+              creating a subscription on a tenant's behalf entangles
+              provenance in a way that obscures the audit trail.
+            - POST /v1/webhooks/{subscription_id}/replay — already admin-only
+              at `/v1/admin/webhooks/{id}/replay`; tenant self-service replay
+              remains tenant-key-only (bulk event re-delivery is a
+              capacity-planning decision owed to the tenant).
+
+        - Semantic delta on listTenantWebhooks: new `tenant` query
+          parameter. REQUIRED when called with AdminKeyAuth (admin has no
+          effective tenant, can't otherwise scope the listing); same
+          single-param dual-semantic pattern as listBudgets / listPolicies
+          / listReservations. MUST NOT be set when using ApiKeyAuth
+          (tenant is implicit from the key). Omitting `tenant` under
+          AdminKeyAuth MUST return 400 INVALID_REQUEST with message
+          "tenant query parameter is required when using admin key
+          authentication".
+
+        - Tenant-scoping (NORMATIVE) on the per-subscription endpoints
+          (GET / PATCH / DELETE / POST test / GET deliveries): admin
+          callers do not pass `tenant` — the owning tenant is resolved
+          from the subscription record. If the subscription does not
+          exist, the server MUST return 404 (not 403 — 404 is the
+          existing ApiKeyAuth behavior, preserved for consistency with
+          tenant-scoped callers who also see 404 on cross-tenant reads).
+
+        - Audit-log requirement (NORMATIVE): admin-driven calls to these
+          endpoints MUST record actor_type=admin_on_behalf_of in the
+          shared audit store so the governance audit-query surface
+          (GET /v1/admin/audit-log) returns them alongside other
+          admin-on-behalf-of actions. Callers SHOULD populate an optional
+          `reason` field where one exists in the request body (PATCH,
+          DELETE) with a structured prefix like `[WEBHOOK_PAUSE]` for
+          grep-ability. No schema change needed — existing WebhookUpdateRequest
+          already permits additional operator metadata via the
+          (already-optional) `metadata` property; `reason` is best-effort
+          additional context server-side.
+
+        - Backward compatibility: purely additive. Existing ApiKeyAuth
+          callers see no behavior change. The new `tenant` query parameter
+          on listTenantWebhooks is validation-only under ApiKeyAuth and
+          MAY be omitted (unchanged from today). No schemas modified.
+
       v0.1.25.13 (2026-04-13):
         - Dual-auth (ApiKeyAuth | AdminKeyAuth) added to three previously
           tenant-only write endpoints so admin operators can provision
@@ -5347,15 +5414,38 @@ paths:
     get:
       tags: [Webhooks]
       operationId: listTenantWebhooks
-      summary: List webhooks for the authenticated tenant
+      summary: List webhooks for the authenticated tenant (or a specified tenant under admin auth)
       description: >-
-        Returns only webhooks belonging to the authenticated tenant.
+        Returns webhook subscriptions scoped by the authenticated caller.
+
+        TENANCY (NORMATIVE):
+          - Under ApiKeyAuth: results are scoped to the effective tenant
+            derived from auth. The `tenant` query parameter MUST NOT be
+            set (or, if accepted, is validation-only and MUST match the
+            effective tenant).
+          - Under AdminKeyAuth (v0.1.25.14): admin has no effective
+            tenant. The `tenant` query parameter is REQUIRED as a FILTER.
+            Omitting it MUST return 400 INVALID_REQUEST with message
+            "tenant query parameter is required when using admin key
+            authentication". Same single-param dual-semantic pattern as
+            listBudgets / listPolicies / listReservations.
 
         PERMISSIONS:
-        - Requires webhooks:read permission on the API key.
+        - ApiKeyAuth: requires webhooks:read permission on the API key.
+        - AdminKeyAuth: no permission check beyond admin key validity.
       security:
         - ApiKeyAuth: []
+        - AdminKeyAuth: []
       parameters:
+        - name: tenant
+          in: query
+          required: false
+          description: >-
+            Under AdminKeyAuth: REQUIRED — specifies which tenant's
+            webhooks to list. Under ApiKeyAuth: MUST NOT be set (the
+            authenticated key's tenant is used).
+          schema:
+            type: string
         - name: status
           in: query
           schema:
@@ -5410,12 +5500,23 @@ paths:
       operationId: getTenantWebhook
       summary: Get a tenant's webhook subscription
       description: >-
-        Returns webhook details. Returns 404 if subscription belongs to a different tenant.
+        Returns webhook details.
+
+        TENANCY:
+          - Under ApiKeyAuth: returns 404 if the subscription belongs to
+            a different tenant (cross-tenant reads look like not-found,
+            not forbidden).
+          - Under AdminKeyAuth (v0.1.25.14): the owning tenant is
+            resolved from the subscription record; admin can read any
+            tenant's subscription. 404 only when no subscription exists
+            with the given id.
 
         PERMISSIONS:
-        - Requires webhooks:read permission on the API key.
+        - ApiKeyAuth: requires webhooks:read permission on the API key.
+        - AdminKeyAuth: no permission check beyond admin key validity.
       security:
         - ApiKeyAuth: []
+        - AdminKeyAuth: []
       parameters:
         - name: subscription_id
           in: path
@@ -5467,10 +5568,26 @@ paths:
       description: >-
         Partial update — only provided fields are modified. Restricted to tenant-accessible event types.
 
+        TENANCY:
+          - Under ApiKeyAuth: 404 on cross-tenant subscription.
+          - Under AdminKeyAuth (v0.1.25.14): owning tenant resolved from
+            the subscription record. Primary ops use case is pausing a
+            flapping webhook (status=PAUSED).
+
+        AUDIT (NORMATIVE under AdminKeyAuth):
+          - Admin-driven updates MUST record actor_type=admin_on_behalf_of
+            in the shared audit store so the governance audit-query
+            surface lists them alongside other admin-on-behalf-of
+            actions. Callers SHOULD include a structured reason in the
+            request body's `metadata` (e.g., `{"reason": "[WEBHOOK_PAUSE]
+            incident INC-1234"}`) for grep-ability.
+
         PERMISSIONS:
-        - Requires webhooks:write permission on the API key.
+        - ApiKeyAuth: requires webhooks:write permission on the API key.
+        - AdminKeyAuth: no permission check beyond admin key validity.
       security:
         - ApiKeyAuth: []
+        - AdminKeyAuth: []
       parameters:
         - name: subscription_id
           in: path
@@ -5528,10 +5645,25 @@ paths:
       description: >-
         Permanently removes the subscription. Pending deliveries for this subscription will fail.
 
+        TENANCY:
+          - Under ApiKeyAuth: 404 on cross-tenant subscription.
+          - Under AdminKeyAuth (v0.1.25.14): owning tenant resolved from
+            the subscription record. Primary ops use case is force-removing
+            a webhook that a tenant refuses to fix and is impacting
+            shared infrastructure.
+
+        AUDIT (NORMATIVE under AdminKeyAuth):
+          - Admin-driven deletes MUST record actor_type=admin_on_behalf_of
+            in the shared audit store. Callers SHOULD populate a
+            structured reason (e.g., `[WEBHOOK_FORCE_DELETE] abuse-report-42`)
+            in the audit entry metadata for traceability.
+
         PERMISSIONS:
-        - Requires webhooks:write permission on the API key.
+        - ApiKeyAuth: requires webhooks:write permission on the API key.
+        - AdminKeyAuth: no permission check beyond admin key validity.
       security:
         - ApiKeyAuth: []
+        - AdminKeyAuth: []
       parameters:
         - name: subscription_id
           in: path
@@ -5580,10 +5712,24 @@ paths:
       description: >-
         Sends a synthetic system.webhook_test event. Does not count toward consecutive failures.
 
+        TENANCY:
+          - Under ApiKeyAuth: 404 on cross-tenant subscription.
+          - Under AdminKeyAuth (v0.1.25.14): owning tenant resolved from
+            the subscription record. Primary ops use case is verifying
+            that a paused/failing webhook is reachable after the tenant
+            fixes their endpoint, before flipping status back to ACTIVE.
+
+        AUDIT: test events are not required to produce an audit entry
+        under AdminKeyAuth (diagnostic, idempotent, non-state-mutating
+        on the subscription itself); a delivery record is created as
+        usual. Servers MAY still log for operational visibility.
+
         PERMISSIONS:
-        - Requires webhooks:write permission on the API key.
+        - ApiKeyAuth: requires webhooks:write permission on the API key.
+        - AdminKeyAuth: no permission check beyond admin key validity.
       security:
         - ApiKeyAuth: []
+        - AdminKeyAuth: []
       parameters:
         - name: subscription_id
           in: path
@@ -5637,10 +5783,19 @@ paths:
         Returns delivery history with status, response codes, and error details.
         Supports filtering by status and date range.
 
+        TENANCY:
+          - Under ApiKeyAuth: 404 on cross-tenant subscription.
+          - Under AdminKeyAuth (v0.1.25.14): owning tenant resolved from
+            the subscription record. Primary ops use case is diagnosing
+            which specific delivery failures tripped the auto-disable
+            threshold (drill down from the PATCH pause flow).
+
         PERMISSIONS:
-        - Requires webhooks:read permission on the API key.
+        - ApiKeyAuth: requires webhooks:read permission on the API key.
+        - AdminKeyAuth: no permission check beyond admin key validity.
       security:
         - ApiKeyAuth: []
+        - AdminKeyAuth: []
       parameters:
         - name: subscription_id
           in: path
