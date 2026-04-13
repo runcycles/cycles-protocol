@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.12
+  version: 0.1.25.13
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -72,6 +72,42 @@ info:
       - Federated: Multiple runtime enforcement instances, shared admin plane
 
     CHANGELOG:
+      v0.1.25.13 (2026-04-13):
+        - Dual-auth (ApiKeyAuth | AdminKeyAuth) added to three previously
+          tenant-only write endpoints so admin operators can provision
+          budgets and policies on behalf of tenants from the dashboard:
+            - POST   /v1/admin/budgets   (createBudget)
+            - POST   /v1/admin/policies  (createPolicy)
+            - PATCH  /v1/admin/policies/{policy_id}  (updatePolicy)
+
+          Matches the existing dual-auth pattern on listBudgets / listPolicies
+          (read) and POST /v1/admin/budgets/fund (write). The dashboard
+          previously had no path to create budgets/policies — only freeze /
+          unfreeze / fund / update were exposed — because it authenticates
+          exclusively with X-Admin-API-Key.
+
+        - Schema additions for admin-on-behalf-of routing:
+            - BudgetCreateRequest gains optional `tenant_id` (string).
+            - PolicyCreateRequest gains optional `tenant_id` (string).
+          Required when the call uses AdminKeyAuth (server needs to know
+          which tenant owns the new resource); MUST NOT be set when using
+          ApiKeyAuth (tenant is implicit from the key, server rejects with
+          400 INVALID_REQUEST if both present).
+
+        - updatePolicy needs no body change — `policy_id` in the path
+          already pins the owning tenant; the server validates that the
+          policy resolves before applying the update.
+
+        - Audit-log requirement: admin-key-driven calls to these endpoints
+          MUST record actor_type=ADMIN_ON_BEHALF_OF so security review can
+          distinguish admin-driven creates from tenant self-service. (Audit
+          schema unchanged — actor_type is already present and now gets a
+          new enum value the server emits.)
+
+        - Backward compatibility: purely additive. Existing ApiKeyAuth
+          callers see no change. Tenant-key request bodies that previously
+          omitted tenant_id continue to work and are still spec-conformant.
+
       v0.1.25.12 (2026-04-12):
         - Targeted error-response documentation for admin operations
           that emit 404 / 409 but didn't document them. Follows up on
@@ -781,6 +817,15 @@ components:
         unit: USD_MICROCENTS
         allocated: {unit: USD_MICROCENTS, amount: 10000000}
       properties:
+        tenant_id:
+          type: string
+          description: >-
+            Target tenant. REQUIRED when calling with AdminKeyAuth (admin
+            operator creating a budget on behalf of a tenant). MUST NOT
+            be set when calling with ApiKeyAuth — the tenant is inferred
+            from the authenticated key, and any tenant_id sent is rejected
+            with 400 INVALID_REQUEST. Added v0.1.25.13 alongside the
+            AdminKeyAuth alternative on createBudget.
         scope:
           type: string
           description: Canonical scope identifier
@@ -1024,6 +1069,15 @@ components:
           max_tokens: 4096
           max_steps_remaining: 10
       properties:
+        tenant_id:
+          type: string
+          description: >-
+            Target tenant. REQUIRED when calling with AdminKeyAuth (admin
+            operator creating a policy on behalf of a tenant). MUST NOT
+            be set when calling with ApiKeyAuth — the tenant is inferred
+            from the authenticated key, and any tenant_id sent is rejected
+            with 400 INVALID_REQUEST. Added v0.1.25.13 alongside the
+            AdminKeyAuth alternative on createPolicy.
         name:
           type: string
         description:
@@ -3033,8 +3087,17 @@ paths:
         This must be done before any reservations can be made against the scope.
 
         AUTHORIZATION:
-        - Tenant can create budgets for their own scopes only
-        - Uses ApiKeyAuth (X-Cycles-API-Key) - tenant manages own budgets
+        - ApiKeyAuth (X-Cycles-API-Key): tenant creates budgets for their own
+          scopes only. tenant_id is implicit from the authenticated key and
+          MUST NOT appear in the request body.
+        - AdminKeyAuth (X-Admin-API-Key): admin operator creates a budget on
+          behalf of a tenant. tenant_id is REQUIRED in the request body so
+          the server can route the operation to the correct tenant. The
+          audit-log entry records actor_type=ADMIN_ON_BEHALF_OF for these
+          calls so security review can distinguish admin-driven creates
+          from tenant self-service. (Added v0.1.25.13 — matches the existing
+          dual-auth pattern on listBudgets and fundBudget; unblocks the
+          dashboard's "Create Budget" UI which previously had no admin path.)
 
         SCOPE VALIDATION:
         - Scope must match pattern: tenant:* or tenant:*/workspace:* etc.
@@ -3047,6 +3110,7 @@ paths:
         - reserved = spent = debt = 0
       security:
         - ApiKeyAuth: []
+        - AdminKeyAuth: []
       requestBody:
         required: true
         content:
@@ -3606,7 +3670,14 @@ paths:
         Policies are evaluated during reservation requests.
 
         AUTHORIZATION:
-        - Tenant can create policies for their own scopes only
+        - ApiKeyAuth (X-Cycles-API-Key): tenant creates policies for their
+          own scopes only. tenant_id is implicit from the authenticated key
+          and MUST NOT appear in the request body.
+        - AdminKeyAuth (X-Admin-API-Key): admin operator creates a policy
+          on behalf of a tenant. tenant_id is REQUIRED in the request body.
+          Audit log records actor_type=ADMIN_ON_BEHALF_OF. Added v0.1.25.13
+          alongside the AdminKeyAuth alternative on createBudget; matches
+          the existing dual-auth pattern on read endpoints.
 
         SCOPE PATTERNS:
         - "tenant:acme-corp" (exact match)
@@ -3623,6 +3694,7 @@ paths:
         - Useful for temporary restrictions or trials
       security:
         - ApiKeyAuth: []
+        - AdminKeyAuth: []
       requestBody:
         required: true
         content:
@@ -3767,9 +3839,18 @@ paths:
       summary: Update policy properties
       description: >-
         Update any mutable field on an existing policy.
-        Tenant scoping enforced: only the owning tenant can update.
+
+        AUTHORIZATION:
+        - ApiKeyAuth: tenant scoping enforced — only the owning tenant
+          can update.
+        - AdminKeyAuth: admin operator can update policies on behalf of
+          any tenant. Server validates that the policy belongs to the
+          tenant owning the path-resolved policy_id; no tenant_id is
+          needed in the body because policy_id already pins it. Audit
+          log records actor_type=ADMIN_ON_BEHALF_OF. Added v0.1.25.13.
       security:
         - ApiKeyAuth: []
+        - AdminKeyAuth: []
       parameters:
         - name: policy_id
           in: path

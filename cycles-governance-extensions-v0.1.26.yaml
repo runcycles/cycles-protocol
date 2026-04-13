@@ -613,10 +613,16 @@ paths:
         Extends PATCH /v1/admin/policies/{policy_id} from the governance spec.
         All existing fields unchanged. Adds action_quotas, risk_class_quotas,
         allowed_action_kinds, and denied_action_kinds with replacement semantics.
-        AUTHORIZATION: ApiKeyAuth with policies:write (unchanged).
+        AUTHORIZATION: ApiKeyAuth with policies:write, OR AdminKeyAuth (admin
+        operator updating on behalf of a tenant). Auth follows the base
+        updatePolicy operation in cycles-governance-admin v0.1.25.13 — without
+        AdminKeyAuth here, admins could update policy name/scope but not
+        action_quotas, which would be inconsistent. policy_id pins the owning
+        tenant, so no body change is needed.
         BACKWARD COMPATIBILITY: requests omitting new fields are identical to v0.1.25.
       security:
         - ApiKeyAuth: []
+        - AdminKeyAuth: []
       parameters:
         - name: policy_id
           in: path
