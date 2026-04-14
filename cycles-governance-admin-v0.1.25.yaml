@@ -4576,7 +4576,7 @@ paths:
         BACKWARD COMPATIBILITY:
         - Servers that do not implement ApiKeyAuth on this endpoint
           (either because they pre-date the tenant-introspect contract,
-          or because deployment policy disables it) MUST return 401 on
+          or because deployment policy disables it) SHOULD return 401 on
           ApiKeyAuth. Clients MUST handle 401 gracefully — a 401 on
           introspect means "this key has no accessible dashboard surface,"
           regardless of why.
