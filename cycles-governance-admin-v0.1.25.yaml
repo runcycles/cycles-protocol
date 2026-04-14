@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.15
+  version: 0.1.25.16
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Stable governance base — document revision 0.1.25.15; semantic base
+    Stable governance base — document revision 0.1.25.16; semantic base
     frozen at 0.1.25.9. Serves as the base for the Cycles Protocol v0.1.26
     spec family. Covers tenant management, authentication, and runtime
     enforcement. NOTE: This file alone is NOT sufficient for v0.1.26 admin
@@ -23,7 +23,7 @@ info:
 
       This file ALONE is NOT sufficient for v0.1.26 admin tooling,
       SDK codegen, or strict response validators. It exposes Policy,
-      PolicyCreateRequest, and Tenant in their v0.1.25.7 shapes without
+      PolicyCreateRequest, and Tenant in their base-spec shapes without
       the v0.1.26 additions.
 
       For v0.1.26 admin tooling, use one of:
@@ -74,7 +74,67 @@ info:
       - Split-plane: Separate admin/auth services from runtime enforcement
       - Federated: Multiple runtime enforcement instances, shared admin plane
 
+    AUTHORING CONVENTION:
+      This spec describes a protocol contract. Implementation-specific
+      version markers (e.g. "v0.1.25.7 servers", "Keys created before
+      v0.1.25.6", "Added in v0.1.25.13") do not belong in normative
+      prose — they describe what a specific server binary happened to do
+      at a specific version, which is out of scope for a contract.
+
+      Feature provenance (when a clause was introduced into the spec)
+      belongs in the CHANGELOG section, not inline with the clause it
+      introduced. Backward-compatibility text MUST describe behavior
+      ("Servers MAY encounter legacy API keys...") rather than a version
+      ("Keys created before v0.1.25.6..."). Reviewers should reject PRs
+      that add impl-version markers to normative prose.
+
+      Legitimate version references that MAY appear in prose:
+        - CHANGELOG section headers ("v0.1.25.15 (2026-04-14):")
+        - Cross-references between CHANGELOG entries
+        - Filename references ("cycles-governance-admin-v0.1.25.yaml")
+        - semantic_base values — the frozen wire-contract identity
+        - Explicit forward migration timelines ("removed in v0.1.27")
+
     CHANGELOG:
+      v0.1.25.16 (2026-04-14):
+        - Editorial cleanup. Removed implementation-version markers from
+          normative prose. A protocol spec describes a contract; it does
+          not describe what a specific server binary happened to do at a
+          specific version. ~35 substantive edits across this file,
+          cycles-governance-extensions-v0.1.26.yaml, and
+          cycles-protocol-extensions-v0.1.26.yaml.
+        - Three edit classes:
+            * Server-binary references rewritten as implementation-neutral
+              contract language. E.g. "Keys created before v0.1.25.6..."
+              became "Servers MAY encounter legacy API keys with explicit
+              permission sets..."; "ignored by v0.1.25.7 servers" became
+              "Servers that don't recognize this parameter MUST ignore it".
+            * Editorial provenance markers inline with clauses (e.g.
+              "WILDCARD SEMANTICS (v0.1.25.7):", "Added in v0.1.25.15.",
+              "Optional manage flag (v0.1.25.13+)") dropped or replaced
+              with normative qualifiers. The feature-origin information
+              is preserved in the CHANGELOG entries that introduced each
+              clause; duplicating it inline with the prose creates
+              drift-prone coupling to server version history.
+            * Endpoint-description markers ("AUTH (v0.1.25.15+):",
+              "Under AdminKeyAuth (v0.1.25.14):" repeated on six webhook
+              endpoints) dropped. The security block + operation prose
+              describes authoritative behavior independent of spec
+              revision.
+        - New authoring convention added to this file's top-of-spec
+          doc-string. Future reviewers can point at it when rejecting
+          the same class of drift in new PRs.
+        - Kind A references retained unchanged:
+            * CHANGELOG section headers ("v0.1.25.15 (2026-04-14):")
+            * Cross-references between changelog entries
+            * Filename references ("cycles-governance-admin-v0.1.25.yaml")
+            * semantic_base values (0.1.25.9) — the frozen wire identity
+            * Explicit forward-migration timelines
+              ("fallback removed in v0.1.27")
+        - Backward compatible: purely editorial. No schema, endpoint,
+          field meaning, or error code changed. semantic_base unchanged
+          at 0.1.25.9.
+
       v0.1.25.15 (2026-04-14):
         - Dual-auth (ApiKeyAuth | AdminKeyAuth) added to GET /v1/auth/introspect.
           Matches the pattern established by v0.1.25.13 (budgets/policies),
@@ -935,8 +995,7 @@ components:
             operator creating a budget on behalf of a tenant). MUST NOT
             be set when calling with ApiKeyAuth — the tenant is inferred
             from the authenticated key, and any tenant_id sent is rejected
-            with 400 INVALID_REQUEST. Added v0.1.25.13 alongside the
-            AdminKeyAuth alternative on createBudget.
+            with 400 INVALID_REQUEST.
         scope:
           type: string
           description: Canonical scope identifier
@@ -1187,8 +1246,7 @@ components:
             operator creating a policy on behalf of a tenant). MUST NOT
             be set when calling with ApiKeyAuth — the tenant is inferred
             from the authenticated key, and any tenant_id sent is rejected
-            with 400 INVALID_REQUEST. Added v0.1.25.13 alongside the
-            AdminKeyAuth alternative on createPolicy.
+            with 400 INVALID_REQUEST.
         name:
           type: string
         description:
@@ -1284,10 +1342,10 @@ components:
         budgets:read/write, policies:read/write, webhooks:read/write, events:read).
         Admin permissions (admin:read, admin:write, and granular admin permissions
         like admin:tenants:read, admin:budgets:write) are reserved for backward
-        compatibility with pre-v0.1.25.6 keys and SHOULD NOT be assigned to new
+        compatibility with legacy keys and SHOULD NOT be assigned to new
         tenant keys.
 
-        WILDCARD SEMANTICS (v0.1.25.7):
+        WILDCARD SEMANTICS (NORMATIVE):
         - admin:write satisfies any *:write requirement (budgets:write,
           policies:write, webhooks:write, etc.)
         - admin:read satisfies any *:read requirement (budgets:read,
@@ -1970,7 +2028,7 @@ components:
       description: >-
         Payload for reservation.denied events.
 
-        EXTENSIBILITY (v0.1.25.8):
+        EXTENSIBILITY:
           reason_code is an OPEN string (not a closed enum) so future
           extensions can add new values without breaking validators.
           deny_detail is an optional generic object populated by
@@ -2692,7 +2750,7 @@ components:
           type: boolean
 
     # ========================================================================
-    # DASHBOARD SCHEMAS (v0.1.25.7)
+    # DASHBOARD SCHEMAS
     # ========================================================================
 
     AdminOverviewResponse:
@@ -2721,7 +2779,7 @@ components:
             in_observe_mode:
               type: integer
               description: >-
-                Optional (v0.1.25.8). Count of tenants with observe_mode
+                Optional. Count of tenants with observe_mode
                 set to a non-ENFORCE value. Only populated by v0.1.26+
                 servers that implement the observe_mode extension.
                 Useful for tracking shadow rollout progress.
@@ -2818,7 +2876,7 @@ components:
           additionalProperties:
             type: integer
           description: >-
-            Optional (v0.1.25.8). Denial count breakdown by reason_code
+            Optional. Denial count breakdown by reason_code
             over event_window_seconds. Keys are reason_code strings
             (e.g., "BUDGET_EXCEEDED", "ACTION_QUOTA_EXCEEDED"), values
             are counts. Enables dashboards to show a "top denials by
@@ -2827,7 +2885,7 @@ components:
         quota_health:
           type: object
           description: >-
-            Optional (v0.1.25.8). Aggregate quota counter health summary.
+            Optional. Aggregate quota counter health summary.
             Only populated by v0.1.26+ servers that implement action quotas.
             Enables dashboards to show quota utilization at a glance.
           additionalProperties: false
@@ -2859,7 +2917,7 @@ components:
         access_control_stats:
           type: object
           description: >-
-            Optional (v0.1.25.8). Access control configuration summary.
+            Optional. Access control configuration summary.
             Only populated by v0.1.26+ servers that implement action-kind
             allow/deny lists on policies.
           additionalProperties: false
@@ -2876,9 +2934,10 @@ components:
       required: [authenticated, auth_type, permissions, capabilities]
       description: >-
         Returns effective capabilities for the authenticated credential.
-        Supports both AdminKeyAuth and ApiKeyAuth (v0.1.25.15+); servers
-        MAY still reject ApiKeyAuth on this endpoint for backward
-        compatibility with pre-0.1.25.15 deployments.
+        Supports both AdminKeyAuth and ApiKeyAuth. Servers MAY elect not
+        to implement ApiKeyAuth on this endpoint for deployment reasons;
+        they SHOULD return 401 when they don't (see the endpoint's
+        BACKWARD COMPATIBILITY section).
       properties:
         authenticated:
           type: boolean
@@ -2889,7 +2948,7 @@ components:
           description: >-
             Type of credential used. "admin" when request authenticated via
             AdminKeyAuth (X-Admin-API-Key). "tenant" when authenticated via
-            ApiKeyAuth (X-Cycles-API-Key) — added in v0.1.25.15.
+            ApiKeyAuth (X-Cycles-API-Key).
         permissions:
           type: array
           items: {type: string}
@@ -2948,10 +3007,10 @@ components:
             view_audit, view_overview, manage_tenants, manage_api_keys —
             MUST be false under auth_type=tenant regardless of any admin:*
             permissions the key happens to carry. The admin:read / admin:write
-            wildcard semantics (per v0.1.25.7 backward compatibility) apply
-            to per-endpoint access control, NOT to dashboard capability
-            gating. This decoupling prevents accidental admin-UI elevation
-            via legacy admin-permission tenant keys and is intentional.
+            wildcard semantics (defined in the Permission schema) apply to
+            per-endpoint access control, NOT to dashboard capability gating.
+            This decoupling prevents accidental admin-UI elevation via legacy
+            admin-permission tenant keys and is intentional.
 
 
             NO manage_* FLAGS FOR events / audit / overview:
@@ -2982,9 +3041,9 @@ components:
             view_api_keys: {type: boolean}
             view_policies: {type: boolean}
             view_reservations: {type: boolean, description: "Optional — present when server also surfaces reservations gating."}
-            manage_budgets: {type: boolean, description: "Optional manage flag (v0.1.25.13+)."}
-            manage_policies: {type: boolean, description: "Optional manage flag (v0.1.25.13+)."}
-            manage_webhooks: {type: boolean, description: "Optional manage flag (v0.1.25.14+)."}
+            manage_budgets: {type: boolean, description: "Optional manage flag."}
+            manage_policies: {type: boolean, description: "Optional manage flag."}
+            manage_webhooks: {type: boolean, description: "Optional manage flag."}
             manage_tenants: {type: boolean, description: "Optional manage flag."}
             manage_api_keys: {type: boolean, description: "Optional manage flag."}
             manage_reservations: {type: boolean, description: "Optional manage flag."}
@@ -2993,7 +3052,7 @@ components:
           description: >-
             REQUIRED when auth_type=tenant — the tenant this API key is
             bound to. MUST be absent when auth_type=admin (admin keys
-            have no effective tenant). Added in v0.1.25.15.
+            have no effective tenant).
         scope_filter:
           type: array
           items: {type: string}
@@ -3002,7 +3061,7 @@ components:
             API key has scope restrictions (see ApiKey.scope_filter
             semantics). Each entry is a scope pattern; the key's effective
             access is the intersection of its permissions and scope_filter.
-            Absent or empty means no scope narrowing. Added in v0.1.25.15.
+            Absent or empty means no scope narrowing.
 
 # ============================================================================
 # API ENDPOINTS
@@ -3099,10 +3158,11 @@ paths:
         - name: observe_mode
           in: query
           description: >-
-            Optional (v0.1.25.8). Filter by tenant observe_mode value.
-            Only meaningful on v0.1.26+ servers that implement the
-            observe_mode extension. v0.1.25.7 servers MUST ignore this
-            parameter without error.
+            Optional. Filter by tenant observe_mode value.
+            Only meaningful on servers that implement the observe_mode
+            extension (v0.1.26). Servers that don't recognize this
+            parameter MUST ignore it without error (additive-parameter
+            guarantee).
           schema:
             type: string
         - name: cursor
@@ -3303,9 +3363,8 @@ paths:
           the server can route the operation to the correct tenant. The
           audit-log entry records actor_type=ADMIN_ON_BEHALF_OF for these
           calls so security review can distinguish admin-driven creates
-          from tenant self-service. (Added v0.1.25.13 — matches the existing
-          dual-auth pattern on listBudgets and fundBudget; unblocks the
-          dashboard's "Create Budget" UI which previously had no admin path.)
+          from tenant self-service. Matches the existing dual-auth pattern
+          on listBudgets and fundBudget.
 
         SCOPE VALIDATION:
         - Scope must match pattern: tenant:* or tenant:*/workspace:* etc.
@@ -3373,7 +3432,7 @@ paths:
 
         AUTHORIZATION:
         - ApiKeyAuth: Tenant can list their own budgets only (scoped by authenticated tenant)
-        - AdminKeyAuth: Accepted as alternative for read access (v0.1.25.5 dual-auth allowlist).
+        - AdminKeyAuth: Accepted as alternative for read access (dual-auth).
           When using AdminKeyAuth, tenant_id query parameter is REQUIRED for scoping.
       security:
         - ApiKeyAuth: []
@@ -3700,7 +3759,7 @@ paths:
 
         AUTHORIZATION:
         - ApiKeyAuth: Tenant can fund their own budgets only (scoped by authenticated tenant)
-        - AdminKeyAuth: Accepted as alternative (v0.1.25.6 dual-auth).
+        - AdminKeyAuth: Accepted as alternative (dual-auth).
           When using AdminKeyAuth, tenant_id query parameter is REQUIRED for scoping.
 
         CREDIT (top-up):
@@ -3813,7 +3872,7 @@ paths:
 
         AUTHORIZATION:
         - ApiKeyAuth: scope_filter is enforced; only accessible if scope matches key's filter.
-        - AdminKeyAuth: Accepted as alternative (v0.1.25.5 dual-auth allowlist).
+        - AdminKeyAuth: Accepted as alternative (dual-auth).
           No tenant_id required — the budget is uniquely identified by (scope, unit).
       security:
         - ApiKeyAuth: []
@@ -3883,9 +3942,8 @@ paths:
           and MUST NOT appear in the request body.
         - AdminKeyAuth (X-Admin-API-Key): admin operator creates a policy
           on behalf of a tenant. tenant_id is REQUIRED in the request body.
-          Audit log records actor_type=ADMIN_ON_BEHALF_OF. Added v0.1.25.13
-          alongside the AdminKeyAuth alternative on createBudget; matches
-          the existing dual-auth pattern on read endpoints.
+          Audit log records actor_type=ADMIN_ON_BEHALF_OF. Matches the
+          existing dual-auth pattern on read endpoints.
 
         SCOPE PATTERNS:
         - "tenant:acme-corp" (exact match)
@@ -3954,7 +4012,7 @@ paths:
       description: >-
         AUTHORIZATION:
         - ApiKeyAuth: Tenant can list their own policies only (scoped by authenticated tenant)
-        - AdminKeyAuth: Accepted as alternative for read access (v0.1.25.5 dual-auth allowlist).
+        - AdminKeyAuth: Accepted as alternative for read access (dual-auth).
           When using AdminKeyAuth, tenant_id query parameter is REQUIRED for scoping.
       security:
         - ApiKeyAuth: []
@@ -3982,20 +4040,23 @@ paths:
         - name: has_action_quotas
           in: query
           description: >-
-            Optional (v0.1.25.8). Filter to policies that have at least
-            one action quota configured. Only meaningful on v0.1.26+
-            servers. v0.1.25.7 servers MUST ignore this parameter
-            without error.
+            Optional. Filter to policies that have at least one action
+            quota configured. Only meaningful on servers implementing the
+            v0.1.26 action-quotas extension. Servers that don't recognize
+            this parameter MUST ignore it without error (additive-parameter
+            guarantee).
           schema:
             type: boolean
         - name: references_action_kind
           in: query
           description: >-
-            Optional (v0.1.25.8). Filter to policies that mention the
-            given action_kind in any quota rule or access control list.
-            Enables incident investigation ("which policies block
-            payment.charge?"). Only meaningful on v0.1.26+ servers.
-            v0.1.25.7 servers MUST ignore this parameter without error.
+            Optional. Filter to policies that mention the given
+            action_kind in any quota rule or access control list. Enables
+            incident investigation ("which policies block payment.charge?").
+            Only meaningful on servers implementing the v0.1.26
+            action-kinds extension. Servers that don't recognize this
+            parameter MUST ignore it without error (additive-parameter
+            guarantee).
           schema:
             type: string
             maxLength: 64
@@ -4055,7 +4116,7 @@ paths:
           any tenant. Server validates that the policy belongs to the
           tenant owning the path-resolved policy_id; no tenant_id is
           needed in the body because policy_id already pins it. Audit
-          log records actor_type=ADMIN_ON_BEHALF_OF. Added v0.1.25.13.
+          log records actor_type=ADMIN_ON_BEHALF_OF.
       security:
         - ApiKeyAuth: []
         - AdminKeyAuth: []
@@ -4494,12 +4555,11 @@ paths:
       summary: Introspect authenticated credential and return effective capabilities
       description: >-
         Returns the effective permissions and derived capabilities for the
-        authenticated credential. Used by the admin dashboard — and, as of
-        v0.1.25.15, by multi-role dashboards that accept both admin and
-        tenant API keys — to determine which pages/features the current
-        user can access.
+        authenticated credential. Used by admin dashboards and by
+        multi-role dashboards that accept both admin and tenant API keys
+        to determine which pages/features the current user can access.
 
-        AUTH (v0.1.25.15+):
+        AUTH:
         - AdminKeyAuth: returns auth_type="admin", permissions=["*"],
           capabilities with all flags true. tenant_id and scope_filter MUST
           be absent.
@@ -4514,12 +4574,12 @@ paths:
           per the published derivation table.
 
         BACKWARD COMPATIBILITY:
-        - Pre-0.1.25.15 servers return only auth_type="admin" responses
-          and reject ApiKeyAuth with 401. v0.1.25.15+ servers that elect
-          not to implement tenant introspect (for deployment reasons)
-          SHOULD also return 401 on ApiKeyAuth. Clients MUST handle 401
-          gracefully — a 401 on introspect means "this key has no
-          accessible dashboard surface," regardless of server version.
+        - Servers that do not implement ApiKeyAuth on this endpoint
+          (either because they pre-date the tenant-introspect contract,
+          or because deployment policy disables it) SHOULD return 401 on
+          ApiKeyAuth. Clients MUST handle 401 gracefully — a 401 on
+          introspect means "this key has no accessible dashboard surface,"
+          regardless of why.
       security:
         - AdminKeyAuth: []
         - ApiKeyAuth: []
@@ -4537,7 +4597,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/AuthIntrospectResponse'
         '401':
-          description: Missing or invalid API key / admin key (or server elected not to implement tenant introspect — see BACKWARD COMPATIBILITY)
+          description: Missing or invalid API key / admin key (or server does not implement ApiKeyAuth on this endpoint — see BACKWARD COMPATIBILITY)
           content:
             application/json:
               schema:
@@ -5579,7 +5639,7 @@ paths:
             derived from auth. The `tenant` query parameter MUST NOT be
             set (or, if accepted, is validation-only and MUST match the
             effective tenant).
-          - Under AdminKeyAuth (v0.1.25.14): admin has no effective
+          - Under AdminKeyAuth: admin has no effective
             tenant. The `tenant` query parameter is REQUIRED as a FILTER.
             Omitting it MUST return 400 INVALID_REQUEST with message
             "tenant query parameter is required when using admin key
@@ -5662,7 +5722,7 @@ paths:
           - Under ApiKeyAuth: returns 404 if the subscription belongs to
             a different tenant (cross-tenant reads look like not-found,
             not forbidden).
-          - Under AdminKeyAuth (v0.1.25.14): the owning tenant is
+          - Under AdminKeyAuth: the owning tenant is
             resolved from the subscription record; admin can read any
             tenant's subscription. 404 only when no subscription exists
             with the given id.
@@ -5726,7 +5786,7 @@ paths:
 
         TENANCY:
           - Under ApiKeyAuth: 404 on cross-tenant subscription.
-          - Under AdminKeyAuth (v0.1.25.14): owning tenant resolved from
+          - Under AdminKeyAuth: owning tenant resolved from
             the subscription record. Primary ops use case is pausing a
             flapping webhook (status=PAUSED).
 
@@ -5803,7 +5863,7 @@ paths:
 
         TENANCY:
           - Under ApiKeyAuth: 404 on cross-tenant subscription.
-          - Under AdminKeyAuth (v0.1.25.14): owning tenant resolved from
+          - Under AdminKeyAuth: owning tenant resolved from
             the subscription record. Primary ops use case is force-removing
             a webhook that a tenant refuses to fix and is impacting
             shared infrastructure.
@@ -5870,7 +5930,7 @@ paths:
 
         TENANCY:
           - Under ApiKeyAuth: 404 on cross-tenant subscription.
-          - Under AdminKeyAuth (v0.1.25.14): owning tenant resolved from
+          - Under AdminKeyAuth: owning tenant resolved from
             the subscription record. Primary ops use case is verifying
             that a paused/failing webhook is reachable after the tenant
             fixes their endpoint, before flipping status back to ACTIVE.
@@ -5941,7 +6001,7 @@ paths:
 
         TENANCY:
           - Under ApiKeyAuth: 404 on cross-tenant subscription.
-          - Under AdminKeyAuth (v0.1.25.14): owning tenant resolved from
+          - Under AdminKeyAuth: owning tenant resolved from
             the subscription record. Primary ops use case is diagnosing
             which specific delivery failures tripped the auto-disable
             threshold (drill down from the PATCH pause flow).

@@ -88,10 +88,11 @@ info:
       artifact with the extensions applied to all paths.
 
     ADMIN OVERVIEW AND LIST FILTERS (NORMATIVE):
-      The base governance spec v0.1.25.8 added optional dashboard fields
-      to AdminOverviewResponse and new filter query parameters to listTenants
-      and listPolicies. v0.1.26 servers MUST populate these fields/filters
-      with governance state from this extension:
+      The base governance spec defines optional dashboard fields on
+      AdminOverviewResponse and filter query parameters on listTenants and
+      listPolicies whose population is opt-in for base-spec-only servers.
+      v0.1.26 servers MUST populate these fields/filters with governance
+      state from this extension:
 
       AdminOverviewResponse.tenant_counts.in_observe_mode:
         Count of tenants with observe_mode != ENFORCE.
@@ -361,7 +362,7 @@ components:
             - "risk_class_quotas"
             - "allowed_action_kinds"
             - "denied_action_kinds"
-          Plus any base v0.1.25.7 fields that were also modified
+          Plus any base-spec fields that were also modified
           (e.g., "caps", "priority", "status").
           String values are lowercase snake_case matching the JSON field
           names exactly. Audit queries and webhook subscribers MUST match
@@ -467,7 +468,7 @@ components:
     # PERMISSION EXTENSION
     # -------------------------------------------------------------------------
 
-    # EXTENDS: Permission enum (governance spec v0.1.25.7)
+    # EXTENDS: Permission enum (from governance base spec)
     PermissionExtension:
       type: string
       description: >-
@@ -500,7 +501,7 @@ components:
           Finer-grained quota permissions (action_quotas:write for
           counter reset/override, etc.) MAY be added in future versions.
       enum:
-        # All v0.1.25.7 permissions (unchanged):
+        # All base-spec permissions (unchanged):
         - 'reservations:create'
         - 'reservations:commit'
         - 'reservations:release'
@@ -558,7 +559,7 @@ paths:
             schema:
               allOf:
                 - type: object
-                  description: Existing v0.1.25.7 updateTenant fields (unchanged)
+                  description: Existing updateTenant fields from base spec (unchanged)
                   properties:
                     name:
                       type: string
@@ -617,7 +618,7 @@ paths:
         allowed_action_kinds, and denied_action_kinds with replacement semantics.
         AUTHORIZATION: ApiKeyAuth with policies:write, OR AdminKeyAuth (admin
         operator updating on behalf of a tenant). Auth follows the base
-        updatePolicy operation in cycles-governance-admin v0.1.25.13 — without
+        updatePolicy operation in the governance base spec — without
         AdminKeyAuth here, admins could update policy name/scope but not
         action_quotas, which would be inconsistent. policy_id pins the owning
         tenant, so no body change is needed.
@@ -638,7 +639,7 @@ paths:
             schema:
               allOf:
                 - type: object
-                  description: Existing v0.1.25.7 updatePolicy fields (unchanged)
+                  description: Existing updatePolicy fields from base spec (unchanged)
                   properties:
                     name:
                       type: string
