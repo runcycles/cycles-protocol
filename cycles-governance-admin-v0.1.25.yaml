@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.14
+  version: 0.1.25.15
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Stable governance base — document revision 0.1.25.14; semantic base
+    Stable governance base — document revision 0.1.25.15; semantic base
     frozen at 0.1.25.9. Serves as the base for the Cycles Protocol v0.1.26
     spec family. Covers tenant management, authentication, and runtime
     enforcement. NOTE: This file alone is NOT sufficient for v0.1.26 admin
@@ -75,6 +75,42 @@ info:
       - Federated: Multiple runtime enforcement instances, shared admin plane
 
     CHANGELOG:
+      v0.1.25.15 (2026-04-14):
+        - Dual-auth (ApiKeyAuth | AdminKeyAuth) added to GET /v1/auth/introspect.
+          Matches the pattern established by v0.1.25.13 (budgets/policies),
+          the 2026-04-13 reservations revision in cycles-protocol-v0, and
+          v0.1.25.14 (webhooks). Existing admin callers see no behavioral
+          change.
+        - Under ApiKeyAuth, AuthIntrospectResponse gains three additive
+          fields — all populated only when auth_type=tenant:
+            * tenant_id (REQUIRED under tenant auth): the tenant the key
+              is bound to. MUST be absent when auth_type=admin.
+            * scope_filter (OPTIONAL): non-empty when the key has scope
+              restrictions; absent or empty means no scope narrowing.
+            * auth_type enum gains value "tenant" alongside existing "admin".
+        - NORMATIVE capability-derivation rules added to the Capabilities
+          schema description: servers MUST derive the capabilities map
+          from a tenant key's permissions set per the published table.
+          Guarantees predictable capability output from permission input
+          across servers and clients; prevents independent implementations
+          from drifting into subtly different rule sets.
+        - Rationale: forward-compatibility stake for multi-role clients
+          (tenants signing in to the admin dashboard, SDK-embedded
+          dashboards, etc.). No server implementation required in this
+          spec revision — servers continue returning admin-only introspect
+          until they explicitly extend to ApiKeyAuth. The spec defines
+          what compliant servers MUST return when they do.
+        - Explicit non-goals (deferred to future revisions):
+            * No tenant-scoped Overview endpoint (/v1/admin/overview stays
+              admin-only).
+            * No tenant-scoped Audit query (/v1/admin/audit/logs stays
+              admin-only).
+            * No admin-on-behalf-of introspect of a specific tenant key.
+        - Backward compatible: purely additive. No existing schema,
+          endpoint, field meaning, or error code changed. Clients built
+          against v0.1.25.14 continue to parse v0.1.25.15 responses
+          correctly under admin auth.
+
       v0.1.25.14 (2026-04-13):
         - Dual-auth (ApiKeyAuth | AdminKeyAuth) added to six tenant-scoped
           webhook endpoints so admin operators can pause / force-delete /
@@ -2840,26 +2876,101 @@ components:
       required: [authenticated, auth_type, permissions, capabilities]
       description: >-
         Returns effective capabilities for the authenticated credential.
-        V1 supports AdminKeyAuth only; ApiKeyAuth support deferred to a future version.
+        Supports both AdminKeyAuth and ApiKeyAuth (v0.1.25.15+); servers
+        MAY still reject ApiKeyAuth on this endpoint for backward
+        compatibility with pre-0.1.25.15 deployments.
       properties:
         authenticated:
           type: boolean
           description: Always true (request would have been rejected if not authenticated)
         auth_type:
           type: string
-          enum: [admin]
-          description: Type of credential used (v1 admin only; future api_key)
+          enum: [admin, tenant]
+          description: >-
+            Type of credential used. "admin" when request authenticated via
+            AdminKeyAuth (X-Admin-API-Key). "tenant" when authenticated via
+            ApiKeyAuth (X-Cycles-API-Key) — added in v0.1.25.15.
         permissions:
           type: array
           items: {type: string}
           description: >-
             Raw effective permission strings. For admin keys this is ["*"]
-            (unconstrained). For future API key support, this will contain
-            concrete Permission enum values. Uses plain string (not Permission
-            $ref) because "*" is not a defined Permission enum value.
+            (unconstrained). For tenant keys (auth_type=tenant), contains
+            the concrete Permission enum values granted to the key
+            (e.g. ["budgets:read", "webhooks:write"]). Uses plain string
+            (not Permission $ref) because "*" is not a defined Permission
+            enum value.
         capabilities:
           type: object
-          description: Derived boolean capabilities for dashboard UI. All fields are always present (explicit false, never omitted).
+          description: >-
+            Derived boolean capabilities for dashboard UI gating. The
+            required flags listed below are always present (explicit false,
+            never omitted). Optional manage_* / view_reservations flags
+            MAY be omitted by servers that don't expose that gating.
+
+
+            CAPABILITY DERIVATION (NORMATIVE under auth_type=tenant):
+
+            Servers MUST derive the capabilities map from the tenant key's
+            permissions set using the following rules. Each view/manage
+            flag is true iff the key holds any permission in the "true
+            when" column. Otherwise false. This contract is frozen so
+            independent client and server implementations produce
+            identical maps from identical inputs.
+
+
+            | Capability           | True when permissions contains any of                                   |
+
+            |----------------------|--------------------------------------------------------------------------|
+
+            | view_budgets         | budgets:read · admin:read · admin:budgets:read                          |
+
+            | view_policies        | policies:read · admin:read · admin:policies:read                        |
+
+            | view_webhooks        | webhooks:read · admin:read · admin:webhooks:read                        |
+
+            | view_events          | events:read · admin:read · admin:events:read                            |
+
+            | view_reservations    | reservations:list · reservations:create · reservations:commit · reservations:release · reservations:extend · admin:read |
+
+            | manage_budgets       | budgets:write · admin:write · admin:budgets:write                       |
+
+            | manage_policies      | policies:write · admin:write · admin:policies:write                     |
+
+            | manage_webhooks      | webhooks:write · admin:write · admin:webhooks:write                     |
+
+            | manage_reservations  | reservations:create · reservations:commit · reservations:release · reservations:extend · admin:write |
+
+
+            ADMIN-PLANE CAPABILITIES UNDER auth_type=tenant (NORMATIVE):
+
+            The six admin-plane capabilities — view_tenants, view_api_keys,
+            view_audit, view_overview, manage_tenants, manage_api_keys —
+            MUST be false under auth_type=tenant regardless of any admin:*
+            permissions the key happens to carry. The admin:read / admin:write
+            wildcard semantics (per v0.1.25.7 backward compatibility) apply
+            to per-endpoint access control, NOT to dashboard capability
+            gating. This decoupling prevents accidental admin-UI elevation
+            via legacy admin-permission tenant keys and is intentional.
+
+
+            NO manage_* FLAGS FOR events / audit / overview:
+
+            These surfaces are read-only aggregations with no write
+            operations to gate, so no corresponding manage_events /
+            manage_audit / manage_overview flags exist.
+
+
+            Under auth_type=admin the server SHOULD return all capabilities
+            as true (permissions=["*"] being unconstrained), matching
+            pre-0.1.25.15 behavior.
+
+
+            Scope-filtered keys (non-empty scope_filter) do not alter the
+            capability map — the filter constrains which records are
+            visible at each endpoint, not whether a given page is
+            accessible. Enforcement stays server-side at the per-endpoint
+            layer.
           required: [view_overview, view_budgets, view_events, view_webhooks, view_audit, view_tenants, view_api_keys, view_policies]
           properties:
             view_overview: {type: boolean}
@@ -2870,6 +2981,28 @@ components:
             view_tenants: {type: boolean}
             view_api_keys: {type: boolean}
             view_policies: {type: boolean}
+            view_reservations: {type: boolean, description: "Optional — present when server also surfaces reservations gating."}
+            manage_budgets: {type: boolean, description: "Optional manage flag (v0.1.25.13+)."}
+            manage_policies: {type: boolean, description: "Optional manage flag (v0.1.25.13+)."}
+            manage_webhooks: {type: boolean, description: "Optional manage flag (v0.1.25.14+)."}
+            manage_tenants: {type: boolean, description: "Optional manage flag."}
+            manage_api_keys: {type: boolean, description: "Optional manage flag."}
+            manage_reservations: {type: boolean, description: "Optional manage flag."}
+        tenant_id:
+          type: string
+          description: >-
+            REQUIRED when auth_type=tenant — the tenant this API key is
+            bound to. MUST be absent when auth_type=admin (admin keys
+            have no effective tenant). Added in v0.1.25.15.
+        scope_filter:
+          type: array
+          items: {type: string}
+          description: >-
+            OPTIONAL (tenant auth only). Present and non-empty when the
+            API key has scope restrictions (see ApiKey.scope_filter
+            semantics). Each entry is a scope pattern; the key's effective
+            access is the intersection of its permissions and scope_filter.
+            Absent or empty means no scope narrowing. Added in v0.1.25.15.
 
 # ============================================================================
 # API ENDPOINTS
@@ -4361,20 +4494,35 @@ paths:
       summary: Introspect authenticated credential and return effective capabilities
       description: >-
         Returns the effective permissions and derived capabilities for the
-        authenticated credential. Used by the admin dashboard to determine
-        which pages/features the current user can access.
+        authenticated credential. Used by the admin dashboard — and, as of
+        v0.1.25.15, by multi-role dashboards that accept both admin and
+        tenant API keys — to determine which pages/features the current
+        user can access.
 
-        V1 SCOPE:
-        - AdminKeyAuth only. The dashboard is admin-key only.
-        - ApiKeyAuth support deferred to a future version (tenant console).
+        AUTH (v0.1.25.15+):
+        - AdminKeyAuth: returns auth_type="admin", permissions=["*"],
+          capabilities with all flags true. tenant_id and scope_filter MUST
+          be absent.
+        - ApiKeyAuth: returns auth_type="tenant", permissions=[concrete
+          Permission values], tenant_id=<key's tenant>, scope_filter=<key's
+          filter if any>, capabilities derived from permissions per the
+          NORMATIVE table in AuthIntrospectResponse.capabilities.
 
         CAPABILITIES:
-        - Derived from raw permissions — the frontend uses booleans for UI gating.
-        - For admin key: all capabilities are true (permissions = ["*"]).
-        - For future API key support: capabilities are derived from the key's
-          actual permission set using the documented mapping.
+        - Derived from raw permissions — the frontend uses booleans for UI
+          gating. Admin auth yields all-true; tenant auth yields a subset
+          per the published derivation table.
+
+        BACKWARD COMPATIBILITY:
+        - Pre-0.1.25.15 servers return only auth_type="admin" responses
+          and reject ApiKeyAuth with 401. v0.1.25.15+ servers that elect
+          not to implement tenant introspect (for deployment reasons)
+          SHOULD also return 401 on ApiKeyAuth. Clients MUST handle 401
+          gracefully — a 401 on introspect means "this key has no
+          accessible dashboard surface," regardless of server version.
       security:
         - AdminKeyAuth: []
+        - ApiKeyAuth: []
       responses:
         '400':
           description: Bad request (malformed JSON, missing required fields, invalid enum, etc.)
@@ -4389,7 +4537,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/AuthIntrospectResponse'
         '401':
-          description: Missing or invalid admin API key
+          description: Missing or invalid API key / admin key (or server elected not to implement tenant introspect — see BACKWARD COMPATIBILITY)
           content:
             application/json:
               schema:
