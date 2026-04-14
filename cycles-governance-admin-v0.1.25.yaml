@@ -2903,8 +2903,10 @@ components:
         capabilities:
           type: object
           description: >-
-            Derived boolean capabilities for dashboard UI gating. All fields
-            are always present (explicit false, never omitted).
+            Derived boolean capabilities for dashboard UI gating. The
+            required flags listed below are always present (explicit false,
+            never omitted). Optional manage_* / view_reservations flags
+            MAY be omitted by servers that don't expose that gating.
 
 
             CAPABILITY DERIVATION (NORMATIVE under auth_type=tenant):
@@ -2929,13 +2931,7 @@ components:
 
             | view_events          | events:read · admin:read · admin:events:read                            |
 
-            | view_tenants         | admin:tenants:read only (admin-plane — not granted to default tenant keys) |
-
-            | view_api_keys        | admin:apikeys:read only (admin-plane)                                    |
-
-            | view_audit           | admin:audit:read only (admin-plane)                                      |
-
-            | view_overview        | admin:read only (admin-plane aggregation)                                |
+            | view_reservations    | reservations:list · reservations:create · reservations:commit · reservations:release · reservations:extend · admin:read |
 
             | manage_budgets       | budgets:write · admin:write · admin:budgets:write                       |
 
@@ -2943,9 +2939,26 @@ components:
 
             | manage_webhooks      | webhooks:write · admin:write · admin:webhooks:write                     |
 
-            | manage_tenants       | admin:tenants:write only                                                 |
+            | manage_reservations  | reservations:create · reservations:commit · reservations:release · reservations:extend · admin:write |
 
-            | manage_api_keys      | admin:apikeys:write only                                                 |
+
+            ADMIN-PLANE CAPABILITIES UNDER auth_type=tenant (NORMATIVE):
+
+            The six admin-plane capabilities — view_tenants, view_api_keys,
+            view_audit, view_overview, manage_tenants, manage_api_keys —
+            MUST be false under auth_type=tenant regardless of any admin:*
+            permissions the key happens to carry. The admin:read / admin:write
+            wildcard semantics (per v0.1.25.7 backward compatibility) apply
+            to per-endpoint access control, NOT to dashboard capability
+            gating. This decoupling prevents accidental admin-UI elevation
+            via legacy admin-permission tenant keys and is intentional.
+
+
+            NO manage_* FLAGS FOR events / audit / overview:
+
+            These surfaces are read-only aggregations with no write
+            operations to gate, so no corresponding manage_events /
+            manage_audit / manage_overview flags exist.
 
 
             Under auth_type=admin the server SHOULD return all capabilities
@@ -2986,7 +2999,7 @@ components:
           items: {type: string}
           description: >-
             OPTIONAL (tenant auth only). Present and non-empty when the
-            API key has scope restrictions (see Permission.scope_filter
+            API key has scope restrictions (see ApiKey.scope_filter
             semantics). Each entry is a scope pattern; the key's effective
             access is the intersection of its permissions and scope_filter.
             Absent or empty means no scope narrowing. Added in v0.1.25.15.
@@ -4502,9 +4515,11 @@ paths:
 
         BACKWARD COMPATIBILITY:
         - Pre-0.1.25.15 servers return only auth_type="admin" responses
-          and reject ApiKeyAuth with 401. Compliant 0.1.25.15+ servers
-          MAY still reject ApiKeyAuth for deployment reasons; clients
-          MUST handle 401 gracefully.
+          and reject ApiKeyAuth with 401. v0.1.25.15+ servers that elect
+          not to implement tenant introspect (for deployment reasons)
+          SHOULD also return 401 on ApiKeyAuth. Clients MUST handle 401
+          gracefully — a 401 on introspect means "this key has no
+          accessible dashboard surface," regardless of server version.
       security:
         - AdminKeyAuth: []
         - ApiKeyAuth: []
@@ -4522,7 +4537,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/AuthIntrospectResponse'
         '401':
-          description: Missing or invalid admin API key
+          description: Missing or invalid API key / admin key (or server elected not to implement tenant introspect — see BACKWARD COMPATIBILITY)
           content:
             application/json:
               schema:
