@@ -1084,11 +1084,11 @@ components:
           Dashboards and strict clients that need to filter by reason can
           use reason_code directly without parsing deny_detail.
 
-          v0.1.25.7 CLIENTS: continue to work unchanged. They see the string
-          on reason_code and either recognize it (base codes) or log it as
-          unknown (v0.1.26 codes) and fall back to generic DENY handling.
-          The DecisionReasonCode schema is an open string so strict
-          validators MUST accept unknown values.
+          BASE-SPEC-ONLY CLIENTS: continue to work unchanged. They see the
+          string on reason_code and either recognize it (base codes) or
+          log it as unknown (v0.1.26 codes) and fall back to generic DENY
+          handling. The DecisionReasonCode schema is an open string so
+          strict validators MUST accept unknown values.
       properties:
         deny_detail:
           $ref: '#/components/schemas/DenyDetail'
