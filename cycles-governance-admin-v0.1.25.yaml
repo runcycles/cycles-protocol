@@ -96,6 +96,72 @@ info:
         - Explicit forward migration timelines ("removed in v0.1.27")
 
     CHANGELOG:
+      v0.1.25.17 (2026-04-15):
+        - Added RESET_SPENT operation to BudgetFundingRequest.operation
+          enum. Closes a long-standing gap between the docs (which have
+          always described RESET as "for period rollovers, plan changes")
+          and the RESET implementation (which only resizes the allocated
+          ceiling and preserves spent — a strict no-op on an exhausted
+          budget when called with the same allocated amount).
+
+          RESET_SPENT sets allocated to the given amount AND sets spent
+          to the optional `spent` field (defaults to 0), while preserving
+          reserved (active runtime reservations straddle the period
+          boundary and will land in the new period's spent when they
+          commit) and debt (period boundaries don't forgive debt —
+          REPAY_DEBT remains the explicit channel for that).
+
+          The optional `spent` parameter supports four legitimate
+          operator needs beyond routine period rollovers:
+            * migration from another billing system (import a customer
+              with their existing consumption already reflected)
+            * prorated mid-period signup (new customer starts partway
+              through a period)
+            * credit-back / compensation (reduce spent after an
+              incident)
+            * state correction (fix a miscounted spent after upstream
+              bugs)
+          Constrained to >= 0. Resulting `remaining` is allowed to go
+          negative if the supplied `spent` plus `reserved` and `debt`
+          exceed `allocated` — matches existing overdraft ledger
+          semantics.
+
+        - Added `budget.reset_spent` event type to the event enum
+          (distinct from `budget.reset`). Event consumers can now
+          distinguish routine billing-period boundaries from resize
+          operations in dashboards, webhook handlers, and compliance
+          queries.
+
+        - Extended `EventDataBudgetLifecycle`:
+            * `operation` enum gains RESET_SPENT.
+            * `previous_state` and `new_state` nested objects gain
+              optional `spent` and `reserved` fields so pre/post
+              snapshots carry those values across the event.
+            * New optional `spent_override_provided` boolean field
+              (only populated on budget.reset_spent) flags whether
+              the spent value was explicitly supplied (migration/
+              correction use cases, which need compliance scrutiny) or
+              defaulted to 0 (routine rollover).
+
+        - Extended `BudgetFundingResponse` with optional
+          `previous_spent` and `new_spent` fields. Populated when spent
+          changes (RESET_SPENT); for preserve-spent operations,
+          previous_spent == new_spent when both are emitted so callers
+          can verify no-op-on-spent visually.
+
+        - Existing RESET semantics are UNCHANGED. The RESET description
+          in the operation enum and in the POST /v1/admin/budgets/fund
+          endpoint prose has been clarified to say "Resize the allocated
+          ceiling" (accurate) rather than "Use for period rollovers"
+          (which misdirected operators to RESET when they should have
+          used the now-distinct RESET_SPENT).
+
+        - Backward compatibility: additive. New fields are optional;
+          new enum values are additive (consumers MUST ignore
+          unrecognised enum values per the spec's existing
+          extensibility policy). Clients still sending RESET get the
+          same behaviour as before.
+
       v0.1.25.16 (2026-04-14):
         - Editorial cleanup. Removed implementation-version markers from
           normative prose. A protocol spec describes a contract; it does
@@ -1048,15 +1114,42 @@ components:
       properties:
         operation:
           type: string
-          enum: [CREDIT, DEBIT, RESET, REPAY_DEBT]
+          enum: [CREDIT, DEBIT, RESET, REPAY_DEBT, RESET_SPENT]
           description: >-
-            CREDIT: Add funds to allocated and remaining
-            DEBIT: Remove funds (fails if would cause remaining < 0)
-            RESET: Set allocated to exact amount, adjust remaining
-            REPAY_DEBT: Reduce debt by amount (use remaining if needed)
+            CREDIT: Add funds to allocated and remaining. Preserves spent,
+              reserved, debt. Use for top-ups and bonus credits.
+
+            DEBIT: Remove funds (fails if would cause remaining < 0).
+              Preserves spent, reserved, debt. Use for downgrades and
+              policy enforcement.
+
+            RESET: Resize the allocated ceiling to an exact amount.
+              Preserves spent, reserved, debt. Use for plan changes or
+              limit adjustments. For billing-period boundaries, use
+              RESET_SPENT.
+
+            REPAY_DEBT: Reduce debt by amount (use remaining if debt is
+              below amount). Use for manual debt reconciliation.
+
+            RESET_SPENT: Start a new billing period. Sets allocated to
+              the given amount, sets spent to the optional `spent` field
+              (defaults to 0), preserves reserved (active reservations
+              straddle the period) and debt (use REPAY_DEBT to clear).
+              Use for period rollovers, migrations from other billing
+              systems, prorated mid-period signups, and state
+              corrections.
         amount:
           $ref: '#/components/schemas/Amount'
           description: Amount to credit/debit/reset (must match ledger unit)
+        spent:
+          $ref: '#/components/schemas/Amount'
+          description: >-
+            Only honoured for RESET_SPENT; ignored for other operations.
+            When omitted on a RESET_SPENT, spent defaults to 0 (fresh
+            period). When supplied, sets spent to this exact value —
+            must be >= 0. Resulting remaining is allowed to go negative
+            if (allocated - spent - reserved - debt) < 0, matching
+            existing overdraft ledger semantics.
         reason:
           type: string
           maxLength: 512
@@ -1087,6 +1180,16 @@ components:
           $ref: '#/components/schemas/Amount'
         new_debt:
           $ref: '#/components/schemas/Amount'
+        previous_spent:
+          $ref: '#/components/schemas/Amount'
+          description: >-
+            Spent before the operation. Present when the operation
+            affects spent (RESET_SPENT). For operations that preserve
+            spent (CREDIT, DEBIT, RESET, REPAY_DEBT), previous_spent
+            equals new_spent when both are emitted.
+        new_spent:
+          $ref: '#/components/schemas/Amount'
+          description: Spent after the operation.
         timestamp:
           type: string
           format: date-time
@@ -1728,7 +1831,8 @@ components:
         - budget.updated                # Budget ledger properties modified (overdraft_limit, overage_policy)
         - budget.funded                 # CREDIT operation — funds added
         - budget.debited                # DEBIT operation — funds removed
-        - budget.reset                  # RESET operation — allocated set to new amount
+        - budget.reset                  # RESET operation — allocated resized, spent/reserved/debt preserved
+        - budget.reset_spent            # RESET_SPENT operation — new billing period (spent cleared or explicitly set)
         - budget.debt_repaid            # REPAY_DEBT operation completed
         - budget.frozen                 # Budget status → FROZEN
         - budget.unfrozen               # Budget status → ACTIVE from FROZEN
@@ -1863,8 +1967,8 @@ components:
       type: object
       description: >-
         Payload for budget lifecycle events (budget.created, budget.funded,
-        budget.debited, budget.reset, budget.debt_repaid, budget.frozen,
-        budget.unfrozen, budget.closed, budget.updated).
+        budget.debited, budget.reset, budget.reset_spent, budget.debt_repaid,
+        budget.frozen, budget.unfrozen, budget.closed, budget.updated).
       properties:
         ledger_id:
           type: string
@@ -1874,7 +1978,7 @@ components:
           $ref: '#/components/schemas/UnitEnum'
         operation:
           type: string
-          enum: [CREDIT, DEBIT, RESET, REPAY_DEBT, STATUS_CHANGE, CREATE, UPDATE]
+          enum: [CREDIT, DEBIT, RESET, RESET_SPENT, REPAY_DEBT, STATUS_CHANGE, CREATE, UPDATE]
         previous_state:
           type: object
           description: Snapshot of affected fields before the change
@@ -1888,6 +1992,20 @@ components:
             debt:
               type: integer
               format: int64
+            spent:
+              type: integer
+              format: int64
+              description: >-
+                Spent before the change. Populated on budget.reset_spent;
+                for other operations populated when the producing
+                server has the data at hand.
+            reserved:
+              type: integer
+              format: int64
+              description: >-
+                Reserved before the change. Populated on
+                budget.reset_spent so consumers can see what carried
+                forward.
             status:
               type: string
         new_state:
@@ -1903,8 +2021,24 @@ components:
             debt:
               type: integer
               format: int64
+            spent:
+              type: integer
+              format: int64
+            reserved:
+              type: integer
+              format: int64
             status:
               type: string
+        spent_override_provided:
+          type: boolean
+          description: >-
+            Only present on budget.reset_spent. True when the request
+            explicitly supplied a `spent` field (migration, proration,
+            compensation, or correction use cases). False when spent
+            defaulted to 0 (routine period rollover). Enables
+            compliance dashboards to distinguish routine period
+            boundaries from operator-initiated consumption
+            adjustments.
         reason:
           type: string
           description: Human-readable justification from the funding/update request
@@ -3772,10 +3906,28 @@ paths:
         - remaining -= amount (fails if would go negative)
         - Use for: downgrades, refunds, policy enforcement
 
-        RESET (reallocate):
+        RESET (resize allocated):
         - allocated = amount
         - remaining = amount - reserved - spent - debt
-        - Use for: period rollovers, plan changes
+        - spent, reserved, debt all preserved
+        - Use for: plan changes, limit adjustments, ceiling resize
+        - NOT the operation for billing-period boundaries — see RESET_SPENT
+
+        RESET_SPENT (new billing period):
+        - allocated = amount
+        - spent = (request.spent if supplied, else 0)
+        - remaining = allocated - spent - reserved - debt
+        - reserved preserved (active reservations straddle the period
+          and will land in the new period's spent when they commit)
+        - debt preserved (periods don't forgive debt; use REPAY_DEBT)
+        - Optional `spent` field supports: migration from other billing
+          systems (start with existing consumption), prorated mid-period
+          signup, credit-back/compensation, state correction.
+          Must be >= 0 when supplied. Default 0 covers routine period
+          rollovers.
+        - Emits `budget.reset_spent` event (distinct from `budget.reset`)
+          with `spent_override_provided` flag so compliance dashboards
+          can distinguish routine rollovers from explicit adjustments.
 
         REPAY_DEBT:
         - debt -= amount (use remaining if debt < amount)
