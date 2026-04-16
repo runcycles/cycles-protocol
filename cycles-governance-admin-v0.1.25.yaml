@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.19
+  version: 0.1.25.20
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Stable governance base — document revision 0.1.25.19; semantic base
+    Stable governance base — document revision 0.1.25.20; semantic base
     frozen at 0.1.25.9. Serves as the base for the Cycles Protocol v0.1.26
     spec family. Covers tenant management, authentication, and runtime
     enforcement. NOTE: This file alone is NOT sufficient for v0.1.26 admin
@@ -15,7 +15,7 @@ info:
   description: |-
     SPEC FAMILY CONTEXT (v0.1.26):
       This is the STABLE GOVERNANCE BASE for the Cycles Protocol v0.1.26
-      family. Document revision 0.1.25.19; semantic base frozen at 0.1.25.9
+      family. Document revision 0.1.25.20; semantic base frozen at 0.1.25.9
       (see cycles-spec-index.yaml for the versioning model). New capabilities
       (action quotas, risk-class quotas, access control lists, tenant
       observe_mode, action_quotas:read permission) are delivered via
@@ -96,6 +96,81 @@ info:
         - Explicit forward migration timelines ("removed in v0.1.27")
 
     CHANGELOG:
+      v0.1.25.20 (2026-04-16):
+        - Server-side sort for admin list endpoints. Closes the
+          silent-wrong-answer hazard where a client-side sort applied
+          over a cursor-paginated response only orders the loaded
+          slice. Under cursor pagination, the server's cursor order
+          determines what appears on page N+1. A UI that advertised
+          "sort by utilization desc" while the server paginated by
+          created_at could hide the highest-utilization rows on a
+          later page and never surface them, even though the UI
+          claimed to be sorted. This is the same class of defect that
+          v0.1.25.18 closed for cross-tenant filters.
+
+        - New optional query parameters on the six admin list
+          endpoints (listTenants, listApiKeys, listBudgets,
+          listWebhookSubscriptions, listEvents, listAuditLogs):
+            * sort_by: string — per-endpoint enum. See each endpoint
+              for the allowed values.
+            * sort_dir: "asc" | "desc" — default "desc".
+          When sort_by is provided, the server MUST return results in
+          the requested order and MUST encode the sort key into the
+          opaque cursor so subsequent page fetches continue in sort
+          order. When omitted, the server MUST use its previous
+          default ordering (wire behavior is unchanged for clients
+          that never send these params).
+
+        - Per-endpoint sort_by enums (cross-checked against dashboard
+          column surfaces):
+            * listTenants: tenant_id, name, status, created_at.
+              Default: created_at.
+            * listApiKeys: key_id, name, tenant_id, status,
+              created_at, expires_at. Default: created_at.
+            * listBudgets: tenant_id, scope, unit, status,
+              commit_overage_policy, utilization, debt.
+              Default: utilization. Utilization is computed as
+              spent / allocated consistent with the
+              utilization_min / utilization_max filter semantics
+              (allocated == 0 is treated as utilization == 0).
+              commit_overage_policy is sorted by lexicographic enum
+              order.
+            * listWebhookSubscriptions: url, tenant_id, status,
+              consecutive_failures. Default: consecutive_failures.
+            * listEvents: event_type, category, scope, tenant_id,
+              timestamp. Default: timestamp.
+            * listAuditLogs: timestamp, operation, resource_type,
+              tenant_id, key_id, status. Default: timestamp.
+
+        - Servers MUST reject sort_by values outside the endpoint's
+          allowed enum with HTTP 400. Servers MUST reject sort_dir
+          values outside {asc, desc} with HTTP 400. These 400 causes
+          are covered by the existing "Malformed cursor / limit /
+          enum value" 400 response on each endpoint — no new response
+          code is introduced.
+
+        - Older admin servers that don't recognize sort_by / sort_dir
+          MUST ignore them without error (additive-parameter
+          guarantee). Clients that require deterministic sort order
+          SHOULD detect absent-server-sort behavior via known-server-
+          version gating (cycles-spec-index.yaml base_governance >=
+          0.1.25.20) rather than inferring support from response
+          content.
+
+        - Cursor interaction: cursors returned by servers that
+          received a sort_by parameter are only valid for continued
+          pagination under the same (sort_by, sort_dir, filters)
+          tuple. Sending a cursor from one sort under a different
+          sort_by or sort_dir produces undefined ordering (or HTTP
+          400 — either is spec-compliant). Clients MUST reset the
+          cursor when changing sort key or direction.
+
+        - Backward compatible: purely additive. Existing callers that
+          never sent sort_by / sort_dir observe no behavior change —
+          the server's previous default ordering remains the default.
+          No request or response schema changes.
+          semantic_base unchanged at 0.1.25.9.
+
       v0.1.25.17 (2026-04-15):
         - Added RESET_SPENT operation to BudgetFundingRequest.operation
           enum. Closes a long-standing gap between the docs (which have
@@ -801,6 +876,17 @@ components:
       type: string
       enum: [USD_MICROCENTS, TOKENS, CREDITS, RISK_POINTS]
       description: Standard budget units from Cycles Protocol v0.1.24
+
+    SortDirection:
+      type: string
+      enum: [asc, desc]
+      default: desc
+      description: >-
+        Sort direction for admin list endpoints. Used with the
+        per-endpoint `sort_by` parameter introduced in v0.1.25.20. When
+        `sort_by` is provided but `sort_dir` is omitted, servers MUST
+        default to "desc". Servers that do not recognize the parameter
+        MUST ignore it without error (additive-parameter guarantee).
 
     Amount:
       type: object
@@ -3407,6 +3493,24 @@ paths:
             guarantee).
           schema:
             type: string
+        - name: sort_by
+          in: query
+          description: >-
+            Sort key. When provided, results are returned in the requested
+            order and the returned cursor encodes the sort key so "Load
+            more" continues in sort order. When omitted, servers use their
+            default ordering (unchanged from pre-v0.1.25.20 behavior).
+            Servers that don't recognize the parameter MUST ignore it
+            without error.
+          schema:
+            type: string
+            enum: [tenant_id, name, status, created_at]
+            default: created_at
+        - name: sort_dir
+          in: query
+          description: Sort direction. Default descending.
+          schema:
+            $ref: '#/components/schemas/SortDirection'
         - name: cursor
           in: query
           schema:
@@ -3763,6 +3867,26 @@ paths:
             format: double
             minimum: 0
             maximum: 1
+        - name: sort_by
+          in: query
+          description: >-
+            Sort key. When provided, results are returned in the requested
+            order and the returned cursor encodes the sort key so "Load
+            more" continues in sort order. utilization is computed as
+            spent / allocated (allocated == 0 is treated as 0).
+            commit_overage_policy is sorted by lexicographic enum order.
+            When omitted, servers use their default ordering (unchanged
+            from pre-v0.1.25.20 behavior). Servers that don't recognize
+            the parameter MUST ignore it without error.
+          schema:
+            type: string
+            enum: [tenant_id, scope, unit, status, commit_overage_policy, utilization, debt]
+            default: utilization
+        - name: sort_dir
+          in: query
+          description: Sort direction. Default descending.
+          schema:
+            $ref: '#/components/schemas/SortDirection'
         - name: cursor
           in: query
           schema:
@@ -3783,7 +3907,8 @@ paths:
           description: >-
             Malformed cursor, limit, or filter value (e.g.
             utilization_min outside [0, 1] or not a number,
-            utilization_min > utilization_max).
+            utilization_min > utilization_max, sort_by not in the
+            endpoint's allowed enum, sort_dir not in {asc, desc}).
           content:
             application/json:
               schema:
@@ -4607,6 +4732,24 @@ paths:
           schema:
             type: string
             enum: [ACTIVE, REVOKED, EXPIRED]
+        - name: sort_by
+          in: query
+          description: >-
+            Sort key. When provided, results are returned in the requested
+            order and the returned cursor encodes the sort key so "Load
+            more" continues in sort order. When omitted, servers use their
+            default ordering (unchanged from pre-v0.1.25.20 behavior).
+            Servers that don't recognize the parameter MUST ignore it
+            without error.
+          schema:
+            type: string
+            enum: [key_id, name, tenant_id, status, created_at, expires_at]
+            default: created_at
+        - name: sort_dir
+          in: query
+          description: Sort direction. Default descending.
+          schema:
+            $ref: '#/components/schemas/SortDirection'
         - name: cursor
           in: query
           schema:
@@ -5000,6 +5143,24 @@ paths:
           schema:
             type: string
             format: date-time
+        - name: sort_by
+          in: query
+          description: >-
+            Sort key. When provided, results are returned in the requested
+            order and the returned cursor encodes the sort key so "Load
+            more" continues in sort order. When omitted, servers use their
+            default ordering (unchanged from pre-v0.1.25.20 behavior).
+            Servers that don't recognize the parameter MUST ignore it
+            without error.
+          schema:
+            type: string
+            enum: [timestamp, operation, resource_type, tenant_id, key_id, status]
+            default: timestamp
+        - name: sort_dir
+          in: query
+          description: Sort direction. Default descending.
+          schema:
+            $ref: '#/components/schemas/SortDirection'
         - name: cursor
           in: query
           schema:
@@ -5198,6 +5359,24 @@ paths:
           description: Filter to subscriptions that include this event type
           schema:
             $ref: '#/components/schemas/EventType'
+        - name: sort_by
+          in: query
+          description: >-
+            Sort key. When provided, results are returned in the requested
+            order and the returned cursor encodes the sort key so "Load
+            more" continues in sort order. When omitted, servers use their
+            default ordering (unchanged from pre-v0.1.25.20 behavior).
+            Servers that don't recognize the parameter MUST ignore it
+            without error.
+          schema:
+            type: string
+            enum: [url, tenant_id, status, consecutive_failures]
+            default: consecutive_failures
+        - name: sort_dir
+          in: query
+          description: Sort direction. Default descending.
+          schema:
+            $ref: '#/components/schemas/SortDirection'
         - name: cursor
           in: query
           schema:
@@ -5604,6 +5783,24 @@ paths:
           schema:
             type: string
             format: date-time
+        - name: sort_by
+          in: query
+          description: >-
+            Sort key. When provided, results are returned in the requested
+            order and the returned cursor encodes the sort key so "Load
+            more" continues in sort order. When omitted, servers use their
+            default ordering (unchanged from pre-v0.1.25.20 behavior).
+            Servers that don't recognize the parameter MUST ignore it
+            without error.
+          schema:
+            type: string
+            enum: [event_type, category, scope, tenant_id, timestamp]
+            default: timestamp
+        - name: sort_dir
+          in: query
+          description: Sort direction. Default descending.
+          schema:
+            $ref: '#/components/schemas/SortDirection'
         - name: cursor
           in: query
           schema:
