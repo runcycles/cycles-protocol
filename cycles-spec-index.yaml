@@ -49,7 +49,7 @@ spec_family:
     The merge_recipes section below defines how to produce those artifacts.
   current_versions:
     base_runtime: "0.1.25"
-    base_governance: "0.1.25.16"          # editorial revision
+    base_governance: "0.1.25.18"          # editorial revision
     base_governance_semantic_base: "0.1.25.9"  # frozen wire baseline
     extension_runtime: "0.1.26"
     extension_governance: "0.1.26"
@@ -88,7 +88,7 @@ documents:
 
   - id: governance_base
     file: cycles-governance-admin-v0.1.25.yaml
-    version: "0.1.25.16"          # editorial revision (matches info.version)
+    version: "0.1.25.18"          # editorial revision (matches info.version)
     semantic_base: "0.1.25.9"     # frozen wire baseline
     role: base
     title: Complete Budget Governance Admin API
