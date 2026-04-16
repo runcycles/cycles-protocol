@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.18
+  version: 0.1.25.19
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Stable governance base — document revision 0.1.25.18; semantic base
+    Stable governance base — document revision 0.1.25.19; semantic base
     frozen at 0.1.25.9. Serves as the base for the Cycles Protocol v0.1.26
     spec family. Covers tenant management, authentication, and runtime
     enforcement. NOTE: This file alone is NOT sufficient for v0.1.26 admin
@@ -15,7 +15,7 @@ info:
   description: |-
     SPEC FAMILY CONTEXT (v0.1.26):
       This is the STABLE GOVERNANCE BASE for the Cycles Protocol v0.1.26
-      family. Document revision 0.1.25.18; semantic base frozen at 0.1.25.9
+      family. Document revision 0.1.25.19; semantic base frozen at 0.1.25.9
       (see cycles-spec-index.yaml for the versioning model). New capabilities
       (action quotas, risk-class quotas, access control lists, tenant
       observe_mode, action_quotas:read permission) are delivered via
@@ -161,6 +161,40 @@ info:
           unrecognised enum values per the spec's existing
           extensibility policy). Clients still sending RESET get the
           same behaviour as before.
+
+      v0.1.25.19 (2026-04-16):
+        - BudgetLedger gains an optional tenant_id property. Closes a
+          companion gap to v0.1.25.18: once listBudgets allows omitting
+          tenant_id under AdminKeyAuth, the response becomes cross-tenant
+          but each returned BudgetLedger still has no wire-level way to
+          tell callers which tenant owns it. Parsing tenant_id from the
+          scope string is possible in practice but not guaranteed by
+          this spec (scope formats are opaque). Exposing tenant_id
+          explicitly lets cross-tenant dashboards render per-row tenant
+          context without scope-string parsing.
+        - tenant_id is defined as OPTIONAL on the response schema rather
+          than required. Rationale: mixed-fleet deployments. Admin
+          servers implementing v0.1.25.18 or earlier never populate the
+          field; marking it required would fail OpenAPI-strict response
+          validators against those older servers. Servers implementing
+          v0.1.25.19+ MUST populate tenant_id on every BudgetLedger they
+          return (from any endpoint — getBudget, listBudgets, createBudget,
+          etc.). Clients that need tenant context MAY assume the field
+          is present when talking to v0.1.25.19+ servers and SHOULD fall
+          back to scope-string heuristics (or refuse to display) when
+          absent.
+        - Under ApiKeyAuth, tenant_id on the response always equals the
+          authenticated tenant; clients that already know this from
+          context may ignore the field. Under AdminKeyAuth, the field
+          is load-bearing — it's how cross-tenant callers attribute a
+          ledger to its tenant.
+        - Backward compatible: additive response field. No request
+          schema change. Existing clients that ignore unknown response
+          fields observe no change. Clients that fail on unknown fields
+          (unusual) would already have been failing on the v0.1.25.18
+          listBudgets cross-tenant shape and are out of scope for
+          compatibility here.
+          semantic_base unchanged at 0.1.25.9.
 
       v0.1.25.18 (2026-04-16):
         - Cross-tenant admin list endpoints: relax required-tenant_id
@@ -1019,6 +1053,7 @@ components:
       additionalProperties: false
       example:
         ledger_id: ldg_abc123
+        tenant_id: acme-corp
         scope: "tenant:acme-corp/workspace:prod"
         scope_path: "tenant:acme-corp/workspace:prod"
         unit: USD_MICROCENTS
@@ -1032,6 +1067,18 @@ components:
         ledger_id:
           type: string
           description: Unique identifier for this ledger
+        tenant_id:
+          type: string
+          description: >-
+            Tenant that owns this ledger. OPTIONAL for backward compatibility
+            with pre-v0.1.25.19 server responses that omitted the field.
+            Servers implementing v0.1.25.19+ MUST populate this on every
+            BudgetLedger they return. Load-bearing under AdminKeyAuth
+            cross-tenant responses (listBudgets with tenant_id absent) —
+            it's how callers attribute a ledger to its tenant without
+            parsing the opaque scope string. Under ApiKeyAuth this equals
+            the authenticated tenant; clients that already know the
+            tenant from context MAY ignore the field.
         scope:
           type: string
           description: >-

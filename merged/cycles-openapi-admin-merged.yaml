@@ -338,6 +338,7 @@ components:
       additionalProperties: false
       example:
         ledger_id: ldg_abc123
+        tenant_id: acme-corp
         scope: tenant:acme-corp/workspace:prod
         scope_path: tenant:acme-corp/workspace:prod
         unit: USD_MICROCENTS
@@ -359,6 +360,14 @@ components:
         ledger_id:
           type: string
           description: Unique identifier for this ledger
+        tenant_id:
+          type: string
+          description: Tenant that owns this ledger. OPTIONAL for backward compatibility with pre-v0.1.25.19
+            server responses that omitted the field. Servers implementing v0.1.25.19+ MUST populate this
+            on every BudgetLedger they return. Load-bearing under AdminKeyAuth cross-tenant responses
+            (listBudgets with tenant_id absent) — it's how callers attribute a ledger to its tenant without
+            parsing the opaque scope string. Under ApiKeyAuth this equals the authenticated tenant; clients
+            that already know the tenant from context MAY ignore the field.
         scope:
           type: string
           description: Canonical scope identifier, e.g., "tenant:acme-corp", "workspace:eng", "agent:summarizer"
