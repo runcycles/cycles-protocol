@@ -2209,14 +2209,15 @@ paths:
           cursor encodes the sort key so subsequent pages continue in sort order. When omitted, servers
           use their default ordering (unchanged pre-revision behavior). The `reserved` key sorts by the
           integer `amount` within each row; the single-unit-per- reservation invariant makes this comparison
-          well-defined. `scope_path` is not an option — reservation scope is a composite of Subject fields
-          with no single wire field. Servers that don't recognize the parameter MUST ignore it without
-          error.
+          well-defined. The `scope_path` key sorts lexicographically over the server-derived canonical
+          scope path string (e.g. "tenant:acme/workspace:prod/agent:x"); the `tenant` key sorts over the
+          Subject.tenant field. Servers that don't recognize the parameter MUST ignore it without error.
         schema:
           type: string
           enum:
           - reservation_id
           - tenant
+          - scope_path
           - status
           - reserved
           - created_at_ms

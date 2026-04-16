@@ -218,18 +218,20 @@ info:
           surface them.
         - Adds two optional query parameters to listReservations
           (GET /v1/reservations):
-            * sort_by: string enum [reservation_id, tenant, status,
-              reserved, created_at_ms, expires_at_ms]. Default when
-              sort_by is provided but unset on the wire: created_at_ms.
+            * sort_by: string enum [reservation_id, tenant,
+              scope_path, status, reserved, created_at_ms,
+              expires_at_ms]. Default when sort_by is provided but
+              unset on the wire: created_at_ms.
               The `reserved` key sorts by the integer `amount` within
               each row; because the v0 single-unit-per-reservation
               invariant holds, this comparison is well-defined (no
-              cross-unit conversion). `scope_path` is NOT in the enum:
-              reservation scope is a composite of Subject fields
-              (tenant/workspace/app/workflow/agent/toolset) with no
-              single wire field. Clients that want a scope-path sort
-              SHOULD continue to derive it client-side within the
-              loaded slice.
+              cross-unit conversion).
+              The `scope_path` key sorts lexicographically over the
+              server-derived canonical scope path string that
+              ReservationSummary.scope_path already carries (e.g.
+              "tenant:acme/workspace:prod/agent:x"). The `tenant`
+              key sorts over Subject.tenant only (equivalent to
+              the flat `tenant` filter already on this endpoint).
             * sort_dir: string enum [asc, desc]. Default "desc".
           When sort_by is provided, servers MUST return results in the
           requested order and MUST encode the sort key into the opaque
@@ -1654,13 +1656,14 @@ paths:
             pre-revision behavior). The `reserved` key sorts by the
             integer `amount` within each row; the single-unit-per-
             reservation invariant makes this comparison well-defined.
-            `scope_path` is not an option — reservation scope is a
-            composite of Subject fields with no single wire field.
-            Servers that don't recognize the parameter MUST ignore it
-            without error.
+            The `scope_path` key sorts lexicographically over the
+            server-derived canonical scope path string (e.g.
+            "tenant:acme/workspace:prod/agent:x"); the `tenant` key
+            sorts over the Subject.tenant field. Servers that don't
+            recognize the parameter MUST ignore it without error.
           schema:
             type: string
-            enum: [reservation_id, tenant, status, reserved, created_at_ms, expires_at_ms]
+            enum: [reservation_id, tenant, scope_path, status, reserved, created_at_ms, expires_at_ms]
             default: created_at_ms
         - name: sort_dir
           in: query
