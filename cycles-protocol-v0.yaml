@@ -206,6 +206,59 @@ info:
         * Custom event types MUST use a "custom." prefix (e.g., "custom.billing.invoice_sent").
 
     CHANGELOG:
+      v0.1.25 (revision 2026-04-16 — server-side sort on listReservations):
+        - Companion change to the governance-admin v0.1.25.20
+          revision. Closes the silent-wrong-answer hazard where a
+          client-side sort applied over a cursor-paginated response
+          only orders the loaded slice; under cursor pagination, the
+          server's cursor order determines what appears on page N+1.
+          A dashboard advertising "sort by expires_at_ms asc" while
+          the server paginated by created_at_ms could hide the
+          soonest-expiring reservations on a later page and never
+          surface them.
+        - Adds two optional query parameters to listReservations
+          (GET /v1/reservations):
+            * sort_by: string enum [reservation_id, tenant,
+              scope_path, status, reserved, created_at_ms,
+              expires_at_ms]. Default when sort_by is provided but
+              unset on the wire: created_at_ms.
+              The `reserved` key sorts by the integer `amount` within
+              each row; because the v0 single-unit-per-reservation
+              invariant holds, this comparison is well-defined (no
+              cross-unit conversion).
+              The `scope_path` key sorts lexicographically over the
+              server-derived canonical scope path string that
+              ReservationSummary.scope_path already carries (e.g.
+              "tenant:acme/workspace:prod/agent:x"). The `tenant`
+              key sorts over Subject.tenant only (equivalent to
+              the flat `tenant` filter already on this endpoint).
+            * sort_dir: string enum [asc, desc]. Default "desc".
+          When sort_by is provided, servers MUST return results in the
+          requested order and MUST encode the sort key into the opaque
+          cursor so subsequent pages continue in sort order. When
+          omitted, servers use their previous default ordering (wire
+          behavior unchanged for clients that never send these params).
+        - Servers MUST reject sort_by values outside the allowed enum
+          with HTTP 400 INVALID_REQUEST. Servers MUST reject sort_dir
+          values outside {asc, desc} with HTTP 400. Older servers that
+          don't recognize the params MUST ignore them without error
+          (additive-parameter guarantee).
+        - Cursor interaction: cursors returned under a given (sort_by,
+          sort_dir, filters) tuple are only valid for continued
+          pagination under that same tuple. Clients MUST reset the
+          cursor when changing sort key or direction.
+        - Both ApiKeyAuth and AdminKeyAuth callers see the same
+          parameter surface; admin callers paginating cross-tenant
+          under their required `tenant` filter get the same
+          server-ordered guarantee.
+        - Backward compatible: purely additive. No request or response
+          schema changes. New shared `SortDirection` schema added
+          under components/schemas (named "SortDirection"; inlining
+          matches the governance-admin spec's v0.1.25.20 addition of
+          the same name — each spec in the family carries its own
+          definition since cross-spec $ref is not used in this
+          companion-specs publication model).
+
       v0.1.25 (revision 2026-04-13b — clarify admin-release audit
               discoverability):
         - Adds a NORMATIVE clause to releaseReservation's AUDIT block
@@ -631,6 +684,21 @@ components:
         TOKENS are integer token counts.
         CREDITS/RISK_POINTS are generic integer units (optional in v0 implementations).
       enum: [USD_MICROCENTS, TOKENS, CREDITS, RISK_POINTS]
+
+    SortDirection:
+      type: string
+      enum: [asc, desc]
+      default: desc
+      description: >-
+        Sort direction for list endpoints. Used with per-endpoint
+        `sort_by` parameters (introduced in revision 2026-04-16 on
+        listReservations). When `sort_by` is provided but `sort_dir`
+        is omitted, servers MUST default to "desc". Servers that do
+        not recognize the parameter MUST ignore it without error
+        (additive-parameter guarantee). This schema is carried
+        inline in each spec of the family (protocol + governance);
+        the companion-specs publication model does not use cross-spec
+        $ref.
 
     Amount:
       type: object
@@ -1577,6 +1645,32 @@ paths:
           in: query
           required: false
           schema: {type: string}
+        - name: sort_by
+          in: query
+          required: false
+          description: >-
+            Sort key. When provided, results are returned in the
+            requested order and the returned cursor encodes the sort
+            key so subsequent pages continue in sort order. When
+            omitted, servers use their default ordering (unchanged
+            pre-revision behavior). The `reserved` key sorts by the
+            integer `amount` within each row; the single-unit-per-
+            reservation invariant makes this comparison well-defined.
+            The `scope_path` key sorts lexicographically over the
+            server-derived canonical scope path string (e.g.
+            "tenant:acme/workspace:prod/agent:x"); the `tenant` key
+            sorts over the Subject.tenant field. Servers that don't
+            recognize the parameter MUST ignore it without error.
+          schema:
+            type: string
+            enum: [reservation_id, tenant, scope_path, status, reserved, created_at_ms, expires_at_ms]
+            default: created_at_ms
+        - name: sort_dir
+          in: query
+          required: false
+          description: Sort direction. Default descending.
+          schema:
+            $ref: '#/components/schemas/SortDirection'
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
       responses:

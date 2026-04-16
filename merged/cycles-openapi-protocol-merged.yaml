@@ -177,6 +177,17 @@ components:
       - TOKENS
       - CREDITS
       - RISK_POINTS
+    SortDirection:
+      type: string
+      enum:
+      - asc
+      - desc
+      default: desc
+      description: Sort direction for list endpoints. Used with per-endpoint `sort_by` parameters (introduced
+        in revision 2026-04-16 on listReservations). When `sort_by` is provided but `sort_dir` is omitted,
+        servers MUST default to "desc". Servers that do not recognize the parameter MUST ignore it without
+        error (additive-parameter guarantee). This schema is carried inline in each spec of the family
+        (protocol + governance); the companion-specs publication model does not use cross-spec $ref.
     Amount:
       type: object
       required:
@@ -2191,6 +2202,33 @@ paths:
         required: false
         schema:
           type: string
+      - name: sort_by
+        in: query
+        required: false
+        description: Sort key. When provided, results are returned in the requested order and the returned
+          cursor encodes the sort key so subsequent pages continue in sort order. When omitted, servers
+          use their default ordering (unchanged pre-revision behavior). The `reserved` key sorts by the
+          integer `amount` within each row; the single-unit-per- reservation invariant makes this comparison
+          well-defined. The `scope_path` key sorts lexicographically over the server-derived canonical
+          scope path string (e.g. "tenant:acme/workspace:prod/agent:x"); the `tenant` key sorts over the
+          Subject.tenant field. Servers that don't recognize the parameter MUST ignore it without error.
+        schema:
+          type: string
+          enum:
+          - reservation_id
+          - tenant
+          - scope_path
+          - status
+          - reserved
+          - created_at_ms
+          - expires_at_ms
+          default: created_at_ms
+      - name: sort_dir
+        in: query
+        required: false
+        description: Sort direction. Default descending.
+        schema:
+          $ref: '#/components/schemas/SortDirection'
       - $ref: '#/components/parameters/Limit'
       - $ref: '#/components/parameters/Cursor'
       responses:
