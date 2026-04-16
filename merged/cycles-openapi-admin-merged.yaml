@@ -4179,9 +4179,24 @@ paths:
       operationId: listBudgets
       summary: List budget ledgers
       description: |-
-        Query budget ledgers by tenant, scope pattern, or status. Returns all units for matching scopes.
-        AUTHORIZATION: - ApiKeyAuth: Tenant can list their own budgets only (scoped by authenticated tenant) - AdminKeyAuth: Accepted as alternative for read access (dual-auth).
-          When using AdminKeyAuth, tenant_id query parameter is REQUIRED for scoping.
+        Query budget ledgers by tenant, scope pattern, status, or utilization / debt / over-limit state. Returns all units for matching scopes.
+        AUTHORIZATION: - ApiKeyAuth: Tenant can list their own budgets only (scoped by
+          authenticated tenant). Filter params (over_limit, has_debt,
+          utilization_min, utilization_max) are supported and apply
+          within the authenticated tenant's budgets.
+        - AdminKeyAuth: Admin operator lists budgets. tenant_id is
+          OPTIONAL — when omitted, returns budgets across all tenants
+          (cursor-paginated). When provided, scopes the result to that
+          tenant. Filter params apply across the selected tenant scope.
+
+        FILTER SEMANTICS: - All filter params combine with AND semantics. - Filters apply BEFORE cursor pagination so cursor traversal
+          is stable across pages for a given filter set.
+        - Budgets with allocated == 0 are treated as utilization == 0
+          for the utilization_min / utilization_max bounds.
+        - Servers MUST reject requests where utilization_min >
+          utilization_max with HTTP 400. This is a cross-parameter
+          constraint that OpenAPI cannot express in the schema, so
+          it is stated here normatively.
       security:
       - ApiKeyAuth: []
       - AdminKeyAuth: []
@@ -4190,8 +4205,8 @@ paths:
         in: query
         required: false
         description: 'When using ApiKeyAuth: ignored — the authenticated tenant from the API key is always
-          used for scoping. When using AdminKeyAuth: REQUIRED — specifies which tenant''s budgets to list.
-          Returns 400 if missing when using AdminKeyAuth.'
+          used for scoping. When using AdminKeyAuth: OPTIONAL — when omitted, returns budgets across all
+          tenants. When provided, scopes the result to the specified tenant.'
         schema:
           type: string
       - name: scope_prefix
@@ -4216,6 +4231,37 @@ paths:
           - ACTIVE
           - FROZEN
           - CLOSED
+      - name: over_limit
+        in: query
+        description: When true, returns only budgets whose overdraft_limit has been breached (is_over_limit
+          == true on the returned ledger). When false, returns only budgets NOT over limit. Absent = no
+          filter.
+        schema:
+          type: boolean
+      - name: has_debt
+        in: query
+        description: When true, returns only budgets with debt > 0. When false, returns only budgets with
+          debt == 0. Absent = no filter.
+        schema:
+          type: boolean
+      - name: utilization_min
+        in: query
+        description: Inclusive lower bound on budget utilization (spent / allocated), expressed as a fraction
+          in [0, 1]. Budgets with allocated == 0 are treated as utilization == 0. Absent = no lower bound.
+        schema:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+      - name: utilization_max
+        in: query
+        description: Inclusive upper bound on budget utilization (spent / allocated), expressed as a fraction
+          in [0, 1]. Budgets with allocated == 0 are treated as utilization == 0. Absent = no upper bound.
+        schema:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
       - name: cursor
         in: query
         schema:
@@ -4233,7 +4279,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/BudgetListResponse'
         '400':
-          description: Missing tenant_id when using AdminKeyAuth
+          description: Malformed cursor, limit, or filter value (e.g. utilization_min outside [0, 1] or
+            not a number, utilization_min > utilization_max).
           content:
             application/json:
               schema:
@@ -5002,13 +5049,19 @@ paths:
       - API Keys
       operationId: listApiKeys
       summary: List API keys
-      description: Returns keys for a tenant. Full key secrets are never returned, only prefixes and metadata.
+      description: |-
+        Returns API keys, optionally filtered by tenant. Full key secrets are never returned, only prefixes and metadata.
+        AUTHORIZATION: - AdminKeyAuth: admin operator lists keys. tenant_id is OPTIONAL.
+          When omitted, returns keys across all tenants (cursor-paginated).
+          When provided, scopes the result to that tenant.
       security:
       - AdminKeyAuth: []
       parameters:
       - name: tenant_id
         in: query
-        required: true
+        required: false
+        description: Optional tenant filter. When omitted under AdminKeyAuth, returns keys across all
+          tenants. When provided, scopes the result to the specified tenant.
         schema:
           type: string
       - name: status
