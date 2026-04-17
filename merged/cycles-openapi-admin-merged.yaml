@@ -1067,6 +1067,15 @@ components:
           format: date-time
         tenant_id:
           type: string
+          description: |-
+            Authenticated tenant id, or a sentinel when no tenant scope applies. Two sentinels are defined:
+              * `__admin__` — request authenticated via AdminKeyAuth
+                (platform-admin credential); not scoped to any single
+                tenant. Covers governance ops, cross-tenant reads,
+                and admin-plane failures (4xx/5xx on admin-key calls).
+              * `__unauth__` — request failed pre-auth (missing/invalid
+                tenant key, missing admin key, path-traversal, etc.).
+            Both sentinels use double-underscore delimiters so `?tenant_id=__admin__` and `?tenant_id=__unauth__` require no URL encoding. The tenant-id grammar `^[a-z0-9-]+$` excludes underscores, guaranteeing no collision with real tenant ids. Clients MUST treat unrecognised values as opaque strings (forward-compat: future revisions may add further sentinels).
         key_id:
           type: string
         user_agent:
@@ -5823,6 +5832,9 @@ paths:
       parameters:
       - name: tenant_id
         in: query
+        description: 'Filter by exact tenant id. Accepts the two documented sentinels in addition to real
+          tenant ids: `?tenant_id=__admin__` surfaces admin-plane activity; `?tenant_id=__unauth__` surfaces
+          the failed-pre-auth stream. See `AuditLogEntry.tenant_id` for full sentinel semantics.'
         schema:
           type: string
       - name: key_id

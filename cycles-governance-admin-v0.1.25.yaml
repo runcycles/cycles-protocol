@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.24
+  version: 0.1.25.25
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Stable governance base — document revision 0.1.25.24; semantic base
+    Stable governance base — document revision 0.1.25.25; semantic base
     frozen at 0.1.25.9. Serves as the base for the Cycles Protocol v0.1.26
     spec family. Covers tenant management, authentication, and runtime
     enforcement. NOTE: This file alone is NOT sufficient for v0.1.26 admin
@@ -15,7 +15,7 @@ info:
   description: |-
     SPEC FAMILY CONTEXT (v0.1.26):
       This is the STABLE GOVERNANCE BASE for the Cycles Protocol v0.1.26
-      family. Document revision 0.1.25.24; semantic base frozen at 0.1.25.9
+      family. Document revision 0.1.25.25; semantic base frozen at 0.1.25.9
       (see cycles-spec-index.yaml for the versioning model). New capabilities
       (action quotas, risk-class quotas, access control lists, tenant
       observe_mode, action_quotas:read permission) are delivered via
@@ -96,6 +96,42 @@ info:
         - Explicit forward migration timelines ("removed in v0.1.27")
 
     CHANGELOG:
+      v0.1.25.25 (2026-04-17):
+        - Audit tenant_id sentinel split. `AuditLogEntry.tenant_id` is
+          required on every entry, but "authenticated as the platform
+          admin" is semantically distinct from "failed pre-auth". The
+          prior revision used a single sentinel (`<unauthenticated>`)
+          for both, which made dashboards conflate admin-plane
+          governance failures with anonymous attack traffic.
+
+          This revision documents TWO sentinels on AuditLogEntry.tenant_id:
+            * `__admin__` — request authenticated with a valid
+              AdminKeyAuth credential but is not scoped to any single
+              tenant (governance ops, cross-tenant reads, admin-plane
+              failures). Retained at the authenticated-tier TTL because
+              admin actions are high-signal security events.
+            * `__unauth__` — request failed pre-auth (missing/invalid
+              tenant key, missing admin key, path-traversal rejection,
+              etc.). Retained at the unauthenticated-tier TTL and
+              subject to the DDoS-sampling gate.
+
+          Both sentinels use double-underscore delimiters (no URL
+          encoding needed in filter queries: `?tenant_id=__admin__`).
+          The tenant grammar `^[a-z0-9-]+$` excludes underscores, so
+          collision with a real tenant id is impossible.
+
+          Queryability preserved: tenant_id filter predicate is exact-
+          match as before. Dashboards surfacing admin-plane activity
+          query `?tenant_id=__admin__`; failed-attempt streams query
+          `?tenant_id=__unauth__`.
+
+          Backward compatible wire shape: AuditLogEntry.tenant_id
+          remains a required string; only the documented set of
+          sentinel values changes. Clients MUST treat unrecognised
+          tenant_id values as opaque strings (same forward-compat
+          contract as ErrorCode). No schema or required-ness changes.
+          semantic_base unchanged at 0.1.25.9.
+
       v0.1.25.24 (2026-04-17):
         - Audit log filter DSL upgrade on GET /v1/admin/audit/logs. Ops
           auditors cannot slice the audit trail the way their real work
@@ -2091,6 +2127,22 @@ components:
           format: date-time
         tenant_id:
           type: string
+          description: >-
+            Authenticated tenant id, or a sentinel when no tenant
+            scope applies. Two sentinels are defined:
+              * `__admin__` — request authenticated via AdminKeyAuth
+                (platform-admin credential); not scoped to any single
+                tenant. Covers governance ops, cross-tenant reads,
+                and admin-plane failures (4xx/5xx on admin-key calls).
+              * `__unauth__` — request failed pre-auth (missing/invalid
+                tenant key, missing admin key, path-traversal, etc.).
+            Both sentinels use double-underscore delimiters so
+            `?tenant_id=__admin__` and `?tenant_id=__unauth__` require
+            no URL encoding. The tenant-id grammar `^[a-z0-9-]+$`
+            excludes underscores, guaranteeing no collision with
+            real tenant ids. Clients MUST treat unrecognised values
+            as opaque strings (forward-compat: future revisions may
+            add further sentinels).
         key_id:
           type: string
         user_agent:
@@ -5720,6 +5772,13 @@ paths:
       parameters:
         - name: tenant_id
           in: query
+          description: >-
+            Filter by exact tenant id. Accepts the two documented
+            sentinels in addition to real tenant ids:
+            `?tenant_id=__admin__` surfaces admin-plane activity;
+            `?tenant_id=__unauth__` surfaces the failed-pre-auth
+            stream. See `AuditLogEntry.tenant_id` for full sentinel
+            semantics.
           schema:
             type: string
         - name: key_id
