@@ -3596,9 +3596,11 @@ components:
         skipped:
           type: array
           description: >-
-            Rows where the action was a no-op (already in target state
-            for SUSPEND/REACTIVATE; already deleted for CLOSE). Each
-            entry carries a `reason` field.
+            Rows where the action was a no-op because the tenant was
+            already in the target state (already SUSPENDED for SUSPEND,
+            already ACTIVE for REACTIVATE, already CLOSED for CLOSE).
+            Each entry carries a `reason` field (typically
+            ALREADY_IN_TARGET_STATE).
           items:
             $ref: '#/components/schemas/BulkActionRowOutcome'
         idempotency_key:
@@ -3678,14 +3680,24 @@ components:
           description: Server-counted number of subscriptions that matched the filter.
         succeeded:
           type: array
+          description: Subscriptions the action applied to successfully.
           items:
             $ref: '#/components/schemas/BulkActionRowOutcome'
         failed:
           type: array
+          description: >-
+            Subscriptions where the action failed. Each entry carries
+            error_code and message. The bulk op does NOT abort on
+            individual row failure — all matching rows are attempted.
           items:
             $ref: '#/components/schemas/BulkActionRowOutcome'
         skipped:
           type: array
+          description: >-
+            Subscriptions where the action was a no-op (already in
+            target status for PAUSE/RESUME; already deleted for DELETE).
+            Each entry carries a `reason` field (typically
+            ALREADY_IN_TARGET_STATE or ALREADY_DELETED).
           items:
             $ref: '#/components/schemas/BulkActionRowOutcome'
         idempotency_key:
