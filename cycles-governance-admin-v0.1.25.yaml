@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.23
+  version: 0.1.25.24
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Stable governance base — document revision 0.1.25.23; semantic base
+    Stable governance base — document revision 0.1.25.24; semantic base
     frozen at 0.1.25.9. Serves as the base for the Cycles Protocol v0.1.26
     spec family. Covers tenant management, authentication, and runtime
     enforcement. NOTE: This file alone is NOT sufficient for v0.1.26 admin
@@ -15,7 +15,7 @@ info:
   description: |-
     SPEC FAMILY CONTEXT (v0.1.26):
       This is the STABLE GOVERNANCE BASE for the Cycles Protocol v0.1.26
-      family. Document revision 0.1.25.23; semantic base frozen at 0.1.25.9
+      family. Document revision 0.1.25.24; semantic base frozen at 0.1.25.9
       (see cycles-spec-index.yaml for the versioning model). New capabilities
       (action quotas, risk-class quotas, access control lists, tenant
       observe_mode, action_quotas:read permission) are delivered via
@@ -96,6 +96,93 @@ info:
         - Explicit forward migration timelines ("removed in v0.1.27")
 
     CHANGELOG:
+      v0.1.25.24 (2026-04-17):
+        - Audit log filter DSL upgrade on GET /v1/admin/audit/logs. Ops
+          auditors cannot slice the audit trail the way their real work
+          demands today: `error_code` is unfilterable, `operation` and
+          `resource_type` accept only exact match, there is no status
+          range, and `search` misses the two fields auditors most want
+          to grep (error codes and operation IDs). This release lands
+          a consistent filter DSL on the filterable fields: the
+          promoted string filters (`operation`, `resource_type`,
+          `error_code`, `error_code_exclude`) are exact-or-IN-list,
+          and the `status` filter is exact-or-range. Filters AND-
+          compose; within one filter an IN-list is OR. Out of scope
+          (remain exact-match this revision): `tenant_id`, `key_id`,
+          `resource_id` — see the NOT-promoted note below.
+
+        - New query parameters on listAuditLogs (all optional,
+          additive-parameter guarantee: servers that don't recognise
+          them MUST ignore without error):
+            * error_code: array<string>, maxItems 25, explode=false.
+              Exact-or-IN-list on AuditLogEntry.error_code. Case-
+              sensitive. Unknown codes match nothing (forward-compat:
+              a newer client sending a newly-added enum value MUST NOT
+              cause a 400 against an older server). NULL entry
+              error_code (success entries) MUST NOT match — auditor
+              asking "show me code X" never wants success rows.
+            * error_code_exclude: array<string>, maxItems 25,
+              explode=false. NOT-IN-list on AuditLogEntry.error_code.
+              NULL entry error_code MUST always pass — hiding noisy
+              codes MUST NOT silently hide successes. MAY combine with
+              error_code (AND-composed: "narrow to set A, minus subset
+              B").
+            * status_min: integer, 100..599. Inclusive lower bound.
+              MUST be mutually exclusive with exact `status` (server
+              MUST 400 on the combination). NULL entry status MUST NOT
+              silently pass the range predicate.
+            * status_max: integer, 100..599. Inclusive upper bound.
+              Mutex with exact `status`. Server MUST 400 when
+              status_min > status_max.
+
+        - Existing listAuditLogs parameters promoted from scalar to
+          array. Formal wire contract is the OpenAPI `explode=false`
+          comma-separated form (`?p=a,b`); a single scalar `?p=a`
+          still parses into a one-element list, so older clients
+          sending a scalar continue to work byte-identically. Servers
+          MAY additionally accept the repeated form (`?p=a&p=b`) as
+          an implementation convenience, but the repeated form is
+          NOT part of the formal contract and clients MUST NOT rely
+          on it for portability across servers:
+            * operation: string → array<string>, maxItems 25,
+              explode=false.
+            * resource_type: string → array<string>, maxItems 25,
+              explode=false.
+
+        - listAuditLogs `search` match set extended. Previously
+          matched resource_id OR log_id. Now also matches error_code
+          OR operation (case-insensitive substring, unchanged 128-
+          char cap). Closes the free-text-lookup gap where
+          `?search=budget` missed BUDGET_EXCEEDED and createBudget.
+
+        - NOT promoted (scope discipline): tenant_id, key_id
+          (natural keys with cursor-stability implications);
+          resource_id (high-cardinality, IN-list has little auditor
+          value). These remain exact-match.
+
+        - Validation rules enforced at the controller edge (all
+          return HTTP 400 `INVALID_REQUEST`, uniform with existing
+          enum/cursor validation):
+            * Each IN-list array parameter post-normalisation (trim
+              each element, split commas, drop empties, dedupe)
+              exceeding 25 values.
+            * status exact combined with status_min OR status_max.
+            * status_min or status_max outside [100, 599].
+            * status_min > status_max.
+
+        - Cursor stability: implementations MUST apply all filter
+          and search predicates BEFORE cursor commitment, so a
+          second page with the same filter set returns the strict
+          suffix of the first. Same invariant v0.1.25.21 locked in
+          for `search`; this release extends it to the new IN-list
+          and range predicates.
+
+        - Backward compatible: purely additive. No existing request
+          or response schema modified; no field semantics changed.
+          Existing single-scalar `operation` / `resource_type`
+          query strings continue to work byte-identically.
+          semantic_base unchanged at 0.1.25.9.
+
       v0.1.25.23 (2026-04-17):
         - Enum-consistency fix for bulk-action error codes. Added
           `COUNT_MISMATCH` and `LIMIT_EXCEEDED` to the `ErrorCode` enum
@@ -5641,22 +5728,137 @@ paths:
             type: string
         - name: operation
           in: query
+          description: >-
+            Filter by operation ID. Exact-or-IN-list. Formal wire
+            contract is the `explode=false` comma-separated form —
+            a single scalar `?operation=createBudget` or a comma-
+            separated list `?operation=createBudget,updateBudget`.
+            Servers MAY additionally accept the repeated form
+            `?operation=createBudget&operation=updateBudget` as an
+            implementation convenience; clients MUST NOT rely on it
+            for portability. IN-list members are OR-composed; the
+            predicate AND-composes with other filters. maxItems 25.
+            Additive shape promotion — older clients sending a
+            single scalar continue to work byte-identically on
+            servers implementing this revision.
           schema:
-            type: string
+            type: array
+            items:
+              type: string
+            maxItems: 25
+          explode: false
         - name: status
           in: query
+          description: >-
+            Filter by exact HTTP status. MUST NOT combine with
+            status_min or status_max (server MUST reject the
+            combination with HTTP 400 INVALID_REQUEST).
           schema:
             type: integer
         - name: resource_type
           in: query
-          description: Filter by resource type (e.g., budget, tenant, api_key, policy, webhook, config)
+          description: >-
+            Filter by resource type (e.g., budget, tenant, api_key,
+            policy, webhook, config). Exact-or-IN-list. Formal wire
+            contract is the `explode=false` comma-separated form
+            (single scalar or `?resource_type=budget,tenant`).
+            Servers MAY additionally accept the repeated form as an
+            implementation convenience; clients MUST NOT rely on it.
+            maxItems 25. Additive shape promotion — older clients
+            sending a single scalar continue to work byte-identically.
           schema:
-            type: string
+            type: array
+            items:
+              type: string
+            maxItems: 25
+          explode: false
         - name: resource_id
           in: query
           description: Filter by resource ID (e.g., ledger ID, key ID, subscription ID)
           schema:
             type: string
+        - name: error_code
+          in: query
+          description: >-
+            Filter by audit entry error_code. Exact-or-IN-list.
+            Formal wire contract is the `explode=false` comma-
+            separated form. Servers MAY additionally accept the
+            repeated form as an implementation convenience; clients
+            MUST NOT rely on it. Case-sensitive. IN-list members are
+            OR-composed; the predicate AND-composes with other
+            filters. maxItems 25.
+
+            NULL entry error_code (success entries) MUST NOT match —
+            auditors asking "show me code X" never want success rows.
+
+            Forward-compat: values are NOT validated against the
+            ErrorCode enum. Unknown codes match nothing at the filter
+            layer (a newer client sending a newly-added enum value
+            MUST NOT cause a 400 against an older server).
+
+            Additive parameter — servers that don't recognize it MUST
+            ignore without error.
+          schema:
+            type: array
+            items:
+              type: string
+            maxItems: 25
+          explode: false
+        - name: error_code_exclude
+          in: query
+          description: >-
+            NOT-IN-list filter on audit entry error_code. Removes
+            matching rows from the result set.
+
+            NULL entry error_code MUST always pass — hiding noisy
+            codes (e.g., INTERNAL_ERROR) MUST NOT silently hide
+            successful (null-error_code) entries.
+
+            MAY combine with `error_code` (AND-composed: "narrow to
+            set A, minus subset B"). Case-sensitive. maxItems 25.
+
+            Additive parameter — servers that don't recognize it MUST
+            ignore without error.
+          schema:
+            type: array
+            items:
+              type: string
+            maxItems: 25
+          explode: false
+        - name: status_min
+          in: query
+          description: >-
+            Inclusive lower bound on audit entry status. MUST be in
+            [100, 599]. MUST NOT combine with exact `status` (server
+            MUST reject the combination with HTTP 400
+            INVALID_REQUEST). When both status_min and status_max are
+            present, server MUST reject status_min > status_max with
+            HTTP 400.
+
+            NULL entry status MUST NOT silently pass the range
+            predicate; entries with absent status are treated as
+            out-of-range for any numeric bound.
+
+            Additive parameter — servers that don't recognize it MUST
+            ignore without error.
+          schema:
+            type: integer
+            minimum: 100
+            maximum: 599
+        - name: status_max
+          in: query
+          description: >-
+            Inclusive upper bound on audit entry status. MUST be in
+            [100, 599]. MUST NOT combine with exact `status`.
+            NULL entry status does not satisfy the bound (see
+            status_min for the identical NULL rule).
+
+            Additive parameter — servers that don't recognize it MUST
+            ignore without error.
+          schema:
+            type: integer
+            minimum: 100
+            maximum: 599
         - name: from
           in: query
           schema:
@@ -5671,10 +5873,10 @@ paths:
           in: query
           description: >-
             Free-text case-insensitive substring match. Matches across:
-            resource_id, log_id. Combined with other filter params using
-            AND semantics. Additive parameter — servers that don't
-            recognize it MUST ignore without error (additive-parameter
-            guarantee).
+            resource_id, log_id, error_code, operation. Combined with
+            other filter params using AND semantics. Additive
+            parameter — servers that don't recognize it MUST ignore
+            without error (additive-parameter guarantee).
             Empty string MUST be treated as absent. Max length 128
             characters; longer values MUST be rejected with HTTP 400.
           schema:
@@ -5709,7 +5911,16 @@ paths:
             default: 50
       responses:
         '400':
-          description: Bad request (malformed JSON, missing required fields, invalid enum, etc.)
+          description: >-
+            Bad request. Returned (INVALID_REQUEST) when the server
+            detects invalid parameter combinations or bounds — including
+            (v0.1.25.24): any IN-list query param (`operation`,
+            `resource_type`, `error_code`, `error_code_exclude`)
+            exceeding maxItems 25; exact `status` combined with
+            `status_min` or `status_max`; `status_min` or `status_max`
+            outside [100, 599]; `status_min > status_max`; `search`
+            exceeding 128 chars; plus the usual malformed-JSON /
+            invalid-enum cases.
           content:
             application/json:
               schema:
