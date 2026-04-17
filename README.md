@@ -7,7 +7,7 @@
 
 Cycles is an open protocol that ensures agents cannot authorize more spend than policy allows — even when dozens of them run concurrently.
 
-**Spec suite:** v0.1.26 &middot; **Runtime base:** v0.1.25 &middot; **Governance base:** v0.1.25.21 (semantic_base 0.1.25.9) &middot; **API path:** `/v1` &middot; **License:** Apache 2.0
+**Spec suite:** v0.1.26 &middot; **Runtime base:** v0.1.25 &middot; **Governance base:** v0.1.25.22 (semantic_base 0.1.25.9) &middot; **API path:** `/v1` &middot; **License:** Apache 2.0
 
 > **v0.1.26** adds action-level governance on top of the stable v0.1.25 runtime base:
 > - **Action kind registry** — 62 built-in kinds with risk classification and governance policy
