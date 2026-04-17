@@ -1058,7 +1058,8 @@ components:
     ActionExtension:
       type: object
       description: Additive extension to Action. Adds optional policy_keys for routing. policy_keys schema
-        defined in cycles-action-kinds-v0.1.26.yaml. Ignored by v0.1.25 servers — no breaking change.
+        defined in cycles-action-kinds-v0.1.26.yaml. Servers that do not implement this extension MUST
+        ignore the field without error — no breaking change.
       properties:
         policy_keys:
           type: object

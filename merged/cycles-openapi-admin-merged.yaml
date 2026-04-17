@@ -103,10 +103,9 @@ components:
       - asc
       - desc
       default: desc
-      description: Sort direction for admin list endpoints. Used with the per-endpoint `sort_by` parameter
-        introduced in v0.1.25.20. When `sort_by` is provided but `sort_dir` is omitted, servers MUST default
-        to "desc". Servers that do not recognize the parameter MUST ignore it without error (additive-parameter
-        guarantee).
+      description: Sort direction for admin list endpoints. Used with the per-endpoint `sort_by` parameter.
+        When `sort_by` is provided but `sort_dir` is omitted, servers MUST default to "desc". Servers
+        that do not recognize the parameter MUST ignore it without error (additive-parameter guarantee).
     Amount:
       type: object
       required:
@@ -372,12 +371,12 @@ components:
           description: Unique identifier for this ledger
         tenant_id:
           type: string
-          description: Tenant that owns this ledger. OPTIONAL for backward compatibility with pre-v0.1.25.19
-            server responses that omitted the field. Servers implementing v0.1.25.19+ MUST populate this
-            on every BudgetLedger they return. Load-bearing under AdminKeyAuth cross-tenant responses
-            (listBudgets with tenant_id absent) — it's how callers attribute a ledger to its tenant without
-            parsing the opaque scope string. Under ApiKeyAuth this equals the authenticated tenant; clients
-            that already know the tenant from context MAY ignore the field.
+          description: Tenant that owns this ledger. OPTIONAL for backward compatibility with older server
+            responses that may omit the field. Servers MUST populate this on every BudgetLedger they return.
+            Load-bearing under AdminKeyAuth cross-tenant responses (listBudgets with tenant_id absent)
+            — it's how callers attribute a ledger to its tenant without parsing the opaque scope string.
+            Under ApiKeyAuth this equals the authenticated tenant; clients that already know the tenant
+            from context MAY ignore the field.
         scope:
           type: string
           description: Canonical scope identifier, e.g., "tenant:acme-corp", "workspace:eng", "agent:summarizer"
@@ -1535,7 +1534,7 @@ components:
           type: object
           additionalProperties: true
           description: |-
-            Optional. Extension-defined structured context about the denial. v0.1.26 servers populate this with DenyDetail fields:
+            Optional. Extension-defined structured context about the denial. Servers implementing the governance action-quotas extension populate this with DenyDetail fields:
               reason_code (echoed),
               quota_violation (object with action_kind, window, used, limit),
               blocked_by_policy, blocked_by_scope, suggested_fix,
@@ -3567,7 +3566,8 @@ components:
     ActionExtension:
       type: object
       description: Additive extension to Action. Adds optional policy_keys for routing. policy_keys schema
-        defined in cycles-action-kinds-v0.1.26.yaml. Ignored by v0.1.25 servers — no breaking change.
+        defined in cycles-action-kinds-v0.1.26.yaml. Servers that do not implement this extension MUST
+        ignore the field without error — no breaking change.
       properties:
         policy_keys:
           type: object
@@ -4141,8 +4141,8 @@ paths:
       - name: search
         in: query
         description: 'Free-text case-insensitive substring match. Matches across: tenant_id, name. Combined
-          with other filter params using AND semantics. Additive parameter introduced in v0.1.25.21 —
-          servers that don''t recognize it MUST ignore without error. Empty string MUST be treated as
+          with other filter params using AND semantics. Additive parameter — servers that don''t recognize
+          it MUST ignore without error (additive-parameter guarantee). Empty string MUST be treated as
           absent. Max length 128 characters; longer values MUST be rejected with HTTP 400.'
         schema:
           type: string
@@ -4151,8 +4151,8 @@ paths:
         in: query
         description: Sort key. When provided, results are returned in the requested order and the returned
           cursor encodes the sort key so "Load more" continues in sort order. When omitted, servers use
-          their default ordering (unchanged from pre-v0.1.25.20 behavior). Servers that don't recognize
-          the parameter MUST ignore it without error.
+          their existing default ordering. Servers that don't recognize the parameter MUST ignore it without
+          error (additive-parameter guarantee).
         schema:
           type: string
           enum:
@@ -4386,7 +4386,7 @@ paths:
       operationId: bulkActionTenants
       summary: Apply a lifecycle action to every tenant matching a filter
       description: |-
-        Apply SUSPEND, REACTIVATE, or CLOSE to every tenant matching the provided filter in a single synchronous request. Added in v0.1.25.21 to let admin dashboards execute "pause all tenants with status ACTIVE matching 'acme'" without paginating the list and issuing one PATCH per row (which produces partial-failure modes and thundering-herd request bursts at scale).
+        Apply SUSPEND, REACTIVATE, or CLOSE to every tenant matching the provided filter in a single synchronous request. Lets admin dashboards execute "pause all tenants with status ACTIVE matching 'acme'" without paginating the list and issuing one PATCH per row (which produces partial-failure modes and thundering-herd request bursts at scale).
         SEMANTICS: - The `filter` block mirrors the query params of listTenants
           (status, parent_tenant_id, observe_mode, search). Filter
           semantics (ILIKE match, AND combination) are identical to the
@@ -4634,8 +4634,8 @@ paths:
       - name: search
         in: query
         description: 'Free-text case-insensitive substring match. Matches across: tenant_id, scope. Combined
-          with other filter params using AND semantics. Additive parameter introduced in v0.1.25.21 —
-          servers that don''t recognize it MUST ignore without error. Empty string MUST be treated as
+          with other filter params using AND semantics. Additive parameter — servers that don''t recognize
+          it MUST ignore without error (additive-parameter guarantee). Empty string MUST be treated as
           absent. Max length 128 characters; longer values MUST be rejected with HTTP 400.'
         schema:
           type: string
@@ -4645,8 +4645,8 @@ paths:
         description: Sort key. When provided, results are returned in the requested order and the returned
           cursor encodes the sort key so "Load more" continues in sort order. utilization is computed
           as spent / allocated (allocated == 0 is treated as 0). commit_overage_policy is sorted by lexicographic
-          enum order. When omitted, servers use their default ordering (unchanged from pre-v0.1.25.20
-          behavior). Servers that don't recognize the parameter MUST ignore it without error.
+          enum order. When omitted, servers use their existing default ordering. Servers that don't recognize
+          the parameter MUST ignore it without error (additive-parameter guarantee).
         schema:
           type: string
           enum:
@@ -5477,8 +5477,8 @@ paths:
       - name: search
         in: query
         description: 'Free-text case-insensitive substring match. Matches across: key_id, name. Combined
-          with other filter params using AND semantics. Additive parameter introduced in v0.1.25.21 —
-          servers that don''t recognize it MUST ignore without error. Empty string MUST be treated as
+          with other filter params using AND semantics. Additive parameter — servers that don''t recognize
+          it MUST ignore without error (additive-parameter guarantee). Empty string MUST be treated as
           absent. Max length 128 characters; longer values MUST be rejected with HTTP 400.'
         schema:
           type: string
@@ -5487,8 +5487,8 @@ paths:
         in: query
         description: Sort key. When provided, results are returned in the requested order and the returned
           cursor encodes the sort key so "Load more" continues in sort order. When omitted, servers use
-          their default ordering (unchanged from pre-v0.1.25.20 behavior). Servers that don't recognize
-          the parameter MUST ignore it without error.
+          their existing default ordering. Servers that don't recognize the parameter MUST ignore it without
+          error (additive-parameter guarantee).
         schema:
           type: string
           enum:
@@ -5858,9 +5858,9 @@ paths:
       - name: search
         in: query
         description: 'Free-text case-insensitive substring match. Matches across: resource_id, log_id.
-          Combined with other filter params using AND semantics. Additive parameter introduced in v0.1.25.21
-          — servers that don''t recognize it MUST ignore without error. Empty string MUST be treated as
-          absent. Max length 128 characters; longer values MUST be rejected with HTTP 400.'
+          Combined with other filter params using AND semantics. Additive parameter — servers that don''t
+          recognize it MUST ignore without error (additive-parameter guarantee). Empty string MUST be
+          treated as absent. Max length 128 characters; longer values MUST be rejected with HTTP 400.'
         schema:
           type: string
           maxLength: 128
@@ -5868,8 +5868,8 @@ paths:
         in: query
         description: Sort key. When provided, results are returned in the requested order and the returned
           cursor encodes the sort key so "Load more" continues in sort order. When omitted, servers use
-          their default ordering (unchanged from pre-v0.1.25.20 behavior). Servers that don't recognize
-          the parameter MUST ignore it without error.
+          their existing default ordering. Servers that don't recognize the parameter MUST ignore it without
+          error (additive-parameter guarantee).
         schema:
           type: string
           enum:
@@ -6060,9 +6060,9 @@ paths:
       - name: search
         in: query
         description: 'Free-text case-insensitive substring match. Matches across: subscription_id, url.
-          Combined with other filter params using AND semantics. Additive parameter introduced in v0.1.25.21
-          — servers that don''t recognize it MUST ignore without error. Empty string MUST be treated as
-          absent. Max length 128 characters; longer values MUST be rejected with HTTP 400.'
+          Combined with other filter params using AND semantics. Additive parameter — servers that don''t
+          recognize it MUST ignore without error (additive-parameter guarantee). Empty string MUST be
+          treated as absent. Max length 128 characters; longer values MUST be rejected with HTTP 400.'
         schema:
           type: string
           maxLength: 128
@@ -6070,8 +6070,8 @@ paths:
         in: query
         description: Sort key. When provided, results are returned in the requested order and the returned
           cursor encodes the sort key so "Load more" continues in sort order. When omitted, servers use
-          their default ordering (unchanged from pre-v0.1.25.20 behavior). Servers that don't recognize
-          the parameter MUST ignore it without error.
+          their existing default ordering. Servers that don't recognize the parameter MUST ignore it without
+          error (additive-parameter guarantee).
         schema:
           type: string
           enum:
@@ -6475,9 +6475,9 @@ paths:
       - name: search
         in: query
         description: 'Free-text case-insensitive substring match. Matches across: correlation_id, scope.
-          Combined with other filter params using AND semantics. Additive parameter introduced in v0.1.25.21
-          — servers that don''t recognize it MUST ignore without error. Empty string MUST be treated as
-          absent. Max length 128 characters; longer values MUST be rejected with HTTP 400.'
+          Combined with other filter params using AND semantics. Additive parameter — servers that don''t
+          recognize it MUST ignore without error (additive-parameter guarantee). Empty string MUST be
+          treated as absent. Max length 128 characters; longer values MUST be rejected with HTTP 400.'
         schema:
           type: string
           maxLength: 128
@@ -6485,8 +6485,8 @@ paths:
         in: query
         description: Sort key. When provided, results are returned in the requested order and the returned
           cursor encodes the sort key so "Load more" continues in sort order. When omitted, servers use
-          their default ordering (unchanged from pre-v0.1.25.20 behavior). Servers that don't recognize
-          the parameter MUST ignore it without error.
+          their existing default ordering. Servers that don't recognize the parameter MUST ignore it without
+          error (additive-parameter guarantee).
         schema:
           type: string
           enum:
@@ -6700,7 +6700,7 @@ paths:
       operationId: bulkActionWebhooks
       summary: Apply a lifecycle action to every webhook subscription matching a filter
       description: |-
-        Apply PAUSE, RESUME, or DELETE to every webhook subscription matching the provided filter in a single synchronous request. Mirrors /v1/admin/tenants/bulk-action in body shape, safety semantics (expected_count gate, idempotency_key, 500-row cap), and response envelope. Added in v0.1.25.21 for admin-dashboard workflows such as "pause every subscription for tenant acme" or "delete every subscription with url containing staging".
+        Apply PAUSE, RESUME, or DELETE to every webhook subscription matching the provided filter in a single synchronous request. Mirrors /v1/admin/tenants/bulk-action in body shape, safety semantics (expected_count gate, idempotency_key, 500-row cap), and response envelope. Supports admin-dashboard workflows such as "pause every subscription for tenant acme" or "delete every subscription with url containing staging".
         FILTER SEMANTICS: - Filter block mirrors the query params of
           listWebhookSubscriptions (tenant_id, status, event_type,
           search). AND combination, ILIKE match on search. Operator

@@ -437,7 +437,8 @@ components:
       description: >-
         Additive extension to Action. Adds optional policy_keys for routing.
         policy_keys schema defined in cycles-action-kinds-v0.1.26.yaml.
-        Ignored by v0.1.25 servers — no breaking change.
+        Servers that do not implement this extension MUST ignore the
+        field without error — no breaking change.
       properties:
         policy_keys:
           type: object
@@ -634,14 +635,15 @@ components:
     #   - Open the reason_code enum (now an open string, not closed enum)
     #   - Add policy_id field
     #   - Add deny_detail field (generic object)
-    # v0.1.26 servers populate the base fields directly:
+    # Servers implementing this extension populate the base fields directly:
     #   - reason_code: any value including ACTION_QUOTA_EXCEEDED,
     #     ACTION_KIND_DENIED, ACTION_KIND_NOT_ALLOWED
     #   - deny_detail: serialized DenyDetail (see below) as a generic object
-    # v0.1.26 NORMATIVE REQUIREMENT: servers MUST populate deny_detail on
-    # every reservation.denied event, with structure matching the DenyDetail
-    # schema defined below (reason_code, quota_violation, blocked_by_scope,
-    # blocked_by_policy, suggested_fix, budget_remaining).
+    # NORMATIVE REQUIREMENT (this extension): servers implementing this
+    # extension MUST populate deny_detail on every reservation.denied event,
+    # with structure matching the DenyDetail schema defined below
+    # (reason_code, quota_violation, blocked_by_scope, blocked_by_policy,
+    # suggested_fix, budget_remaining).
 
     EventDataObservedDenied:
       type: object
