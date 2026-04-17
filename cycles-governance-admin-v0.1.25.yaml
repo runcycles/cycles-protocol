@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.22
+  version: 0.1.25.23
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Stable governance base — document revision 0.1.25.22; semantic base
+    Stable governance base — document revision 0.1.25.23; semantic base
     frozen at 0.1.25.9. Serves as the base for the Cycles Protocol v0.1.26
     spec family. Covers tenant management, authentication, and runtime
     enforcement. NOTE: This file alone is NOT sufficient for v0.1.26 admin
@@ -15,7 +15,7 @@ info:
   description: |-
     SPEC FAMILY CONTEXT (v0.1.26):
       This is the STABLE GOVERNANCE BASE for the Cycles Protocol v0.1.26
-      family. Document revision 0.1.25.22; semantic base frozen at 0.1.25.9
+      family. Document revision 0.1.25.23; semantic base frozen at 0.1.25.9
       (see cycles-spec-index.yaml for the versioning model). New capabilities
       (action quotas, risk-class quotas, access control lists, tenant
       observe_mode, action_quotas:read permission) are delivered via
@@ -96,6 +96,20 @@ info:
         - Explicit forward migration timelines ("removed in v0.1.27")
 
     CHANGELOG:
+      v0.1.25.23 (2026-04-17):
+        - Enum-consistency fix for bulk-action error codes. Added
+          `COUNT_MISMATCH` and `LIMIT_EXCEEDED` to the `ErrorCode` enum
+          so they can appear on the wire inside `ErrorResponse.error`.
+          The v0.1.25.21 prose for bulkActionTenants and
+          bulkActionWebhooks already REQUIRES these codes (409 on
+          expected_count mismatch, 400 on >500-row match), but the
+          ErrorCode enum didn't list them — response validators running
+          against the spec would reject a spec-compliant server. Purely
+          additive enum widening; no required-ness change, no breaking
+          change. Clients MUST already handle unknown error codes
+          gracefully (the enum was always extensible for forward
+          compatibility), so this is observability-safe.
+
       v0.1.25.22 (2026-04-17):
         - Editorial-only cleanup across the spec family. No wire changes,
           no schema changes, no required-ness changes, no enum changes.
@@ -2087,6 +2101,9 @@ components:
         - WEBHOOK_URL_INVALID
         - EVENT_NOT_FOUND
         - REPLAY_IN_PROGRESS
+        # Bulk-action safety-gate codes (v0.1.25.21 prose, v0.1.25.23 enum)
+        - COUNT_MISMATCH
+        - LIMIT_EXCEEDED
 
     ErrorResponse:
       type: object
