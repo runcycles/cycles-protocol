@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.20
+  version: 0.1.25.21
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Stable governance base — document revision 0.1.25.20; semantic base
+    Stable governance base — document revision 0.1.25.21; semantic base
     frozen at 0.1.25.9. Serves as the base for the Cycles Protocol v0.1.26
     spec family. Covers tenant management, authentication, and runtime
     enforcement. NOTE: This file alone is NOT sufficient for v0.1.26 admin
@@ -15,7 +15,7 @@ info:
   description: |-
     SPEC FAMILY CONTEXT (v0.1.26):
       This is the STABLE GOVERNANCE BASE for the Cycles Protocol v0.1.26
-      family. Document revision 0.1.25.20; semantic base frozen at 0.1.25.9
+      family. Document revision 0.1.25.21; semantic base frozen at 0.1.25.9
       (see cycles-spec-index.yaml for the versioning model). New capabilities
       (action quotas, risk-class quotas, access control lists, tenant
       observe_mode, action_quotas:read permission) are delivered via
@@ -96,6 +96,69 @@ info:
         - Explicit forward migration timelines ("removed in v0.1.27")
 
     CHANGELOG:
+      v0.1.25.21 (2026-04-17):
+        - Free-text search on admin list endpoints. New optional
+          `search` query parameter on the six admin list endpoints
+          (listTenants, listBudgets, listApiKeys, listAuditLogs,
+          listWebhookSubscriptions, listEvents). Case-insensitive
+          substring match; maxLength 128; empty string MUST be treated
+          as absent; combines with other filter params using AND.
+          Per-endpoint match fields:
+            * listTenants: tenant_id, name.
+            * listBudgets: tenant_id, scope.
+            * listApiKeys: key_id, name.
+            * listAuditLogs: resource_id, log_id.
+            * listWebhookSubscriptions: subscription_id, url.
+            * listEvents: correlation_id, scope.
+          Closes the dashboard-side workflow gap where "find tenant
+          matching 'acme'" required client-side filtering over a
+          truncated page-1 slice of the full list (silent false
+          negatives at scale). Purely additive; servers that don't
+          recognize `search` MUST ignore it.
+
+        - Filter-driven bulk lifecycle actions for tenants and webhook
+          subscriptions. Two new endpoints:
+            * POST /v1/admin/tenants/bulk-action
+              (SUSPEND | REACTIVATE | CLOSE)
+            * POST /v1/admin/webhooks/bulk-action
+              (PAUSE | RESUME | DELETE)
+          Both take { filter, action, expected_count, idempotency_key }
+          where `filter` mirrors the corresponding list endpoint's
+          query params (tenant_id, status, search, etc.), letting
+          operators preview the target set via GET with the same
+          filter before submitting the mutation.
+
+          Safety primitives:
+            * expected_count: server counts matches BEFORE any writes;
+              mismatch returns HTTP 409 COUNT_MISMATCH and performs no
+              writes (anti-footgun gate protecting against filter
+              drift between preview and submit).
+            * idempotency_key: 15-minute replay window; repeat submits
+              with the same key return the original response without
+              re-applying the action.
+            * HARD LIMIT: 500 matching rows per invocation; larger
+              filters return HTTP 400 LIMIT_EXCEEDED, forcing operators
+              to narrow the filter. Bounds worst-case transaction size
+              and keeps the request synchronous.
+            * Per-row failures land in `failed[]`; per-row no-ops land
+              in `skipped[]`. Overall HTTP 200 even with partial
+              failure — callers inspect the response envelope for
+              success/failure counts.
+
+          Replaces the client-side N-sequential-PATCH pattern (which
+          produced partial-failure modes, thundering-herd request
+          bursts, and no idempotency on retry) with a single
+          server-owned transaction.
+
+        - New schemas: BulkActionRowOutcome, TenantBulkFilter,
+          TenantBulkActionRequest, TenantBulkActionResponse,
+          WebhookBulkFilter, WebhookBulkActionRequest,
+          WebhookBulkActionResponse.
+
+        - Backward compatible: purely additive. No existing request
+          or response schema modified; no field semantics changed.
+          semantic_base unchanged at 0.1.25.9.
+
       v0.1.25.20 (2026-04-16):
         - Server-side sort for admin list endpoints. Closes the
           silent-wrong-answer hazard where a client-side sort applied
@@ -3391,6 +3454,244 @@ components:
             access is the intersection of its permissions and scope_filter.
             Absent or empty means no scope narrowing.
 
+    # ========================================================================
+    # BULK-ACTION SCHEMAS (v0.1.25.21)
+    # Filter-in-body lifecycle mutation for tenants and webhook
+    # subscriptions. Body shape deliberately mirrors the list-endpoint
+    # query params so operators can preview matches via GET and then
+    # submit the same filter to bulk-action. See POST
+    # /v1/admin/tenants/bulk-action and POST /v1/admin/webhooks/bulk-action
+    # for safety semantics (expected_count, idempotency_key, 500-row cap).
+    # ========================================================================
+
+    BulkActionRowOutcome:
+      type: object
+      description: >-
+        Per-row result in a bulk-action response. Rows are grouped into
+        `succeeded`, `failed`, and `skipped` in the response envelope;
+        this schema is the shape of any entry in those arrays.
+      required: [id]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          description: >-
+            The affected row's primary identifier. For tenants this is
+            tenant_id; for webhook subscriptions, subscription_id.
+        error_code:
+          type: string
+          description: >-
+            Machine-readable failure code. Present in `failed[]` entries
+            only. Known codes: INVALID_TRANSITION, NOT_FOUND,
+            PERMISSION_DENIED, INTERNAL_ERROR. Servers MAY introduce
+            additional codes; clients MUST treat unknown codes as
+            equivalent to INTERNAL_ERROR.
+        message:
+          type: string
+          description: >-
+            Human-readable failure reason. Present in `failed[]` entries
+            only. Safe to display to operators; MUST NOT leak
+            server-internal detail.
+        reason:
+          type: string
+          description: >-
+            Machine-readable skip reason. Present in `skipped[]` entries
+            only. Known values: ALREADY_IN_TARGET_STATE, ALREADY_DELETED.
+
+    TenantBulkFilter:
+      type: object
+      description: >-
+        Filter selecting which tenants a bulk-action applies to. Shape
+        and semantics MUST match the query params of listTenants; at
+        least one property MUST be present (empty filter is rejected
+        with HTTP 400 to prevent an accidental all-tenants action). AND
+        combination across properties.
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        status:
+          type: string
+          enum: [ACTIVE, SUSPENDED, CLOSED]
+        parent_tenant_id:
+          type: string
+        observe_mode:
+          type: string
+          description: >-
+            Filter by tenant observe_mode. Only meaningful on servers
+            implementing the v0.1.26 observe_mode extension; servers
+            that don't recognize this field MUST ignore it.
+        search:
+          type: string
+          maxLength: 128
+          description: >-
+            Case-insensitive substring match across tenant_id and name;
+            identical semantics to the listTenants `search` param.
+
+    TenantBulkActionRequest:
+      type: object
+      description: >-
+        Request envelope for POST /v1/admin/tenants/bulk-action. Names
+        the filter selecting target tenants, the lifecycle action to
+        apply, and the safety metadata (expected_count, idempotency_key)
+        that protects against accidental over-apply and retry
+        duplication.
+      required: [filter, action, idempotency_key]
+      additionalProperties: false
+      properties:
+        filter:
+          $ref: '#/components/schemas/TenantBulkFilter'
+        action:
+          type: string
+          enum: [SUSPEND, REACTIVATE, CLOSE]
+        expected_count:
+          type: integer
+          minimum: 0
+          description: >-
+            Operator-supplied count of filter matches. When present,
+            server MUST count matches first; if the count differs, the
+            server MUST reject with HTTP 409 COUNT_MISMATCH and perform
+            no writes. Optional but strongly recommended — UIs should
+            always populate this from a preview query.
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: >-
+            Operator-supplied replay key (typically UUID v4). Server
+            remembers the first response for this key for 15 minutes;
+            repeat submits return the original response without
+            re-applying the action.
+
+    TenantBulkActionResponse:
+      type: object
+      description: >-
+        Response envelope for POST /v1/admin/tenants/bulk-action. Splits
+        the affected tenants into succeeded / failed / skipped with
+        per-row outcome details, and echoes action + idempotency_key so
+        callers can confirm they observed the intended effect.
+      required: [action, total_matched, succeeded, failed, skipped, idempotency_key]
+      additionalProperties: false
+      properties:
+        action:
+          type: string
+          enum: [SUSPEND, REACTIVATE, CLOSE]
+          description: Echo of the request action.
+        total_matched:
+          type: integer
+          minimum: 0
+          description: Server-counted number of tenants that matched the filter.
+        succeeded:
+          type: array
+          description: Rows the action applied to successfully.
+          items:
+            $ref: '#/components/schemas/BulkActionRowOutcome'
+        failed:
+          type: array
+          description: >-
+            Rows where the action failed. Each entry carries error_code
+            and message. The bulk op does NOT abort on individual row
+            failure — all matching rows are attempted.
+          items:
+            $ref: '#/components/schemas/BulkActionRowOutcome'
+        skipped:
+          type: array
+          description: >-
+            Rows where the action was a no-op (already in target state
+            for SUSPEND/REACTIVATE; already deleted for CLOSE). Each
+            entry carries a `reason` field.
+          items:
+            $ref: '#/components/schemas/BulkActionRowOutcome'
+        idempotency_key:
+          type: string
+          description: Echo of the request idempotency_key.
+
+    WebhookBulkFilter:
+      type: object
+      description: >-
+        Filter selecting which webhook subscriptions a bulk-action
+        applies to. Shape and semantics MUST match the query params of
+        listWebhookSubscriptions; at least one property MUST be present
+        (empty filter is rejected with HTTP 400). AND combination
+        across properties.
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        tenant_id:
+          type: string
+        status:
+          type: string
+          enum: [ACTIVE, PAUSED, DISABLED]
+        event_type:
+          $ref: '#/components/schemas/EventType'
+        search:
+          type: string
+          maxLength: 128
+          description: >-
+            Case-insensitive substring match across subscription_id and
+            url; identical semantics to the listWebhookSubscriptions
+            `search` param.
+
+    WebhookBulkActionRequest:
+      type: object
+      description: >-
+        Request envelope for POST /v1/admin/webhooks/bulk-action.
+        Mirrors TenantBulkActionRequest in shape and safety semantics;
+        targets webhook subscriptions instead of tenants.
+      required: [filter, action, idempotency_key]
+      additionalProperties: false
+      properties:
+        filter:
+          $ref: '#/components/schemas/WebhookBulkFilter'
+        action:
+          type: string
+          enum: [PAUSE, RESUME, DELETE]
+        expected_count:
+          type: integer
+          minimum: 0
+          description: >-
+            See TenantBulkActionRequest.expected_count — identical
+            semantics. Optional but strongly recommended.
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: >-
+            See TenantBulkActionRequest.idempotency_key — identical
+            semantics. 15-minute replay window.
+
+    WebhookBulkActionResponse:
+      type: object
+      description: >-
+        Response envelope for POST /v1/admin/webhooks/bulk-action.
+        Mirrors TenantBulkActionResponse; splits affected subscriptions
+        into succeeded / failed / skipped arrays with per-row outcome.
+      required: [action, total_matched, succeeded, failed, skipped, idempotency_key]
+      additionalProperties: false
+      properties:
+        action:
+          type: string
+          enum: [PAUSE, RESUME, DELETE]
+          description: Echo of the request action.
+        total_matched:
+          type: integer
+          minimum: 0
+          description: Server-counted number of subscriptions that matched the filter.
+        succeeded:
+          type: array
+          items:
+            $ref: '#/components/schemas/BulkActionRowOutcome'
+        failed:
+          type: array
+          items:
+            $ref: '#/components/schemas/BulkActionRowOutcome'
+        skipped:
+          type: array
+          items:
+            $ref: '#/components/schemas/BulkActionRowOutcome'
+        idempotency_key:
+          type: string
+          description: Echo of the request idempotency_key.
+
 # ============================================================================
 # API ENDPOINTS
 # ============================================================================
@@ -3493,6 +3794,18 @@ paths:
             guarantee).
           schema:
             type: string
+        - name: search
+          in: query
+          description: >-
+            Free-text case-insensitive substring match. Matches across:
+            tenant_id, name. Combined with other filter params using
+            AND semantics. Additive parameter introduced in v0.1.25.21 —
+            servers that don't recognize it MUST ignore without error.
+            Empty string MUST be treated as absent. Max length 128
+            characters; longer values MUST be rejected with HTTP 400.
+          schema:
+            type: string
+            maxLength: 128
         - name: sort_by
           in: query
           description: >-
@@ -3691,6 +4004,114 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/admin/tenants/bulk-action:
+    post:
+      tags: [Tenants]
+      operationId: bulkActionTenants
+      summary: Apply a lifecycle action to every tenant matching a filter
+      description: >-
+        Apply SUSPEND, REACTIVATE, or CLOSE to every tenant matching the
+        provided filter in a single synchronous request. Added in
+        v0.1.25.21 to let admin dashboards execute "pause all tenants
+        with status ACTIVE matching 'acme'" without paginating the list
+        and issuing one PATCH per row (which produces partial-failure
+        modes and thundering-herd request bursts at scale).
+
+        SEMANTICS:
+        - The `filter` block mirrors the query params of listTenants
+          (status, parent_tenant_id, observe_mode, search). Filter
+          semantics (ILIKE match, AND combination) are identical to the
+          list endpoint — operators can preview the affected set with
+          GET /v1/admin/tenants and the same filter before invoking
+          bulk-action.
+        - Server counts the filter match BEFORE mutation. If
+          `expected_count` is supplied and does not equal the server's
+          count, the server MUST reject with HTTP 409 COUNT_MISMATCH and
+          perform no writes. This is the anti-footgun gate — the
+          dashboard shows "49 tenants match" and passes 49; if the
+          filter drifted (new tenant created between preview and submit),
+          the mismatch aborts the run.
+        - `idempotency_key` (operator-supplied, typically a UUID v4) is
+          remembered by the server for 15 minutes. A repeated submit
+          with the same key returns the ORIGINAL response without
+          re-applying the action — safe retry on network error or
+          accidental double-click.
+        - HARD LIMIT: 500 matching rows per invocation. If the filter
+          matches more than 500, server MUST reject with HTTP 400
+          LIMIT_EXCEEDED (body includes `total_matched`). Operator must
+          narrow the filter. This bounds the worst-case transaction
+          size and keeps the request synchronous.
+        - Per-row failure is recorded in the response `failed[]` array;
+          the bulk op does NOT abort on individual row failure. Each
+          entry carries a row-level error_code (e.g. INVALID_STATE
+          TRANSITION). Overall HTTP status is 200 even when some rows
+          fail — the response envelope reports success/failure counts.
+
+        ACTION SEMANTICS:
+        - SUSPEND: tenant.status ACTIVE → SUSPENDED. Idempotent when
+          already SUSPENDED (row goes into `skipped[]`). Invalid from
+          CLOSED (row goes into `failed[]` with INVALID_TRANSITION).
+        - REACTIVATE: SUSPENDED → ACTIVE. Idempotent when already
+          ACTIVE. Invalid from CLOSED.
+        - CLOSE: any status → CLOSED. Terminal — not reversible via
+          this API. Implementations MAY require additional
+          confirmation (e.g. requiring `allow_close: true` in the
+          request body) in future minor revisions.
+
+        AUTHORIZATION:
+        - AdminKeyAuth only. No ApiKeyAuth path — tenants cannot
+          bulk-mutate their own peers.
+      security:
+        - AdminKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TenantBulkActionRequest'
+      responses:
+        '200':
+          description: Bulk action applied (may include per-row failures)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantBulkActionResponse'
+        '400':
+          description: >-
+            Malformed request, unknown action, search too long, or
+            LIMIT_EXCEEDED (total_matched > 500).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: >-
+            COUNT_MISMATCH — server-counted matches differ from
+            client-supplied expected_count. No writes performed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /v1/admin/budgets:
     post:
       tags: [Budgets]
@@ -3867,6 +4288,18 @@ paths:
             format: double
             minimum: 0
             maximum: 1
+        - name: search
+          in: query
+          description: >-
+            Free-text case-insensitive substring match. Matches across:
+            tenant_id, scope. Combined with other filter params using
+            AND semantics. Additive parameter introduced in v0.1.25.21 —
+            servers that don't recognize it MUST ignore without error.
+            Empty string MUST be treated as absent. Max length 128
+            characters; longer values MUST be rejected with HTTP 400.
+          schema:
+            type: string
+            maxLength: 128
         - name: sort_by
           in: query
           description: >-
@@ -4732,6 +5165,18 @@ paths:
           schema:
             type: string
             enum: [ACTIVE, REVOKED, EXPIRED]
+        - name: search
+          in: query
+          description: >-
+            Free-text case-insensitive substring match. Matches across:
+            key_id, name. Combined with other filter params using
+            AND semantics. Additive parameter introduced in v0.1.25.21 —
+            servers that don't recognize it MUST ignore without error.
+            Empty string MUST be treated as absent. Max length 128
+            characters; longer values MUST be rejected with HTTP 400.
+          schema:
+            type: string
+            maxLength: 128
         - name: sort_by
           in: query
           description: >-
@@ -5143,6 +5588,18 @@ paths:
           schema:
             type: string
             format: date-time
+        - name: search
+          in: query
+          description: >-
+            Free-text case-insensitive substring match. Matches across:
+            resource_id, log_id. Combined with other filter params using
+            AND semantics. Additive parameter introduced in v0.1.25.21 —
+            servers that don't recognize it MUST ignore without error.
+            Empty string MUST be treated as absent. Max length 128
+            characters; longer values MUST be rejected with HTTP 400.
+          schema:
+            type: string
+            maxLength: 128
         - name: sort_by
           in: query
           description: >-
@@ -5359,6 +5816,18 @@ paths:
           description: Filter to subscriptions that include this event type
           schema:
             $ref: '#/components/schemas/EventType'
+        - name: search
+          in: query
+          description: >-
+            Free-text case-insensitive substring match. Matches across:
+            subscription_id, url. Combined with other filter params using
+            AND semantics. Additive parameter introduced in v0.1.25.21 —
+            servers that don't recognize it MUST ignore without error.
+            Empty string MUST be treated as absent. Max length 128
+            characters; longer values MUST be rejected with HTTP 400.
+          schema:
+            type: string
+            maxLength: 128
         - name: sort_by
           in: query
           description: >-
@@ -5783,6 +6252,18 @@ paths:
           schema:
             type: string
             format: date-time
+        - name: search
+          in: query
+          description: >-
+            Free-text case-insensitive substring match. Matches across:
+            correlation_id, scope. Combined with other filter params using
+            AND semantics. Additive parameter introduced in v0.1.25.21 —
+            servers that don't recognize it MUST ignore without error.
+            Empty string MUST be treated as absent. Max length 128
+            characters; longer values MUST be rejected with HTTP 400.
+          schema:
+            type: string
+            maxLength: 128
         - name: sort_by
           in: query
           description: >-
@@ -5993,6 +6474,100 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/admin/webhooks/bulk-action:
+    post:
+      tags: [Webhooks]
+      operationId: bulkActionWebhooks
+      summary: Apply a lifecycle action to every webhook subscription matching a filter
+      description: >-
+        Apply PAUSE, RESUME, or DELETE to every webhook subscription
+        matching the provided filter in a single synchronous request.
+        Mirrors /v1/admin/tenants/bulk-action in body shape, safety
+        semantics (expected_count gate, idempotency_key, 500-row cap),
+        and response envelope. Added in v0.1.25.21 for admin-dashboard
+        workflows such as "pause every subscription for tenant acme"
+        or "delete every subscription with url containing staging".
+
+        FILTER SEMANTICS:
+        - Filter block mirrors the query params of
+          listWebhookSubscriptions (tenant_id, status, event_type,
+          search). AND combination, ILIKE match on search. Operator
+          previews the affected set via GET /v1/admin/webhooks with the
+          same filter before invoking bulk-action.
+
+        ACTION SEMANTICS:
+        - PAUSE: status ACTIVE → PAUSED. Idempotent when already PAUSED
+          or DISABLED (row goes into `skipped[]`).
+        - RESUME: status PAUSED → ACTIVE. Idempotent when already
+          ACTIVE. DISABLED subscriptions cannot be resumed (row goes
+          into `failed[]` with INVALID_TRANSITION).
+        - DELETE: removes the subscription record permanently. Not
+          reversible. Rows missing (already deleted) go into
+          `skipped[]`.
+
+        SAFETY:
+        - expected_count gate: server counts before mutation; mismatch
+          → 409 COUNT_MISMATCH with no writes. See bulkActionTenants
+          for full rationale.
+        - idempotency_key: 15-min replay window; repeat submits return
+          the original response without re-applying.
+        - HARD LIMIT: 500 matching rows. Larger filters → HTTP 400
+          LIMIT_EXCEEDED.
+        - Overall HTTP 200 even when some rows fail; response envelope
+          reports success/failure counts.
+
+        AUTHORIZATION:
+        - AdminKeyAuth only.
+      security:
+        - AdminKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookBulkActionRequest'
+      responses:
+        '200':
+          description: Bulk action applied (may include per-row failures)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookBulkActionResponse'
+        '400':
+          description: >-
+            Malformed request, unknown action, search too long, or
+            LIMIT_EXCEEDED (total_matched > 500).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: >-
+            COUNT_MISMATCH — server-counted matches differ from
+            client-supplied expected_count. No writes performed.
           content:
             application/json:
               schema:
