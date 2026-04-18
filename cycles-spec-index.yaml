@@ -49,7 +49,7 @@ spec_family:
     The merge_recipes section below defines how to produce those artifacts.
   current_versions:
     base_runtime: "0.1.25"                # trace_id cross-surface correlation (2026-04-18 revision)
-    base_governance: "0.1.25.27"          # trace_id on Event/AuditLogEntry/ErrorResponse + filter params
+    base_governance: "0.1.25.28"          # + trace_id/trace_flags/traceparent_inbound_valid on WebhookDelivery
     base_governance_semantic_base: "0.1.25.9"  # frozen wire baseline
     extension_runtime: "0.1.26"           # untouched — no Event/ErrorResponse redeclaration
     extension_governance: "0.1.27"        # trace_id on redeclared ErrorResponse
@@ -88,7 +88,7 @@ documents:
 
   - id: governance_base
     file: cycles-governance-admin-v0.1.25.yaml
-    version: "0.1.25.27"          # trace_id cross-surface correlation (matches info.version)
+    version: "0.1.25.28"          # trace_id on WebhookDelivery (matches info.version)
     semantic_base: "0.1.25.9"     # frozen wire baseline
     role: base
     title: Complete Budget Governance Admin API

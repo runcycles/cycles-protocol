@@ -6,6 +6,44 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.28 — 2026-04-18
+
+- Close gap from v0.1.25.27: extends cross-surface `trace_id`
+  correlation onto the `WebhookDelivery` schema so operators can JOIN
+  a delivery record with the event that produced it, the audit entry
+  for the originating HTTP request, and sibling deliveries in the
+  same fan-out. Adds three OPTIONAL properties on
+  `#/components/schemas/WebhookDelivery`:
+    * `trace_id` — `^[0-9a-f]{32}$`. Captured at dispatch time from the
+      originating event. Populated on every delivery whose originating
+      event had a `trace_id` (always true for HTTP-originated events on
+      conformant v0.1.25.28+ servers). Deliveries recorded before
+      server upgrade MAY lack this field; clients MUST tolerate absence.
+    * `trace_flags` — `^[0-9a-f]{2}$`. The W3C Trace Context trace-flags
+      byte to use when constructing the outbound `traceparent` header
+      for HTTP delivery. Preserves the inbound sampling decision when
+      the originating request carried a valid `traceparent`; otherwise
+      the server defaults to `01` (sampled) per cycles-protocol-v0
+      §CORRELATION AND TRACING.
+    * `traceparent_inbound_valid` — boolean. Whether the originating
+      HTTP request presented a valid W3C `traceparent`. Used by the
+      outbound delivery worker to decide whether to preserve
+      `trace_flags` (true) or default to `01` (false).
+
+  Rationale: v0.1.25.27 added `trace_id` to `Event`, `AuditLogEntry`,
+  and `ErrorResponse` but not to `WebhookDelivery`. The Cycles-admin
+  server impl (cycles-server-admin v0.1.25.31) naturally carries these
+  fields on delivery records for the cycles-server-events sidecar to
+  consume when constructing outbound `traceparent` headers (per the
+  webhook-delivery prose in cycles-protocol-v0). With `additionalProperties:
+  false` on `WebhookDelivery`, populating those fields without the spec
+  declaring them was a contract gap — this entry closes it.
+
+  Non-breaking: three new OPTIONAL fields; old clients tolerate unknown
+  response fields by HTTP contract. Spec's additive-field guarantee
+  (see preamble) applies. No field removals, no type changes, no new
+  required fields.
+
 ## v0.1.25.27 — 2026-04-18
 
 - Cross-surface correlation — adds `trace_id` (W3C Trace Context-
