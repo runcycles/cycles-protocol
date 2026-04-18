@@ -7,7 +7,7 @@
 
 Cycles is an open protocol that ensures agents cannot authorize more spend than policy allows — even when dozens of them run concurrently.
 
-**Spec suite:** v0.1.26 &middot; **Runtime base:** v0.1.25 &middot; **Governance base:** v0.1.25.23 (semantic_base 0.1.25.9) &middot; **API path:** `/v1` &middot; **License:** Apache 2.0
+**Spec suite:** v0.1.26 &middot; **Runtime base:** v0.1.25 &middot; **Governance base:** v0.1.25.27 (semantic_base 0.1.25.9) &middot; **API path:** `/v1` &middot; **License:** Apache 2.0
 
 > **v0.1.26** adds action-level governance on top of the stable v0.1.25 runtime base:
 > - **Action kind registry** — 62 built-in kinds with risk classification and governance policy
@@ -196,6 +196,7 @@ Everything below is the full protocol reference. For the OpenAPI 3.1.0 definitio
 - [Idempotency](#idempotency)
 - [Authentication and Tenancy](#authentication-and-tenancy)
 - [Response Headers](#response-headers)
+- [Correlation and Tracing](#correlation-and-tracing)
 - [Key Schemas](#key-schemas)
 - [Pagination](#pagination)
 - [Error Codes](#error-codes)
@@ -402,10 +403,33 @@ All responses may include these headers:
 
 | Header | Description |
 |--------|-------------|
-| `X-Request-Id` | Unique request identifier for debugging |
+| `X-Request-Id` | Unique request identifier for debugging (one HTTP request) |
+| `X-Cycles-Trace-Id` | W3C Trace Context-compatible trace identifier (32 lowercase hex chars). Emitted on every response. Links the request, its audit entry, emitted events, and outbound webhook deliveries under one logical operation. See [Correlation and Tracing](#correlation-and-tracing). |
 | `X-Cycles-Tenant` | Effective tenant identifier derived from auth context (optional in v0) |
 | `X-RateLimit-Remaining` | Requests remaining in current rate-limit window (optional in v0) |
 | `X-RateLimit-Reset` | Unix timestamp (seconds) when the rate limit resets (optional in v0) |
+
+### Correlation and Tracing
+
+Three correlation identifiers travel together:
+
+| Field | Grain | Source | Purpose |
+|---|---|---|---|
+| `request_id` | One HTTP request | Server | "What single API call caused this side effect?" |
+| `trace_id` | Logical operation across N requests | Client (`traceparent` or `X-Cycles-Trace-Id` header) or server-generated | "What user-intent / distributed trace am I inside?" |
+| `correlation_id` | Event-stream cluster (window / run / denial) | Server (deterministic hash) | "Which other events share my window or run?" |
+
+**Inbound header precedence** (server extracts `trace_id` from the first rule that matches):
+
+1. `traceparent` header, if present and valid per W3C Trace Context §3.2 (version `00`, non-all-zero trace-id and span-id).
+2. Else `X-Cycles-Trace-Id` header, if present and matches `^[0-9a-f]{32}$` and is not all-zero.
+3. Else the server generates a fresh 128-bit trace-id (32 lowercase hex chars; all-zero is re-rolled).
+
+Malformed correlation headers are treated as absent — the server MUST NOT reject a request on a malformed `traceparent` or `X-Cycles-Trace-Id`. If both are present and disagree, `traceparent` wins.
+
+**Outbound propagation:** every response carries `X-Cycles-Trace-Id`. Outbound webhook deliveries carry `X-Cycles-Trace-Id`, a freshly constructed `traceparent` (with a new outbound span-id; inbound trace-flags preserved when the inbound `traceparent` was valid, default `01` otherwise), and `trace_id` in the event envelope body. Admin-plane `Event` and `AuditLogEntry` schemas carry `trace_id`, and `listEvents` / `listAuditLogs` accept `trace_id` and `request_id` as filter parameters.
+
+The authoritative contract lives in `cycles-protocol-v0.yaml`'s `CORRELATION AND TRACING` preamble section and binds every plane.
 
 ---
 
@@ -455,7 +479,8 @@ All error responses share this structure:
 |-------|------|----------|-------------|
 | `error` | ErrorCode | yes | Machine-readable error code (see [Error Codes](#error-codes)) |
 | `message` | string | yes | Human-readable error description |
-| `request_id` | string | yes | Request identifier for debugging |
+| `request_id` | string | yes | Request identifier for debugging (one HTTP request) |
+| `trace_id` | string | no | W3C Trace Context-compatible trace identifier (`^[0-9a-f]{32}$`). Links this error to the logical operation it belongs to. See [Correlation and Tracing](#correlation-and-tracing). |
 | `details` | object | no | Additional context (free-form) |
 
 ### Amount
