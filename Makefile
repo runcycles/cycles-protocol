@@ -1,4 +1,4 @@
-.PHONY: install lint lint-sources lint-merged lint-all validate merge merge-check clean
+.PHONY: install lint lint-sources lint-merged lint-all validate merge merge-check changelog-check clean
 
 # Canonical source specs — all linted in CI.
 SOURCE_SPECS := \
@@ -39,7 +39,12 @@ lint: install
 	npx spectral lint cycles-protocol-v0.yaml --fail-severity=error
 
 ## Alias for full validation
-validate: lint-all merge-check
+validate: lint-all merge-check changelog-check
+
+## Verify each source spec's info.x-changelog points at an existing changelog
+## file and the latest version heading matches info.version.
+changelog-check:
+	python scripts/validate_changelogs.py
 
 ## Regenerate merged OpenAPI artifacts (protocol plane + admin plane)
 merge:

@@ -11,6 +11,9 @@ info:
     no schema imports from the Cycles runtime or governance specs, but
     with normative integration points into both (quota atomicity with
     the runtime reservation path; action_quotas on Policy in the governance spec).
+  x-changelog:
+    url: ./changelogs/cycles-action-kinds.md
+    format: keep-a-changelog
   description: |-
     PURPOSE:
       This spec defines three things:
@@ -317,37 +320,6 @@ info:
         Custom kinds do NOT appear in the public GET /v1/action-kinds
         endpoint by default. Servers MAY provide a separate
         operator-scoped endpoint for custom kind introspection.
-
-    CHANGELOG:
-      v0.1.26 (2026-04-09):
-        - Split from cycles-protocol-extensions-v0.1.26-final.yaml monolith.
-        - Expanded registry from 44 to 62 built-in kinds.
-        - NEW categories: agent (4 kinds), memory (3 kinds),
-          reasoning (2 kinds), vision (3 kinds).
-        - NEW kinds in existing categories: vector.delete,
-          llm.structured_output, code.lint, document.edit,
-          message.chat.post, http.graphql.
-        - Added mcp_tool_prefixes to llm.completion and llm.embedding
-          (previously empty).
-        - Added RiskClassQuota, per_minute_tumbling window, threshold_pct.
-        - per_run_counter_ttl_ms field added to ActionQuota.
-        - Calendar-bucket window model fully specified and consistent
-          throughout (no first-write+TTL contradictions).
-        - REGISTRY GOVERNANCE: added normative sections for deprecation
-          process, provider aliasing policy, adding new built-in kinds,
-          and custom.* namespace rules.
-        - DOCUMENTATION TIGHTENING (no wire change):
-          POST /v1/admin/action-quota-counters/reset is documented as
-          AdminKeyAuth-only — the previous prose mentioned an ApiKeyAuth
-          branch with a reserved `action_quotas:write` permission, but the
-          operation's `security:` block was already AdminKeyAuth-only and
-          no `action_quotas:write` permission exists in v0.1.26.
-          ActionQuotaCounterResetRequest.tenant_id description tightened
-          from "Ignored when using ApiKeyAuth" to "REQUIRED" — same
-          rationale (the AdminKeyAuth-only `security:` block already
-          mandated this; correctly-implemented servers were already
-          requiring tenant_id). Servers MUST return 400 INVALID_REQUEST
-          (`missing_required_field: tenant_id`) when tenant_id is omitted.
 
 servers:
   - url: https://api.cycles.local
