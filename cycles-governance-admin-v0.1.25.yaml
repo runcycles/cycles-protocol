@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.26
+  version: 0.1.25.27
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Stable governance base — document revision 0.1.25.26; semantic base
+    Stable governance base — document revision 0.1.25.27; semantic base
     frozen at 0.1.25.9. Serves as the base for the Cycles Protocol v0.1.26
     spec family. Covers tenant management, authentication, and runtime
     enforcement. NOTE: This file alone is NOT sufficient for v0.1.26 admin
@@ -16,9 +16,26 @@ info:
     url: ./changelogs/cycles-governance-admin.md
     format: keep-a-changelog
   description: |-
+    CORRELATION AND TRACING (cross-reference):
+      The admin plane conforms to the cross-surface correlation contract
+      defined authoritatively in the CORRELATION AND TRACING section of
+      cycles-protocol-v0.yaml. That contract binds every response from
+      every plane (runtime, admin, action-kinds, extensions) to echo
+      `X-Cycles-Trace-Id` as a response header and to propagate
+      `trace_id` onto events, audit-log entries, error responses, and
+      outbound webhook deliveries. The admin plane's Event,
+      AuditLogEntry, and ErrorResponse schemas in this document carry a
+      `trace_id` property accordingly; the `request_id` contract on
+      Event and AuditLogEntry is strengthened to cover async/deferred
+      work spawned by the originating HTTP request. Readers of this
+      document in isolation MUST consult cycles-protocol-v0.yaml for
+      inbound-header precedence, fallback-generation rules, and the
+      full normative propagation contract. No conflicting contract is
+      stated here.
+
     SPEC FAMILY CONTEXT (v0.1.26):
       This is the STABLE GOVERNANCE BASE for the Cycles Protocol v0.1.26
-      family. Document revision 0.1.25.26; semantic base frozen at 0.1.25.9
+      family. Document revision 0.1.25.27; semantic base frozen at 0.1.25.9
       (see cycles-spec-index.yaml for the versioning model). New capabilities
       (action quotas, risk-class quotas, access control lists, tenant
       observe_mode, action_quotas:read permission) are delivered via
@@ -151,6 +168,29 @@ components:
       in: header
       name: X-Cycles-API-Key
       description: Tenant-scoped API key for runtime operations (consistent with Cycles Protocol)
+
+  headers:
+    # Declared in this spec's components.headers so OpenAPI tooling reading
+    # this document in isolation (e.g., SDK generators, validators) sees the
+    # cross-surface correlation header contract. The authoritative normative
+    # rules live in cycles-protocol-v0.yaml's CORRELATION AND TRACING section
+    # (this plane conforms to that contract). When the merged admin artifact
+    # is produced, this declaration becomes a sibling of the same header in
+    # the merged components.headers block — the $ref resolves identically.
+    X-Request-Id:
+      description: Unique request identifier for debugging.
+      schema:
+        type: string
+    X-Cycles-Trace-Id:
+      description: >-
+        W3C Trace Context-compatible correlation identifier echoed on every
+        response from the admin plane. 32 lowercase hex characters. See the
+        CORRELATION AND TRACING section of cycles-protocol-v0.yaml for the
+        authoritative cross-surface contract — the admin plane conforms to
+        that contract on every response.
+      schema:
+        type: string
+        pattern: ^[0-9a-f]{32}$
 
   schemas:
     # ========================================================================
@@ -1204,6 +1244,35 @@ components:
             subscription ID, tenant ID).
         request_id:
           type: string
+          description: >-
+            X-Request-Id from the originating HTTP request. MUST be populated on
+            every audit entry causally downstream of an HTTP request, including
+            entries emitted from queued, deferred, or otherwise-async work spawned
+            by that request (worker-pool tasks, delayed sweeps triggered by the
+            request, cascaded side-effects). The request_id MUST be propagated
+            across thread/queue/process boundaries along with the trace_id; loss
+            at the request-thread boundary is non-compliant. MAY be absent on
+            internal sweeper/expiry-generated entries that have no originating
+            HTTP request (e.g., periodic cron-triggered budget resets, startup-
+            time reconciliation). Entries written before server upgrade to
+            v0.1.25.27 MAY lack request_id; clients MUST tolerate its absence on
+            historical entries (same forward-compat contract as ErrorCode).
+        trace_id:
+          type: string
+          pattern: ^[0-9a-f]{32}$
+          description: >-
+            W3C Trace Context-compatible correlation identifier. 32 lowercase
+            hex characters (128-bit trace ID, matching the W3C Trace Context
+            trace-id field in the `traceparent` header). Links this audit
+            entry to the request that produced it, all events emitted as
+            side effects of that request, and all sibling audit/event
+            entries within the same logical operation. See the CORRELATION
+            AND TRACING section of cycles-protocol-v0.yaml for inbound-header
+            precedence, fallback-generation rules, and cross-surface
+            propagation contract (the admin plane conforms to that contract).
+            Optional on the wire for forward compatibility with entries
+            written before server upgrade to v0.1.25.27; conformant servers
+            MUST populate on every HTTP-originated audit entry.
         status:
           type: integer
           description: HTTP status code
@@ -1292,6 +1361,15 @@ components:
           type: string
         request_id:
           type: string
+        trace_id:
+          type: string
+          pattern: ^[0-9a-f]{32}$
+          description: >-
+            W3C Trace Context-compatible correlation identifier. 32 lowercase
+            hex characters. Links this error response to the request that
+            triggered it and to any audit/event entries emitted before the
+            error was returned. See CORRELATION AND TRACING in
+            cycles-protocol-v0.yaml for the cross-surface contract.
         details:
           type: object
           additionalProperties: true
@@ -1452,7 +1530,32 @@ components:
         request_id:
           type: string
           description: >-
-            X-Request-Id from the originating HTTP request, if triggered by an API call.
+            X-Request-Id from the originating HTTP request. MUST be populated on every
+            event causally downstream of an HTTP request, including events emitted from
+            queued, deferred, or otherwise-async work spawned by that request (worker-
+            pool tasks, delayed sweeps triggered by the request, cascaded side-effects).
+            The request_id MUST be propagated across thread/queue/process boundaries
+            along with the trace_id; loss at the request-thread boundary is non-
+            compliant. MAY be absent on internal sweeper/expiry-generated events that
+            have no originating HTTP request (e.g., periodic cron-triggered budget
+            resets, startup-time reconciliation). Events emitted before server upgrade
+            to v0.1.25.27 MAY lack request_id; clients MUST tolerate its absence on
+            historical entries (same forward-compat contract as ErrorCode).
+        trace_id:
+          type: string
+          pattern: ^[0-9a-f]{32}$
+          description: >-
+            W3C Trace Context-compatible correlation identifier. 32 lowercase hex
+            characters (128-bit trace ID, matching the W3C Trace Context trace-id
+            field in the `traceparent` header). Links this event to the request
+            that produced it, the audit entry written for that request, and all
+            sibling events within the same logical operation. See the CORRELATION
+            AND TRACING section of cycles-protocol-v0.yaml for inbound-header
+            precedence, fallback-generation rules, and cross-surface propagation
+            contract. Optional on the wire for forward compatibility with events
+            emitted before server upgrade to v0.1.25.27; conformant servers MUST
+            populate on every HTTP-originated event and on events emitted from
+            async work downstream of an HTTP request.
         metadata:
           type: object
           additionalProperties: true
@@ -5347,6 +5450,30 @@ paths:
           schema:
             type: string
             maxLength: 128
+        - name: trace_id
+          in: query
+          description: >-
+            Filter by exact trace_id. 32 lowercase hex characters (W3C Trace
+            Context trace-id). Narrows the audit log to entries belonging to
+            a single logical operation (may span multiple HTTP requests).
+            When combined with other filters, AND-composed.
+            Additive parameter — servers that don't recognize it MUST ignore
+            without error (additive-parameter guarantee). See CORRELATION
+            AND TRACING in cycles-protocol-v0.yaml.
+          schema:
+            type: string
+            pattern: ^[0-9a-f]{32}$
+        - name: request_id
+          in: query
+          description: >-
+            Filter by exact request_id. Narrows the audit log to the entry
+            produced by a single HTTP request. When combined with other
+            filters, AND-composed. Typically yields 0 or 1 row (one audit
+            entry per authenticated request).
+            Additive parameter — servers that don't recognize it MUST ignore
+            without error (additive-parameter guarantee).
+          schema:
+            type: string
         - name: sort_by
           in: query
           description: >-
@@ -5997,6 +6124,32 @@ paths:
         - name: correlation_id
           in: query
           description: Filter by correlation ID to find related events
+          schema:
+            type: string
+        - name: trace_id
+          in: query
+          description: >-
+            Filter by exact trace_id. 32 lowercase hex characters (W3C Trace
+            Context trace-id). Narrows the event stream to events belonging
+            to a single logical operation (may span multiple HTTP requests,
+            so typically yields MORE rows than a request_id filter). When
+            combined with other filters, AND-composed.
+            Additive parameter — servers that don't recognize it MUST ignore
+            without error (additive-parameter guarantee). See CORRELATION
+            AND TRACING in cycles-protocol-v0.yaml.
+          schema:
+            type: string
+            pattern: ^[0-9a-f]{32}$
+        - name: request_id
+          in: query
+          description: >-
+            Filter by exact request_id. Narrows the event stream to events
+            emitted as side effects of a single HTTP request. When combined
+            with other filters, AND-composed. Complements trace_id for
+            debug scenarios like "show me all events emitted by this specific
+            API call" (e.g., the fan-out from a bulk-action endpoint).
+            Additive parameter — servers that don't recognize it MUST ignore
+            without error (additive-parameter guarantee).
           schema:
             type: string
         - name: from

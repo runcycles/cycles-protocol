@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cycles Governance Extensions — Admin Plane
-  version: 0.1.26
+  version: 0.1.27
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -18,6 +18,16 @@ info:
     url: ./changelogs/cycles-governance-extensions.md
     format: keep-a-changelog
   description: |-
+    CORRELATION AND TRACING (cross-reference):
+      The governance extensions plane conforms to the cross-surface correlation
+      contract defined authoritatively in the CORRELATION AND TRACING section
+      of cycles-protocol-v0.yaml. Every response on every endpoint in this
+      plane MUST echo `X-Cycles-Trace-Id` (declared in this document's
+      components.headers). The ErrorResponse schema in this document carries
+      a `trace_id` property. Readers of this document in isolation MUST
+      consult cycles-protocol-v0.yaml for inbound-header precedence,
+      fallback-generation rules, and the full normative propagation contract.
+
     EXTENSION CONTRACT (NORMATIVE):
       Strict superset of cycles-governance-admin-v0.1.25.yaml
       (semantic_base 0.1.25.9). No existing schema, endpoint, field meaning,
@@ -175,6 +185,25 @@ components:
       in: header
       name: X-Admin-API-Key
 
+  headers:
+    # Declared in this spec's components.headers so OpenAPI tooling reading
+    # this document in isolation sees the cross-surface correlation header
+    # contract. Authoritative normative rules live in cycles-protocol-v0.yaml's
+    # CORRELATION AND TRACING section — this plane conforms.
+    X-Request-Id:
+      description: Unique request identifier for debugging.
+      schema:
+        type: string
+    X-Cycles-Trace-Id:
+      description: >-
+        W3C Trace Context-compatible correlation identifier echoed on every
+        response from the governance extensions plane. 32 lowercase hex
+        characters. See CORRELATION AND TRACING in cycles-protocol-v0.yaml
+        for the authoritative cross-surface contract.
+      schema:
+        type: string
+        pattern: ^[0-9a-f]{32}$
+
   schemas:
 
     # -------------------------------------------------------------------------
@@ -202,6 +231,14 @@ components:
         request_id:
           type: string
           description: Server-generated request identifier for debugging.
+        trace_id:
+          type: string
+          pattern: ^[0-9a-f]{32}$
+          description: >-
+            W3C Trace Context-compatible correlation identifier. 32 lowercase
+            hex characters. Links this error response to the request that
+            triggered it. See CORRELATION AND TRACING in cycles-protocol-v0.yaml
+            for the cross-surface contract.
         details:
           type: object
           additionalProperties: true

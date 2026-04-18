@@ -6,6 +6,74 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25 — 2026-04-18
+
+_(revision 2026-04-18 — trace_id cross-surface correlation, W3C Trace Context-compatible)_
+
+- Adds a cross-plane CORRELATION AND TRACING normative section to
+  `info.description`. The section is binding for every Cycles server
+  operation on every plane (runtime, governance-admin, action-kinds,
+  and all extensions that layer onto these bases). Companion specs
+  carry a brief cross-reference to this section and do not restate a
+  conflicting contract. Contract summary:
+    * Three-tier correlation model: `request_id` (per-HTTP-request),
+      `trace_id` (per logical operation), `correlation_id` (event-stream
+      cluster grain). `trace_id` is new; the other two already existed.
+    * Inbound header precedence: `traceparent` (valid W3C Trace Context)
+      > `X-Cycles-Trace-Id` (valid 32-hex) > server-generates. Malformed
+      headers fall through silently; servers MUST NOT reject for a
+      malformed correlation header. If both headers are present, valid,
+      and disagree, `traceparent` wins.
+    * Server-generated trace_id: 16 random bytes encoded as 32 lowercase
+      hex characters. All-zero value is invalid per W3C Trace Context
+      §3.2.2.3 and MUST be re-rolled.
+    * Outbound response: every response on every plane (2xx, 4xx, 5xx)
+      MUST echo the `X-Cycles-Trace-Id` header. ErrorResponse bodies
+      MUST carry `trace_id`.
+    * Propagation: trace_id travels from the inbound request onto the
+      audit-log entry, every event emitted as a side effect, and every
+      outbound webhook delivery (as both `X-Cycles-Trace-Id` header and
+      `trace_id` event-body field). Propagation across thread / queue
+      / process boundaries is REQUIRED.
+
+- Adds `X-Cycles-Trace-Id` to `components.headers` and references it
+  from every response that currently references `X-Request-Id` (both
+  `components.responses.ErrorResponse` and all inline response-header
+  blocks in `paths`).
+
+- Adds `trace_id` as an OPTIONAL property to `ErrorResponse`. Pattern
+  `^[0-9a-f]{32}$`. The `additionalProperties: false` constraint on
+  `ErrorResponse` is preserved — `trace_id` is a DECLARED property, not
+  an undeclared extra, so strict validators accept it.
+
+- Webhook delivery prose updated to require two additional outbound
+  headers on every delivery:
+    * `X-Cycles-Trace-Id: {trace_id}` — always present.
+    * `traceparent: 00-{trace_id}-{fresh-span-id-16-hex}-{trace-flags}` —
+      W3C Trace Context version 00. trace_id matches X-Cycles-Trace-Id.
+      span-id is freshly generated per outbound delivery (NOT reused
+      from inbound). trace-flags rules:
+        - Preserve the inbound trace-flags byte when a valid inbound
+          `traceparent` was accepted (a `sampled=0` upstream is not
+          silently flipped to `sampled=1`).
+        - When the trace was derived from `X-Cycles-Trace-Id` (no
+          inbound W3C `traceparent`) or generated fresh by the server,
+          default trace-flags = `01` (sampled).
+
+- Standard event payload schema in the webhook prose: `request_id`
+  contract strengthened to cover queued/deferred/async work, `trace_id`
+  documented as an optional field that MUST be populated by conformant
+  servers.
+
+- Backward compatibility: purely additive. No field removals, no type
+  changes, no new required fields on existing schemas. Old clients
+  ignore the new response header; old subscribers ignore the new
+  webhook headers; servers that don't yet implement the contract are
+  already wire-compatible (OPTIONAL properties on ErrorResponse;
+  additive response headers).
+
+---
+
 ## v0.1.25 — 2026-04-16
 
 _(revision 2026-04-16 — server-side sort on listReservations)_

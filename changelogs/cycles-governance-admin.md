@@ -6,6 +6,88 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.27 — 2026-04-18
+
+- Cross-surface correlation — adds `trace_id` (W3C Trace Context-
+  compatible, 32 lowercase hex characters matching
+  `^[0-9a-f]{32}$`) as an OPTIONAL property on:
+    * `Event` schema
+    * `AuditLogEntry` schema
+    * `ErrorResponse` schema
+
+  Purpose: link an HTTP request, its audit-log entry, and all events
+  emitted as side effects of that request under a single correlation
+  identifier that survives across process / queue / async
+  boundaries. Complements the existing `request_id` (per-HTTP-request
+  grain) and `correlation_id` (event-stream cluster grain, deterministic
+  hash of `(tenant_id, scope, action_kind_or_risk_class, window,
+  window_key)`). Three-tier correlation model is now:
+    - `request_id` — one HTTP request. Existing. Contract strengthened.
+    - `trace_id` — one logical operation across N requests. NEW.
+    - `correlation_id` — event-stream JOIN key. Existing. Unchanged.
+
+- `request_id` contract strengthened on `Event` and `AuditLogEntry`:
+  MUST be populated on every entry causally downstream of an HTTP
+  request, INCLUDING entries emitted from queued, deferred, or
+  otherwise-async work spawned by that request (worker-pool tasks,
+  delayed sweeps triggered by the request, cascaded side-effects).
+  MUST be propagated across thread / queue / process boundaries along
+  with trace_id; loss at the request-thread boundary is non-compliant.
+  Explicit grandfathering clause: entries written before server upgrade
+  to v0.1.25.27 MAY lack request_id; clients MUST tolerate its absence
+  on historical entries (same forward-compat contract as ErrorCode).
+  MAY be absent on internal sweeper/expiry-generated entries that have
+  no originating HTTP request (periodic cron-triggered budget resets,
+  startup-time reconciliation).
+
+- `listEvents` (`GET /v1/admin/events`) — adds two optional filter
+  query parameters:
+    * `trace_id` — exact match, `^[0-9a-f]{32}$`. Narrows to events
+      belonging to a single logical operation (may span multiple
+      HTTP requests, typically yields more rows than a `request_id`
+      filter).
+    * `request_id` — exact match. Narrows to events emitted as side
+      effects of a single HTTP request (e.g., the fan-out from a
+      bulk-action endpoint).
+  Both AND-compose with existing filters. Additive-parameter guarantee
+  — servers that don't recognize them MUST ignore without error.
+
+- `listAuditLogs` (`GET /v1/admin/audit/logs`) — adds the same two
+  optional filter query parameters (`trace_id`, `request_id`), same
+  additive-parameter guarantee. Typically yields 0 or 1 row for
+  `request_id` (one audit entry per authenticated request) and N rows
+  for `trace_id` when an operation spans multiple requests.
+
+- Declares `X-Cycles-Trace-Id` in `components.headers` of this
+  document so OpenAPI tooling reading the admin spec in isolation
+  (SDK generators, validators) sees the cross-surface correlation
+  header contract. Authoritative rules live in
+  cycles-protocol-v0.yaml's CORRELATION AND TRACING section.
+
+- Adds a CORRELATION AND TRACING cross-reference paragraph at the top
+  of `info.description` pointing readers to the authoritative contract
+  in cycles-protocol-v0.yaml. Discoverability-only; no new normative
+  content.
+
+- Safety / auth: no changes to authn, authz, or tenant-scoping
+  behavior. AdminKeyAuth remains required on listEvents /
+  listAuditLogs. trace_id is not PII — it is a server-generated (or
+  client-supplied-via-header) synthetic identifier. No RBAC surface
+  change.
+
+- Backward compatibility: purely additive. `trace_id` is an OPTIONAL
+  property on Event / AuditLogEntry / ErrorResponse; existing clients
+  that don't read it are unaffected. The new filter params are
+  additive; old clients don't send them, older servers MUST ignore
+  without error. The strengthened `request_id` contract includes an
+  explicit grandfathering clause so historical entries without
+  request_id remain conformant for read-back.
+
+- Refs: CORRELATION AND TRACING section of cycles-protocol-v0.yaml
+  (authoritative cross-surface contract, same revision).
+
+---
+
 ## v0.1.25.26 — 2026-04-18
 
 - Bulk budget balance-mutation endpoint:
