@@ -2567,8 +2567,11 @@ components:
         error_code:
           type: string
           description: 'Machine-readable failure code. Present in `failed[]` entries only. Known codes:
-            INVALID_TRANSITION, NOT_FOUND, PERMISSION_DENIED, INTERNAL_ERROR. Servers MAY introduce additional
-            codes; clients MUST treat unknown codes as equivalent to INTERNAL_ERROR.'
+            INVALID_TRANSITION, NOT_FOUND, PERMISSION_DENIED, BUDGET_EXCEEDED, INTERNAL_ERROR. Servers
+            MAY introduce additional codes; clients MUST treat unknown codes as equivalent to INTERNAL_ERROR.
+            Note: this code set is the per-row outcome vocabulary for bulk-action responses and is intentionally
+            BROADER than the top-level ErrorCode enum — values like INVALID_TRANSITION and BUDGET_EXCEEDED
+            are row-level outcomes, not request-level ErrorResponse codes.'
         message:
           type: string
           description: Human-readable failure reason. Present in `failed[]` entries only. Safe to display
@@ -2781,18 +2784,24 @@ components:
     BudgetBulkFilter:
       type: object
       description: |-
-        Filter selecting which budget ledgers a bulk-action applies to. Shape and semantics MUST match the query params of listBudgets; at least one property MUST be present (empty filter is rejected with HTTP 400 to prevent an accidental all-budgets action). AND combination across properties.
+        Filter selecting which budget ledgers a bulk-action applies to. Shape and semantics MUST match the query params of listBudgets. AND combination across properties.
         CROSS-TENANT SAFETY: - Unlike listBudgets where `tenant_id` is OPTIONAL on
           AdminKeyAuth (omitted = list across all tenants), here
           `tenant_id` is REQUIRED. Every bulk-action invocation MUST
           target exactly one tenant — this prevents an accidental
           all-tenant fan-out and keeps the audit-log entry for the
           bulk op cleanly attributable to a single tenant boundary.
+          Because `tenant_id` is required, the minProperties: 1
+          constraint (inherited from the sibling TenantBulkFilter /
+          WebhookBulkFilter shape) is always satisfied — an empty
+          filter is rejected at the required-fields check before
+          minProperties is evaluated.
         - Cascading reset across a scope subtree is expressed via
           `scope_prefix` (e.g., `tenant:acme/workspace:eng` matches all
           descendants of that scope). The hierarchy is encoded in the
           scope path; no separate `cascade` flag is needed.
       additionalProperties: false
+      minProperties: 1
       required:
       - tenant_id
       properties:
@@ -2866,8 +2875,8 @@ components:
           - CREDIT
           - DEBIT
           - RESET
-          - RESET_SPENT
           - REPAY_DEBT
+          - RESET_SPENT
           description: |-
             Which balance-mutation to apply to every matched budget. Semantics for each value match the corresponding BudgetFundingRequest.operation:
             CREDIT: allocated += amount; remaining += amount.
@@ -2942,8 +2951,8 @@ components:
           - CREDIT
           - DEBIT
           - RESET
-          - RESET_SPENT
           - REPAY_DEBT
+          - RESET_SPENT
           description: Echo of the request action.
         total_matched:
           type: integer

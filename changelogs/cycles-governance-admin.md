@@ -65,8 +65,15 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
   Backward compatible: purely additive (one new path, three
   new schemas). No existing endpoint or schema changes. No
-  ErrorCode enum additions (BUDGET_EXCEEDED, INVALID_TRANSITION,
-  COUNT_MISMATCH, LIMIT_EXCEEDED already present).
+  new top-level ErrorCode enum values: BUDGET_EXCEEDED and
+  LIMIT_EXCEEDED are the request-level codes referenced by
+  this endpoint, and both are already present (COUNT_MISMATCH
+  and LIMIT_EXCEEDED landed in v0.1.25.23). INVALID_TRANSITION
+  is a per-row outcome in BulkActionRowOutcome.error_code
+  (not an ErrorResponse ErrorCode), and the row-level
+  known-codes list has been extended with BUDGET_EXCEEDED so
+  clients can switch on it without treating it as
+  INTERNAL_ERROR.
   semantic_base unchanged at 0.1.25.9.
 
 ---
