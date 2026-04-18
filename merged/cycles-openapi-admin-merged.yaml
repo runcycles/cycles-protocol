@@ -2158,6 +2158,29 @@ components:
           type: string
           format: date-time
           description: Scheduled time for next retry (if status is RETRYING)
+        trace_id:
+          type: string
+          pattern: ^[0-9a-f]{32}$
+          description: W3C Trace Context-compatible correlation identifier captured at dispatch time from
+            the originating event (32 lowercase hex characters, 128-bit trace ID). Joins this delivery
+            to the event that produced it, the audit entry for the originating HTTP request, and any sibling
+            deliveries in the same fan-out. See the CORRELATION AND TRACING section of cycles-protocol-v0
+            for propagation rules. Optional on the wire; populated for deliveries whose originating event
+            had a trace_id (always true for HTTP-originated events on conformant v0.1.25.28+ servers).
+            Deliveries recorded before the server upgrade MAY lack this field; clients MUST tolerate its
+            absence.
+        trace_flags:
+          type: string
+          pattern: ^[0-9a-f]{2}$
+          description: W3C Trace Context trace-flags byte (2 lowercase hex chars) to use when constructing
+            the outbound `traceparent` header for HTTP delivery. Preserves the inbound sampling decision
+            when the originating request carried a valid `traceparent` (`traceparent_inbound_valid=true`);
+            otherwise the server defaults to `01` (sampled) per cycles-protocol-v0 §CORRELATION AND TRACING.
+        traceparent_inbound_valid:
+          type: boolean
+          description: Whether the originating HTTP request presented a valid W3C `traceparent` header.
+            Used by the outbound delivery worker to decide whether to preserve `trace_flags` (true) or
+            default to `01` when `trace_flags` is absent (false).
     WebhookDeliveryListResponse:
       type: object
       required:
