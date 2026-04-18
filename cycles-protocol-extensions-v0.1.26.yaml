@@ -13,6 +13,9 @@ info:
     quota violation details, quota threshold warnings, and the full
     normative reservation evaluation order.
     Runtime enforcement plane only — no governance or registry content.
+  x-changelog:
+    url: ./changelogs/cycles-protocol-extensions.md
+    format: keep-a-changelog
   description: |-
     EXTENSION CONTRACT (NORMATIVE):
       Strict superset of cycles-protocol-v0.yaml v0.1.25.
@@ -232,34 +235,6 @@ info:
         only highest-priority matching policy's rules apply per kind.
         Access control rules follow the same policy — only the
         highest-priority matching policy's allow/deny lists apply.
-
-    CHANGELOG:
-      v0.1.26 (2026-04-11 revision):
-        - Aligned DenyDetail.reason_code documented known values with the
-          base v0.1.25 DecisionReasonCode schema. Added BUDGET_NOT_FOUND
-          to the known values list (it was missing). Reordered the list
-          so the six base DecisionReasonCode values come first, followed
-          by v0.1.26 additions and governance-context reasons.
-        - Added NORMATIVE "REASON CODE POPULATION" block to
-          DecisionResponseExtension and ReservationCreateResponseExtension.
-          Clarifies that v0.1.26 reason codes (ACTION_QUOTA_EXCEEDED,
-          ACTION_KIND_DENIED, ACTION_KIND_NOT_ALLOWED) populate BOTH the
-          base reason_code field AND deny_detail.reason_code. The base
-          DecisionReasonCode schema was reopened in a coordinated base
-          spec update (v0.1.25 revision, same date) from a closed enum
-          to an open string with documented known values — specifically
-          to enable this simple mirroring pattern without forcing
-          extensions into awkward dual-field workarounds.
-        - RELATED BASE CHANGE: cycles-protocol-v0.yaml DecisionReasonCode
-          was reopened. Clients MUST gracefully handle unknown reason_code
-          values and MUST NOT reject them at strict validators.
-        - This is a documentation-only clarification in the extension;
-          no wire format change, no version bump.
-
-      v0.1.26 (2026-04-09):
-        Split from monolithic cycles-protocol-extensions-v0.1.26-final.yaml.
-        Runtime enforcement plane content only. Registry and governance
-        content moved to dedicated companion specs.
 
 servers:
   - url: https://api.cycles.local

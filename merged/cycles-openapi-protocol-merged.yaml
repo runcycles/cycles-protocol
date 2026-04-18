@@ -32,6 +32,16 @@ info:
     Use this file for: SDK codegen, runtime server validation, Swagger UI.
     Use cycles-openapi-admin-merged.yaml for admin tooling / dashboards.
     See cycles-spec-index.yaml for the full suite composition manifest.
+  x-changelog:
+  - url: ./changelogs/cycles-protocol-v0.md
+    format: keep-a-changelog
+    source: cycles-protocol-v0.yaml
+  - url: ./changelogs/cycles-protocol-extensions.md
+    format: keep-a-changelog
+    source: cycles-protocol-extensions-v0.1.26.yaml
+  - url: ./changelogs/cycles-action-kinds.md
+    format: keep-a-changelog
+    source: cycles-action-kinds-v0.1.26.yaml
 servers:
 - url: https://api.cycles.local
   description: Replace with your implementation endpoint

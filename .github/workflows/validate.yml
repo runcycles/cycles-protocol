@@ -52,3 +52,11 @@ jobs:
       # every source spec is individually valid.
       - name: Lint merged artifacts
         run: make lint-merged
+
+      # Step 4: Changelog pointer + version sync check.
+      # Each source spec must declare info.x-changelog pointing at an existing
+      # markdown file under changelogs/, and that file's most recent heading
+      # must match the spec's info.version. Catches "bumped the spec but
+      # forgot to add a changelog entry."
+      - name: Verify changelog pointers stay in sync with spec versions
+        run: make changelog-check

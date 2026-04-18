@@ -37,6 +37,19 @@ info:
     governance API validators.
     Use cycles-openapi-protocol-merged.yaml for runtime server / SDK work.
     See cycles-spec-index.yaml for the full suite composition manifest.
+  x-changelog:
+  - url: ./changelogs/cycles-governance-admin.md
+    format: keep-a-changelog
+    source: cycles-governance-admin-v0.1.25.yaml
+  - url: ./changelogs/cycles-governance-extensions.md
+    format: keep-a-changelog
+    source: cycles-governance-extensions-v0.1.26.yaml
+  - url: ./changelogs/cycles-action-kinds.md
+    format: keep-a-changelog
+    source: cycles-action-kinds-v0.1.26.yaml
+  - url: ./changelogs/cycles-protocol-extensions.md
+    format: keep-a-changelog
+    source: cycles-protocol-extensions-v0.1.26.yaml
 servers:
 - url: https://api.cycles.local
   description: Replace with your implementation endpoint

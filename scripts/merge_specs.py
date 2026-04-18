@@ -318,6 +318,7 @@ def build_merged(
     }
 
     seen_tag_names: set[str] = set()
+    x_changelogs: list[dict[str, Any]] = []
 
     # All OpenAPI 3.1 reusable component sections that may contain $ref targets.
     # We must merge every section the sources use, or $refs will break.
@@ -336,6 +337,15 @@ def build_merged(
     for source_name, path in sources:
         print(f"  + merging {path.name}")
         spec = load(path)
+
+        # x-changelog: collect per-source pointers so the merged artifact is
+        # discoverable from every source's changelog. Each source's pointer is
+        # annotated with the source filename.
+        src_x_changelog = (spec.get("info") or {}).get("x-changelog")
+        if src_x_changelog:
+            entry = dict(src_x_changelog)
+            entry["source"] = path.name
+            x_changelogs.append(entry)
 
         # Tags
         for tag in spec.get("tags", []) or []:
@@ -378,6 +388,11 @@ def build_merged(
     for section in list(merged["components"].keys()):
         if not merged["components"][section]:
             del merged["components"][section]
+
+    # Attach x-changelog list (one entry per source that has one). Inserted
+    # after `description` in the info block via dict key order.
+    if x_changelogs:
+        merged["info"]["x-changelog"] = x_changelogs
 
     return merged
 

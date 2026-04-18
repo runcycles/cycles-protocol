@@ -14,6 +14,9 @@ info:
     enum (enforced in v0.1.26 with balances:read fallback, fallback
     removed in v0.1.27).
     Governance/admin plane only — no runtime enforcement or registry content.
+  x-changelog:
+    url: ./changelogs/cycles-governance-extensions.md
+    format: keep-a-changelog
   description: |-
     EXTENSION CONTRACT (NORMATIVE):
       Strict superset of cycles-governance-admin-v0.1.25.yaml
@@ -150,11 +153,6 @@ info:
       duplicate path+method entries, which most tooling rejects. Treat as a
       companion document. A future merged spec will unify both.
       Implementations MUST merge the new fields into the existing PATCH handlers.
-
-    CHANGELOG:
-      v0.1.26 (2026-04-09):
-        Split from monolithic cycles-protocol-extensions-v0.1.26-final.yaml.
-        Governance/admin plane content only.
 
 servers:
   - url: https://api.cycles.local
