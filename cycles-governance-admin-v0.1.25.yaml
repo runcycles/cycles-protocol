@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.25
+  version: 0.1.25.26
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Stable governance base — document revision 0.1.25.25; semantic base
+    Stable governance base — document revision 0.1.25.26; semantic base
     frozen at 0.1.25.9. Serves as the base for the Cycles Protocol v0.1.26
     spec family. Covers tenant management, authentication, and runtime
     enforcement. NOTE: This file alone is NOT sufficient for v0.1.26 admin
@@ -18,7 +18,7 @@ info:
   description: |-
     SPEC FAMILY CONTEXT (v0.1.26):
       This is the STABLE GOVERNANCE BASE for the Cycles Protocol v0.1.26
-      family. Document revision 0.1.25.25; semantic base frozen at 0.1.25.9
+      family. Document revision 0.1.25.26; semantic base frozen at 0.1.25.9
       (see cycles-spec-index.yaml for the versioning model). New capabilities
       (action quotas, risk-class quotas, access control lists, tenant
       observe_mode, action_quotas:read permission) are delivered via
@@ -2724,9 +2724,14 @@ components:
           description: >-
             Machine-readable failure code. Present in `failed[]` entries
             only. Known codes: INVALID_TRANSITION, NOT_FOUND,
-            PERMISSION_DENIED, INTERNAL_ERROR. Servers MAY introduce
-            additional codes; clients MUST treat unknown codes as
-            equivalent to INTERNAL_ERROR.
+            PERMISSION_DENIED, BUDGET_EXCEEDED, INTERNAL_ERROR. Servers
+            MAY introduce additional codes; clients MUST treat unknown
+            codes as equivalent to INTERNAL_ERROR. Note: this code set
+            is the per-row outcome vocabulary for bulk-action responses
+            and is intentionally BROADER than the top-level ErrorCode
+            enum — values like INVALID_TRANSITION and BUDGET_EXCEEDED
+            are row-level outcomes, not request-level ErrorResponse
+            codes.
         message:
           type: string
           description: >-
@@ -2939,6 +2944,238 @@ components:
             target status for PAUSE/RESUME; already deleted for DELETE).
             Each entry carries a `reason` field (typically
             ALREADY_IN_TARGET_STATE or ALREADY_DELETED).
+          items:
+            $ref: '#/components/schemas/BulkActionRowOutcome'
+        idempotency_key:
+          type: string
+          description: Echo of the request idempotency_key.
+
+    BudgetBulkFilter:
+      type: object
+      description: >-
+        Filter selecting which budget ledgers a bulk-action applies to.
+        Shape and semantics MUST match the query params of listBudgets.
+        AND combination across properties.
+
+        CROSS-TENANT SAFETY:
+        - Unlike listBudgets where `tenant_id` is OPTIONAL on
+          AdminKeyAuth (omitted = list across all tenants), here
+          `tenant_id` is REQUIRED. Every bulk-action invocation MUST
+          target exactly one tenant — this prevents an accidental
+          all-tenant fan-out and keeps the audit-log entry for the
+          bulk op cleanly attributable to a single tenant boundary.
+          Because `tenant_id` is required, the minProperties: 1
+          constraint (inherited from the sibling TenantBulkFilter /
+          WebhookBulkFilter shape) is always satisfied — an empty
+          filter is rejected at the required-fields check before
+          minProperties is evaluated.
+        - Cascading reset across a scope subtree is expressed via
+          `scope_prefix` (e.g., `tenant:acme/workspace:eng` matches all
+          descendants of that scope). The hierarchy is encoded in the
+          scope path; no separate `cascade` flag is needed.
+      additionalProperties: false
+      minProperties: 1
+      required: [tenant_id]
+      properties:
+        tenant_id:
+          type: string
+          description: >-
+            Required. Bulk-action targets are restricted to budgets
+            owned by this tenant. Cross-tenant fan-out is not
+            supported.
+        scope_prefix:
+          type: string
+          description: >-
+            Filter by scope prefix, e.g. "tenant:acme/workspace:eng".
+            Matches the scope itself and all descendants (the
+            cascading-reset primitive). Identical semantics to the
+            listBudgets `scope_prefix` query param.
+        unit:
+          type: string
+          enum: [USD_MICROCENTS, TOKENS, CREDITS, RISK_POINTS]
+        status:
+          type: string
+          enum: [ACTIVE, FROZEN, CLOSED]
+        over_limit:
+          type: boolean
+          description: >-
+            When true, restrict to budgets whose overdraft_limit has
+            been breached. When false, restrict to budgets NOT over
+            limit. Absent = no filter.
+        has_debt:
+          type: boolean
+          description: >-
+            When true, restrict to budgets with debt > 0. When false,
+            restrict to budgets with debt == 0. Absent = no filter.
+        utilization_min:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          description: >-
+            Inclusive lower bound on budget utilization
+            (spent / allocated). Absent = no lower bound. Servers MUST
+            reject requests where utilization_min > utilization_max
+            with HTTP 400 (mirrors listBudgets cross-parameter rule).
+        utilization_max:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          description: >-
+            Inclusive upper bound on budget utilization
+            (spent / allocated). Absent = no upper bound.
+        search:
+          type: string
+          maxLength: 128
+          description: >-
+            Case-insensitive substring match across tenant_id and
+            scope; identical semantics to the listBudgets `search`
+            param.
+
+    BudgetBulkActionRequest:
+      type: object
+      description: >-
+        Request envelope for POST /v1/admin/budgets/bulk-action.
+        Operation-discriminated: the `action` enum names which
+        balance-mutation operation to apply uniformly to every budget
+        the filter matches. The action determines which payload
+        fields are required (see per-action notes on each property).
+
+        Server MUST validate the operation/payload combination
+        BEFORE running the filter or counting matches. An invalid
+        combination (e.g., CREDIT without `amount`, RESET_SPENT with
+        a negative `spent`) MUST return HTTP 400 with no writes.
+
+        Mirrors TenantBulkActionRequest / WebhookBulkActionRequest in
+        envelope shape, safety semantics (expected_count gate,
+        idempotency_key, 500-row hard cap), and per-row outcome
+        reporting. The operation enum mirrors BudgetFundingRequest
+        so any single-budget mutation that fundBudget supports is
+        also expressible in bulk.
+      required: [filter, action, idempotency_key]
+      additionalProperties: false
+      properties:
+        filter:
+          $ref: '#/components/schemas/BudgetBulkFilter'
+        action:
+          type: string
+          enum: [CREDIT, DEBIT, RESET, REPAY_DEBT, RESET_SPENT]
+          description: >-
+            Which balance-mutation to apply to every matched budget.
+            Semantics for each value match the corresponding
+            BudgetFundingRequest.operation:
+
+            CREDIT: allocated += amount; remaining += amount.
+              Preserves spent / reserved / debt. Requires `amount`.
+
+            DEBIT: allocated -= amount; remaining -= amount. A row
+              whose remaining would go negative is recorded in
+              `failed[]` with error_code BUDGET_EXCEEDED — the bulk
+              op does NOT abort. Requires `amount`.
+
+            RESET: allocated set to exactly `amount`; spent /
+              reserved / debt preserved. Use for plan changes or
+              ceiling adjustments. Requires `amount`.
+
+            RESET_SPENT: allocated set to `amount`; spent set to the
+              optional `spent` payload field (defaults to 0).
+              Reserved and debt preserved. Use for billing-period
+              rollovers. Requires `amount`; `spent` is optional
+              (>= 0; ignored for other actions).
+
+            REPAY_DEBT: debt -= amount (capped at debt). Requires
+              `amount`.
+        amount:
+          $ref: '#/components/schemas/Amount'
+          description: >-
+            Required for CREDIT, DEBIT, RESET, RESET_SPENT,
+            REPAY_DEBT. Applied uniformly to every matched budget.
+            Unit MUST be compatible with each matched budget's unit;
+            rows whose unit mismatches are recorded in `failed[]`
+            with error_code INVALID_TRANSITION (the bulk op does
+            NOT abort). The unit-compatibility check is operationally
+            equivalent to the per-row check fundBudget performs.
+        spent:
+          $ref: '#/components/schemas/Amount'
+          description: >-
+            Only honoured when action == RESET_SPENT; ignored for
+            other actions. When omitted, spent defaults to 0 (fresh
+            period). MUST be >= 0. Resulting remaining is allowed
+            to go negative if (allocated - spent - reserved - debt)
+            < 0, matching the singleton fundBudget overdraft
+            semantics.
+        reason:
+          type: string
+          maxLength: 512
+          description: >-
+            Optional human-readable justification recorded in the
+            audit-log entry for the bulk op (one entry, with the
+            full per-row outcome inline). Mirrors
+            BudgetFundingRequest.reason.
+        expected_count:
+          type: integer
+          minimum: 0
+          description: >-
+            See TenantBulkActionRequest.expected_count — identical
+            semantics. Server MUST count matches first; if the count
+            differs, server MUST reject with HTTP 409 COUNT_MISMATCH
+            and perform no writes. Optional but strongly recommended
+            — UIs SHOULD always populate this from a preview query
+            against listBudgets with the same filter.
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: >-
+            See TenantBulkActionRequest.idempotency_key — identical
+            semantics. 15-minute replay window.
+
+    BudgetBulkActionResponse:
+      type: object
+      description: >-
+        Response envelope for POST /v1/admin/budgets/bulk-action.
+        Splits affected budget ledgers into succeeded / failed /
+        skipped with per-row outcome details, and echoes action +
+        idempotency_key so callers can confirm they observed the
+        intended effect. Mirrors TenantBulkActionResponse and
+        WebhookBulkActionResponse.
+      required: [action, total_matched, succeeded, failed, skipped, idempotency_key]
+      additionalProperties: false
+      properties:
+        action:
+          type: string
+          enum: [CREDIT, DEBIT, RESET, REPAY_DEBT, RESET_SPENT]
+          description: Echo of the request action.
+        total_matched:
+          type: integer
+          minimum: 0
+          description: Server-counted number of budget ledgers that matched the filter.
+        succeeded:
+          type: array
+          description: >-
+            Ledgers the action applied to successfully. Per-row
+            `id` is the ledger_id.
+          items:
+            $ref: '#/components/schemas/BulkActionRowOutcome'
+        failed:
+          type: array
+          description: >-
+            Ledgers where the action failed. Each entry carries
+            error_code and message. Common failure codes for budget
+            bulk-actions: BUDGET_EXCEEDED (DEBIT would go negative),
+            INVALID_TRANSITION (unit mismatch, ledger CLOSED),
+            INTERNAL_ERROR. The bulk op does NOT abort on individual
+            row failure — all matching rows are attempted.
+          items:
+            $ref: '#/components/schemas/BulkActionRowOutcome'
+        skipped:
+          type: array
+          description: >-
+            Ledgers where the action was a no-op (e.g. REPAY_DEBT
+            against a ledger whose debt is already 0). Each entry
+            carries a `reason` field (typically
+            ALREADY_IN_TARGET_STATE).
           items:
             $ref: '#/components/schemas/BulkActionRowOutcome'
         idempotency_key:
@@ -4050,6 +4287,137 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: No budget exists for this (scope, unit) pair
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/admin/budgets/bulk-action:
+    post:
+      tags: [Budgets]
+      operationId: bulkActionBudgets
+      summary: Apply a balance-mutation to every budget matching a filter
+      description: >-
+        Apply CREDIT, DEBIT, RESET, RESET_SPENT, or REPAY_DEBT to every
+        budget ledger matching the provided filter in a single
+        synchronous request. Mirrors /v1/admin/tenants/bulk-action and
+        /v1/admin/webhooks/bulk-action in body shape, safety semantics
+        (expected_count gate, idempotency_key, 500-row hard cap), and
+        per-row outcome envelope. Resolves the operational pain
+        described in cycles-server-admin issue #99: "Bulk Budget Reset
+        at Tenant or Parent-Scope Level" — when a billing period rolls
+        over, operators no longer iterate listBudgets + per-row
+        fundBudget; they issue one bulk request scoped by tenant_id
+        and (optionally) scope_prefix.
+
+        OPERATION-DISCRIMINATED REQUEST:
+        - The `action` enum names which balance-mutation to apply
+          uniformly across the matched set. The action determines
+          which payload fields are required:
+          * CREDIT, DEBIT, RESET, REPAY_DEBT: require `amount`.
+          * RESET_SPENT: requires `amount`; `spent` optional (defaults to 0).
+        - Operation semantics MATCH BudgetFundingRequest exactly so
+          there is one place to read the per-operation balance math.
+          Anything fundBudget can do to one ledger, this endpoint can
+          do to a filtered set.
+        - Server MUST validate the action/payload combination BEFORE
+          counting matches or mutating any row; an invalid combination
+          → HTTP 400, no writes.
+
+        FILTER SEMANTICS:
+        - Filter block mirrors the query params of listBudgets
+          (scope_prefix, unit, status, over_limit, has_debt,
+          utilization_min/max, search), AND combination, ILIKE match
+          on search. Operators preview the affected set by issuing
+          GET /v1/admin/budgets with the same filter before invoking
+          bulk-action and populating expected_count from the count.
+        - `tenant_id` is REQUIRED (cross-tenant safety — see
+          BudgetBulkFilter). Cascading reset across a scope subtree
+          uses `scope_prefix`; no separate `cascade` flag.
+
+        SAFETY:
+        - expected_count gate: server counts before mutation;
+          mismatch → 409 COUNT_MISMATCH with no writes. See
+          bulkActionTenants for full rationale (operator preview
+          drifted; refuse rather than over-apply).
+        - idempotency_key: 15-min replay window; repeat submits
+          return the original response without re-applying.
+        - HARD LIMIT: 500 matching rows. Larger filters → HTTP 400
+          LIMIT_EXCEEDED. Operators with > 500 budgets in a
+          rollover batch must partition by scope_prefix (the natural
+          partition for cascading resets).
+        - Overall HTTP 200 even when some rows fail; response
+          envelope reports succeeded / failed / skipped counts.
+          Common per-row failure codes: BUDGET_EXCEEDED (DEBIT would
+          take remaining negative), INVALID_TRANSITION (unit
+          mismatch, ledger CLOSED).
+
+        AUDIT LOG:
+        - One AuditLogEntry per bulk-action invocation (not per
+          row). The entry records actor_type=ADMIN_ON_BEHALF_OF,
+          tenant_id from the filter, operation=bulkActionBudgets,
+          and embeds the full per-row outcome (succeeded / failed /
+          skipped ledger_ids) in the entry payload so security
+          review can reconstruct exactly what was changed without
+          replaying the bulk request.
+
+        AUTHORIZATION:
+        - AdminKeyAuth only. Tenants cannot bulk-mutate their own
+          budgets via this endpoint; per-budget mutation remains
+          available via fundBudget.
+      security:
+        - AdminKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BudgetBulkActionRequest'
+      responses:
+        '200':
+          description: Bulk action applied (may include per-row failures)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetBulkActionResponse'
+        '400':
+          description: >-
+            Malformed request, unknown action, missing required
+            payload field for the chosen action (e.g. CREDIT without
+            amount), search too long, utilization_min >
+            utilization_max, or LIMIT_EXCEEDED (total_matched > 500).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid admin API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: tenant_id in filter does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: >-
+            COUNT_MISMATCH — server-counted matches differ from
+            client-supplied expected_count. No writes performed.
           content:
             application/json:
               schema:

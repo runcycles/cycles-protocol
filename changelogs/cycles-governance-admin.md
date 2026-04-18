@@ -6,6 +6,78 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.26 — 2026-04-18
+
+- Bulk budget balance-mutation endpoint:
+  `POST /v1/admin/budgets/bulk-action`. Resolves
+  cycles-server-admin issue #99 ("Bulk Budget Reset at Tenant or
+  Parent-Scope Level"). Operators rolling over a billing period
+  no longer iterate listBudgets + per-row fundBudget; they issue
+  one filtered bulk request.
+
+  Single operation-discriminated endpoint (one path, one auth /
+  audit / idempotency contract). The `action` enum
+  (`CREDIT | DEBIT | RESET | RESET_SPENT | REPAY_DEBT`) mirrors
+  BudgetFundingRequest.operation so any per-row fundBudget
+  mutation is also expressible in bulk. The action determines
+  which payload fields are required; server MUST validate the
+  combination before counting matches or mutating any row.
+
+  New schemas:
+    * `BudgetBulkFilter` — mirrors listBudgets query params
+      (`scope_prefix`, `unit`, `status`, `over_limit`,
+      `has_debt`, `utilization_min/max`, `search`). `tenant_id`
+      is REQUIRED (cross-tenant safety: no all-tenant
+      fan-out from a single bulk call). Cascading reset across
+      a scope subtree uses `scope_prefix` — the hierarchy is
+      already encoded in the scope path; no separate `cascade`
+      flag is needed.
+    * `BudgetBulkActionRequest` — operation-discriminated
+      request envelope: `filter`, `action`, optional `amount`
+      (required for all current actions), optional `spent`
+      (only honoured for RESET_SPENT), optional `reason` for
+      audit trail, `expected_count` safety gate, and
+      `idempotency_key`.
+    * `BudgetBulkActionResponse` — per-row outcome envelope
+      (`succeeded[]` / `failed[]` / `skipped[]`) reusing
+      `BulkActionRowOutcome` from the existing tenant /
+      webhook bulk-action infrastructure.
+
+  Safety semantics match the existing tenant / webhook
+  bulk-action contract: 500-row hard cap (HTTP 400
+  LIMIT_EXCEEDED), `expected_count` preflight (HTTP 409
+  COUNT_MISMATCH with no writes on drift), 15-minute
+  `idempotency_key` replay window. HTTP 200 even when some
+  rows fail; the per-row envelope reports per-ledger
+  succeeded / failed / skipped counts. Common per-row failure
+  codes: BUDGET_EXCEEDED (DEBIT would take remaining
+  negative), INVALID_TRANSITION (unit mismatch, ledger
+  CLOSED).
+
+  Audit log: one AuditLogEntry per invocation (not per row),
+  actor_type=ADMIN_ON_BEHALF_OF, embedding the full per-row
+  outcome so security review can reconstruct exactly what
+  changed.
+
+  Authorization: AdminKeyAuth only. Tenants cannot bulk-mutate
+  their own budgets via this endpoint; the per-budget mutation
+  surface (fundBudget) remains unchanged.
+
+  Backward compatible: purely additive (one new path, three
+  new schemas). No existing endpoint or schema changes. No
+  new top-level ErrorCode enum values: BUDGET_EXCEEDED and
+  LIMIT_EXCEEDED are the request-level codes referenced by
+  this endpoint, and both are already present (COUNT_MISMATCH
+  and LIMIT_EXCEEDED landed in v0.1.25.23). INVALID_TRANSITION
+  is a per-row outcome in BulkActionRowOutcome.error_code
+  (not an ErrorResponse ErrorCode), and the row-level
+  known-codes list has been extended with BUDGET_EXCEEDED so
+  clients can switch on it without treating it as
+  INTERNAL_ERROR.
+  semantic_base unchanged at 0.1.25.9.
+
+---
+
 ## v0.1.25.25 — 2026-04-17
 
 - Audit tenant_id sentinel split. `AuditLogEntry.tenant_id` is
