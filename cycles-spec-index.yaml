@@ -48,13 +48,13 @@ spec_family:
     isolation; SDK generators and validator pipelines need a merged artifact.
     The merge_recipes section below defines how to produce those artifacts.
   current_versions:
-    base_runtime: "0.1.25"
-    base_governance: "0.1.25.23"          # enum-consistency fix: bulk-action error codes
+    base_runtime: "0.1.25"                # trace_id cross-surface correlation (2026-04-18 revision)
+    base_governance: "0.1.25.27"          # trace_id on Event/AuditLogEntry/ErrorResponse + filter params
     base_governance_semantic_base: "0.1.25.9"  # frozen wire baseline
-    extension_runtime: "0.1.26"
-    extension_governance: "0.1.26"
-    action_kinds: "0.1.26"
-    spec_index: "0.1.26"
+    extension_runtime: "0.1.26"           # untouched — no Event/ErrorResponse redeclaration
+    extension_governance: "0.1.27"        # trace_id on redeclared ErrorResponse
+    action_kinds: "0.1.27"                # trace_id on redeclared ErrorResponse
+    spec_index: "0.1.27"
 
 # ---------------------------------------------------------------------------
 # CANONICAL DOCUMENTS
@@ -88,7 +88,7 @@ documents:
 
   - id: governance_base
     file: cycles-governance-admin-v0.1.25.yaml
-    version: "0.1.25.23"          # enum-consistency fix (matches info.version)
+    version: "0.1.25.27"          # trace_id cross-surface correlation (matches info.version)
     semantic_base: "0.1.25.9"     # frozen wire baseline
     role: base
     title: Complete Budget Governance Admin API
@@ -109,7 +109,7 @@ documents:
 
   - id: action_kinds
     file: cycles-action-kinds-v0.1.26.yaml
-    version: "0.1.26"
+    version: "0.1.27"          # trace_id on redeclared ErrorResponse
     role: companion
     title: Cycles Action Kind Registry
     plane: registry-and-quota-primitives
@@ -182,7 +182,7 @@ documents:
 
   - id: governance_extension
     file: cycles-governance-extensions-v0.1.26.yaml
-    version: "0.1.26"
+    version: "0.1.27"          # trace_id on redeclared ErrorResponse
     role: extension
     extends: governance_base
     title: Cycles Governance Extensions — Admin Plane

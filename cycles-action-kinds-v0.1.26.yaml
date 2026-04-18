@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cycles Action Kind Registry
-  version: 0.1.26
+  version: 0.1.27
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -15,6 +15,17 @@ info:
     url: ./changelogs/cycles-action-kinds.md
     format: keep-a-changelog
   description: |-
+    CORRELATION AND TRACING (cross-reference):
+      The action-kinds registry and action-quota-counter endpoints conform to
+      the cross-surface correlation contract defined authoritatively in the
+      CORRELATION AND TRACING section of cycles-protocol-v0.yaml. Every
+      response on every endpoint in this plane echoes `X-Cycles-Trace-Id`
+      (declared in this document's components.headers and referenced on each
+      response definition). The ErrorResponse schema in this document carries
+      a `trace_id` property. Readers of this document in isolation MUST
+      consult cycles-protocol-v0.yaml for inbound-header precedence,
+      fallback-generation rules, and the full normative propagation contract.
+
     PURPOSE:
       This spec defines three things:
 
@@ -341,6 +352,21 @@ components:
       type: apiKey
       in: header
       name: X-Admin-API-Key
+
+  headers:
+    # Declared in this spec's components.headers so OpenAPI tooling reading
+    # this document in isolation sees the cross-surface correlation header
+    # contract. Authoritative normative rules live in cycles-protocol-v0.yaml's
+    # CORRELATION AND TRACING section — this plane conforms.
+    X-Cycles-Trace-Id:
+      description: >-
+        W3C Trace Context-compatible correlation identifier echoed on every
+        response from the action-kinds / action-quota registry plane. 32
+        lowercase hex characters. See CORRELATION AND TRACING in
+        cycles-protocol-v0.yaml for the authoritative cross-surface contract.
+      schema:
+        type: string
+        pattern: ^[0-9a-f]{32}$
 
   parameters:
     ActionKindParam:
@@ -850,6 +876,14 @@ components:
           type: string
         request_id:
           type: string
+        trace_id:
+          type: string
+          pattern: ^[0-9a-f]{32}$
+          description: >-
+            W3C Trace Context-compatible correlation identifier. 32 lowercase
+            hex characters. Links this error response to the request that
+            triggered it. See CORRELATION AND TRACING in cycles-protocol-v0.yaml
+            for the cross-surface contract.
         details:
           type: object
           additionalProperties: true
@@ -924,6 +958,8 @@ paths:
             X-Request-Id:
               schema:
                 type: string
+            X-Cycles-Trace-Id:
+              $ref: '#/components/headers/X-Cycles-Trace-Id'
             ETag:
               description: Registry version hash for cache validation.
               schema:
@@ -1085,6 +1121,8 @@ paths:
             X-Request-Id:
               schema:
                 type: string
+            X-Cycles-Trace-Id:
+              $ref: '#/components/headers/X-Cycles-Trace-Id'
             X-Cycles-Tenant:
               schema:
                 type: string
@@ -1174,6 +1212,8 @@ paths:
             X-Request-Id:
               schema:
                 type: string
+            X-Cycles-Trace-Id:
+              $ref: '#/components/headers/X-Cycles-Trace-Id'
           content:
             application/json:
               schema:

@@ -107,6 +107,7 @@ components:
         error: BUDGET_EXCEEDED
         message: Insufficient remaining budget for scope tenant:acme-corp
         request_id: req_abc123def456
+        trace_id: 4bf92f3577b34da6a3ce929d0e0e4736
       properties:
         error:
           $ref: '#/components/schemas/ErrorCode'
@@ -114,6 +115,17 @@ components:
           type: string
         request_id:
           type: string
+        trace_id:
+          type: string
+          pattern: ^[0-9a-f]{32}$
+          description: W3C Trace Context-compatible correlation identifier. 32 lowercase hex characters
+            (128-bit trace ID, matching the W3C Trace Context trace-id field in the `traceparent` header).
+            Links this error response to the request that triggered it and to any events / audit entries
+            emitted before the error was returned. Optional on the wire for forward compatibility with
+            historical responses emitted by servers older than the first release that populated this field,
+            but servers conformant with the CORRELATION AND TRACING contract MUST populate it on every
+            error response. See the "CORRELATION AND TRACING" section of this document's `info.description`
+            for header formats and propagation rules.
         details:
           type: object
           additionalProperties: true
@@ -2000,6 +2012,16 @@ components:
       description: Unique request identifier for debugging
       schema:
         type: string
+    X-Cycles-Trace-Id:
+      description: W3C Trace Context-compatible correlation identifier echoed on every response (2xx,
+        4xx, 5xx) on every plane. 32 lowercase hex characters (128-bit trace ID, matching the W3C Trace
+        Context trace-id field). Links the request, its audit entry, all side-effect events, and any outbound
+        webhook deliveries produced by the request. See the "CORRELATION AND TRACING" section of this
+        document's `info.description` for inbound-header precedence, fallback-generation rules, and cross-surface
+        propagation contract.
+      schema:
+        type: string
+        pattern: ^[0-9a-f]{32}$
     X-RateLimit-Remaining:
       description: Number of requests remaining in current window (optional in v0)
       schema:
@@ -2019,6 +2041,8 @@ components:
       headers:
         X-Request-Id:
           $ref: '#/components/headers/X-Request-Id'
+        X-Cycles-Trace-Id:
+          $ref: '#/components/headers/X-Cycles-Trace-Id'
       content:
         application/json:
           schema:
@@ -2050,6 +2074,8 @@ paths:
           headers:
             X-Request-Id:
               $ref: '#/components/headers/X-Request-Id'
+            X-Cycles-Trace-Id:
+              $ref: '#/components/headers/X-Cycles-Trace-Id'
             X-Cycles-Tenant:
               $ref: '#/components/headers/X-Cycles-Tenant'
             X-RateLimit-Remaining:
@@ -2107,6 +2133,8 @@ paths:
           headers:
             X-Request-Id:
               $ref: '#/components/headers/X-Request-Id'
+            X-Cycles-Trace-Id:
+              $ref: '#/components/headers/X-Cycles-Trace-Id'
             X-Cycles-Tenant:
               $ref: '#/components/headers/X-Cycles-Tenant'
           content:
@@ -2126,6 +2154,8 @@ paths:
           headers:
             X-Request-Id:
               $ref: '#/components/headers/X-Request-Id'
+            X-Cycles-Trace-Id:
+              $ref: '#/components/headers/X-Cycles-Trace-Id'
             X-Cycles-Tenant:
               $ref: '#/components/headers/X-Cycles-Tenant'
           content:
@@ -2248,6 +2278,8 @@ paths:
           headers:
             X-Request-Id:
               $ref: '#/components/headers/X-Request-Id'
+            X-Cycles-Trace-Id:
+              $ref: '#/components/headers/X-Cycles-Trace-Id'
             X-Cycles-Tenant:
               $ref: '#/components/headers/X-Cycles-Tenant'
           content:
@@ -2287,6 +2319,8 @@ paths:
           headers:
             X-Request-Id:
               $ref: '#/components/headers/X-Request-Id'
+            X-Cycles-Trace-Id:
+              $ref: '#/components/headers/X-Cycles-Trace-Id'
             X-Cycles-Tenant:
               $ref: '#/components/headers/X-Cycles-Tenant'
           content:
@@ -2330,6 +2364,8 @@ paths:
           headers:
             X-Request-Id:
               $ref: '#/components/headers/X-Request-Id'
+            X-Cycles-Trace-Id:
+              $ref: '#/components/headers/X-Cycles-Trace-Id'
             X-Cycles-Tenant:
               $ref: '#/components/headers/X-Cycles-Tenant'
           content:
@@ -2405,6 +2441,8 @@ paths:
           headers:
             X-Request-Id:
               $ref: '#/components/headers/X-Request-Id'
+            X-Cycles-Trace-Id:
+              $ref: '#/components/headers/X-Cycles-Trace-Id'
             X-Cycles-Tenant:
               $ref: '#/components/headers/X-Cycles-Tenant'
           content:
@@ -2454,6 +2492,8 @@ paths:
           headers:
             X-Request-Id:
               $ref: '#/components/headers/X-Request-Id'
+            X-Cycles-Trace-Id:
+              $ref: '#/components/headers/X-Cycles-Trace-Id'
             X-Cycles-Tenant:
               $ref: '#/components/headers/X-Cycles-Tenant'
           content:
@@ -2525,6 +2565,8 @@ paths:
           headers:
             X-Request-Id:
               $ref: '#/components/headers/X-Request-Id'
+            X-Cycles-Trace-Id:
+              $ref: '#/components/headers/X-Cycles-Trace-Id'
             X-Cycles-Tenant:
               $ref: '#/components/headers/X-Cycles-Tenant'
           content:
@@ -2563,6 +2605,8 @@ paths:
           headers:
             X-Request-Id:
               $ref: '#/components/headers/X-Request-Id'
+            X-Cycles-Trace-Id:
+              $ref: '#/components/headers/X-Cycles-Trace-Id'
             X-Cycles-Tenant:
               $ref: '#/components/headers/X-Cycles-Tenant'
           content:
@@ -2582,6 +2626,8 @@ paths:
           headers:
             X-Request-Id:
               $ref: '#/components/headers/X-Request-Id'
+            X-Cycles-Trace-Id:
+              $ref: '#/components/headers/X-Cycles-Trace-Id'
             X-Cycles-Tenant:
               $ref: '#/components/headers/X-Cycles-Tenant'
           content:
@@ -2659,6 +2705,8 @@ paths:
             X-Request-Id:
               schema:
                 type: string
+            X-Cycles-Trace-Id:
+              $ref: '#/components/headers/X-Cycles-Trace-Id'
             ETag:
               description: Registry version hash for cache validation.
               schema:
@@ -2814,6 +2862,8 @@ paths:
             X-Request-Id:
               schema:
                 type: string
+            X-Cycles-Trace-Id:
+              $ref: '#/components/headers/X-Cycles-Trace-Id'
             X-Cycles-Tenant:
               schema:
                 type: string
@@ -2900,6 +2950,8 @@ paths:
             X-Request-Id:
               schema:
                 type: string
+            X-Cycles-Trace-Id:
+              $ref: '#/components/headers/X-Cycles-Trace-Id'
           content:
             application/json:
               schema:
