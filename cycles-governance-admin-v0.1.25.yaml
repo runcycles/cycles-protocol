@@ -1,15 +1,16 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.28
+  version: 0.1.25.29
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Stable governance base — document revision 0.1.25.28; semantic base
+    Stable governance base — document revision 0.1.25.29; semantic base
     frozen at 0.1.25.9. This file is self-sufficient for the current
     v0.1.25 conformance target (runcycles' reference servers implement
-    this today) and also serves as the base for the upcoming v0.1.26
+    this today — adds a normative tenant-close cascade contract at
+    document revision 0.1.25.29) and also serves as the base for the upcoming v0.1.26
     spec family. Covers tenant management, authentication, and runtime
     enforcement. NOTE: This file alone is NOT sufficient for the
     upcoming v0.1.26 admin tooling — to target v0.1.26 use the merged
@@ -35,6 +36,100 @@ info:
       inbound-header precedence, fallback-generation rules, and the
       full normative propagation contract. No conflicting contract is
       stated here.
+
+    CASCADE SEMANTICS (tenant close — terminal-owner contract):
+      Closing a tenant (status ACTIVE|SUSPENDED → CLOSED, via
+      updateTenant or bulkActionTenants) is a spec-declared terminal
+      transition. A closed tenant acts on its owned objects the way
+      `ON DELETE CASCADE` acts on child rows: the close atomically
+      drives each owned object into its own terminal (or
+      effectively-terminal) state, and every subsequent mutating
+      operation on an owned object of a CLOSED tenant MUST be
+      rejected. Two complementary rules make this normative:
+
+      RULE 1 — CLOSE CASCADE (atomic, server-issued):
+        On the tenant-close transition, the server MUST, in the same
+        transaction as the tenant status flip, drive each owned
+        object into its nearest terminal state:
+          * BudgetLedger (ACTIVE|FROZEN) → CLOSED (stamp `closed_at`,
+            preserve final balance snapshot for audit)
+          * ApiKey (ACTIVE) → REVOKED (stamp `revoked_at`)
+          * Reservation (ACTIVE, not yet finalized) → RELEASED
+            (equivalent to RESERVATION_FINALIZED finalization with
+            reason `tenant_closed`; no overage debt recorded)
+          * WebhookSubscription (ACTIVE|PAUSED) → DISABLED (see Rule 2
+            — DISABLED is re-enableable in general, but for closed-
+            owner subscriptions Rule 2 blocks re-enable, making
+            DISABLED effectively-terminal without a new enum value)
+
+        Ordering MUST be: (1) drain open reservations first (so
+        budget CLOSED is observed with no open holds), (2) close
+        budgets, (3) disable webhooks and revoke API keys in any
+        order, (4) flip tenant.status=CLOSED last. If any step fails,
+        the whole transaction MUST roll back and the tenant remains
+        in its prior status.
+
+        The server MUST emit one audit entry per mutated owned object
+        under the same `correlation_id` as the originating
+        `tenant.closed` audit entry. The audit `event_kind` values
+        are RESERVED in this spec:
+          * `budget.closed_via_tenant_cascade`
+          * `webhook.disabled_via_tenant_cascade`
+          * `api_key.revoked_via_tenant_cascade`
+          * `reservation.released_via_tenant_cascade`
+
+        Idempotency: re-issuing close on an already-CLOSED tenant is
+        a no-op (spec-existing contract). No additional cascade
+        audit entries are emitted on re-close.
+
+      RULE 2 — TERMINAL-OWNER MUTATION GUARD:
+        Every mutating admin-plane operation whose target resource
+        has an owning tenant (resolved via `tenant_id` on the
+        resource, or via the parent-scope path parameter) MUST reject
+        with HTTP 409 and `error.error_code=TENANT_CLOSED` when that
+        owning tenant's status is CLOSED. This is defense-in-depth
+        that covers:
+          * re-enabling a cascaded webhook (WebhookSubscription has
+            no spec-level terminal state; Rule 2 makes DISABLED
+            effectively-terminal for closed-owner rows)
+          * races between an in-flight mutation and the cascade
+            transaction
+          * stale client state (e.g., an operator dashboard tab
+            opened before the close completes)
+
+        Operations scoped in this guard include (non-exhaustive):
+        any budget freeze/unfreeze/fund/update, any reservation
+        create/commit/release/extend, any API key create/update/
+        revoke, any webhook create/update/delete/test/replay, and
+        any tenant-scoped policy create/update.
+
+        Non-mutating operations (GET endpoints) MUST remain
+        available on owned objects of a CLOSED tenant — operators
+        need post-mortem read access for audit and compliance.
+
+        The `TENANT_CLOSED` code is already declared in the shared
+        ErrorCode enum; this section defines its normative scope
+        across mutating routes.
+
+      WIRE COMPATIBILITY:
+        - No new status enum values are introduced on any owned
+          object (preserves `additionalProperties: false` contracts
+          and existing client parsers).
+        - No new ErrorCode values are introduced (`TENANT_CLOSED`
+          is pre-existing).
+        - The cascade is observable as new audit `event_kind`
+          strings — clients that enumerate audit kinds MUST tolerate
+          additive event kinds per the existing audit-kind
+          open-enum contract.
+
+      OUT OF SCOPE (for this revision):
+        - Re-opening a CLOSED tenant (close remains irreversible).
+        - Backfilling the cascade for tenants that were closed
+          before a conformant server exists — a one-shot migration
+          is an implementation concern, documented in the admin
+          server's AUDIT.md.
+        - Extension-plane cascade (action-kinds, risk-class quotas,
+          ACLs) — see cycles-governance-extensions-v0.1.26.yaml.
 
     SPEC FAMILY CONTEXT:
       This is the STABLE GOVERNANCE BASE for the Cycles Protocol v0.1.x
@@ -337,9 +432,16 @@ components:
           type: string
           enum: [ACTIVE, SUSPENDED, CLOSED]
           description: >-
-            ACTIVE: Normal operations permitted
-            SUSPENDED: Read-only, no new reservations
-            CLOSED: Archived, no operations permitted
+            ACTIVE: Normal operations permitted.
+            SUSPENDED: Read-only, no new reservations.
+            CLOSED: Terminal. Irreversible. Triggers the cascade
+            defined in CASCADE SEMANTICS (info.description): owned
+            budgets → CLOSED, API keys → REVOKED, open reservations
+            → RELEASED, webhook subscriptions → DISABLED, all
+            atomically in the same transaction as the status flip.
+            Every mutating operation on an owned object of a CLOSED
+            tenant returns HTTP 409 with error_code=TENANT_CLOSED
+            (terminal-owner mutation guard).
         parent_tenant_id:
           type: string
           description: >-
@@ -3567,7 +3669,15 @@ paths:
         STATUS TRANSITIONS:
         - ACTIVE → SUSPENDED: Blocks new reservations, existing active reservations can still commit/release
         - SUSPENDED → ACTIVE: Resume normal operations
-        - * → CLOSED: Irreversible, archives tenant
+        - * → CLOSED: Irreversible, archives tenant, and triggers
+          the tenant-close cascade (see CASCADE SEMANTICS in
+          info.description). In the same transaction as the status
+          flip the server MUST drive all owned objects to their
+          terminal states: budgets → CLOSED, API keys → REVOKED,
+          open reservations → RELEASED, webhook subscriptions →
+          DISABLED. Every mutating call on an owned object after
+          close returns HTTP 409 TENANT_CLOSED. Re-issuing close on
+          an already-CLOSED tenant is a no-op.
       security:
         - AdminKeyAuth: []
       parameters:
@@ -3696,7 +3806,16 @@ paths:
         - REACTIVATE: SUSPENDED → ACTIVE. Idempotent when already
           ACTIVE. Invalid from CLOSED.
         - CLOSE: any status → CLOSED. Terminal — not reversible via
-          this API. Implementations MAY require additional
+          this API. Each matched row triggers the full tenant-close
+          cascade (see CASCADE SEMANTICS in info.description):
+          owned budgets → CLOSED, API keys → REVOKED, open
+          reservations → RELEASED, webhook subscriptions →
+          DISABLED, all atomic with the status flip for that row.
+          Per-row cascade failure lands the row in `failed[]` with
+          an implementation-specific error_code and leaves that
+          tenant in its prior status; other rows are unaffected
+          (bulk op does not abort on individual row failure, per
+          SEMANTICS above). Implementations MAY require additional
           confirmation (e.g. requiring `allow_close: true` in the
           request body) in future minor revisions.
 

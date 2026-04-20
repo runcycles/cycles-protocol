@@ -6,6 +6,77 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.29 — 2026-04-20
+
+- Adds a normative tenant-close cascade contract as a new
+  `CASCADE SEMANTICS` section in `info.description`, plus matching
+  references in `Tenant.status`, `updateTenant` STATUS TRANSITIONS,
+  and `bulkActionTenants` CLOSE ACTION SEMANTICS. Closes a design
+  gap surfaced by operators: a CLOSED tenant's FROZEN budgets were
+  forever countable in `/admin/overview.budget_counts.frozen` with
+  no user-reachable path to resolve them, so every closed tenant
+  permanently inflated the dashboard's "needs attention" surface
+  with un-fixable rows.
+
+  The contract is stated as two complementary rules:
+
+    * **Rule 1 — CLOSE CASCADE (server-issued, atomic).**
+      On the `* → CLOSED` tenant transition (via updateTenant or
+      bulkActionTenants), the server MUST, in the same transaction
+      as the status flip, drive each owned object into its nearest
+      terminal state:
+        - `BudgetLedger` → `CLOSED` (stamp `closed_at`, preserve
+          final balance snapshot for audit)
+        - `ApiKey` → `REVOKED` (stamp `revoked_at`)
+        - `Reservation` (open) → `RELEASED` (reason
+          `tenant_closed`; no overage debt recorded)
+        - `WebhookSubscription` → `DISABLED` (re-enable blocked by
+          Rule 2 for closed-owner rows, making `DISABLED`
+          effectively-terminal without a new enum value)
+
+      Ordering MUST be (1) drain open reservations, (2) close
+      budgets, (3) disable webhooks and revoke API keys in any
+      order, (4) flip tenant.status last. Any step failure rolls
+      back the whole transaction. Re-issuing close on an
+      already-CLOSED tenant is a no-op.
+
+      One audit entry per mutated owned object MUST be emitted
+      under the same `correlation_id` as the originating
+      `tenant.closed` entry, with reserved `event_kind` values:
+        - `budget.closed_via_tenant_cascade`
+        - `webhook.disabled_via_tenant_cascade`
+        - `api_key.revoked_via_tenant_cascade`
+        - `reservation.released_via_tenant_cascade`
+
+    * **Rule 2 — TERMINAL-OWNER MUTATION GUARD.**
+      Every mutating admin-plane operation on an owned object whose
+      parent tenant is `CLOSED` MUST reject with HTTP 409 and
+      `error_code=TENANT_CLOSED`. Covers freeze/unfreeze/fund/update
+      on budgets, reservation lifecycle ops, API key lifecycle ops,
+      all webhook lifecycle ops, and tenant-scoped policy writes.
+      GET endpoints remain available (post-mortem audit read).
+      Provides defense-in-depth against cascade race windows and
+      stale client state; makes `WebhookSubscription.DISABLED`
+      effectively-terminal for closed-owner rows without widening
+      the enum.
+
+  No wire break: no new status enum values on any owned object, no
+  new `ErrorCode` values (`TENANT_CLOSED` was already declared at
+  v0.1.25.x; this revision documents its normative scope). New
+  audit `event_kind` strings are additive per the existing
+  open-enum audit contract.
+
+  Net operator effect once implemented: the server aggregate
+  `budget_counts.frozen` drops closed-tenant owners automatically
+  (their status is now `CLOSED`, not `FROZEN`), so the dashboard's
+  "Frozen budgets" axis stops surfacing un-fixable rows without
+  client-side filtering.
+
+  Out of scope (parked for follow-up slices): re-opening a CLOSED
+  tenant; a one-shot migration to cascade historically-orphaned
+  children of pre-existing CLOSED tenants; extension-plane
+  cascade for action-kinds / risk-class quotas / ACLs.
+
 ## v0.1.25.28 — 2026-04-18
 
 - Close gap from v0.1.25.27: extends cross-surface `trace_id`
