@@ -7,14 +7,14 @@
 
 Cycles is an open protocol that ensures agents cannot authorize more spend than policy allows — even when dozens of them run concurrently.
 
-**Spec suite:** v0.1.26 &middot; **Runtime base:** v0.1.25 &middot; **Governance base:** v0.1.25.27 (semantic_base 0.1.25.9) &middot; **API path:** `/v1` &middot; **License:** Apache 2.0
+**Spec suite:** v0.1.26 &middot; **Runtime base:** v0.1.25 &middot; **Governance base:** v0.1.25.28 (semantic_base 0.1.25.9) &middot; **API path:** `/v1` &middot; **License:** Apache 2.0
 
-The Cycles spec suite is organized into two tiers:
+The Cycles spec suite is organized by conformance status:
 
 | Tier | Files | Status |
 |---|---|---|
 | **Normative** (required for conformance) | [`cycles-protocol-v0.yaml`](cycles-protocol-v0.yaml), [`cycles-protocol-extensions-v0.1.26.yaml`](cycles-protocol-extensions-v0.1.26.yaml), [`cycles-action-kinds-v0.1.26.yaml`](cycles-action-kinds-v0.1.26.yaml), [`cycles-governance-extensions-v0.1.26.yaml`](cycles-governance-extensions-v0.1.26.yaml) | A conformant server MUST implement these. |
-| **Reference** (runcycles' admin API) | [`cycles-governance-admin-v0.1.25.yaml`](cycles-governance-admin-v0.1.25.yaml) | Describes runcycles' own management plane. Implementers MAY adopt it, diverge, or replace it. |
+| **Mixed** | [`cycles-governance-admin-v0.1.25.yaml`](cycles-governance-admin-v0.1.25.yaml) | Mostly runcycles' reference admin API (implementers MAY diverge), but selected schemas (`Event`, `EventType`, `EventData*`, `WebhookDelivery`, `WebhookRetryPolicy`, `Permission`) and eight operations remain normative via `x-conformance` labels. See [`CONFORMANCE.md`](CONFORMANCE.md) and [`cycles-spec-index.yaml`](cycles-spec-index.yaml). |
 
 See [`CONFORMANCE.md`](CONFORMANCE.md) for the authoritative MUST / SHOULD / MAY statement, and [`cycles-spec-index.yaml`](cycles-spec-index.yaml) for the composition manifest and merge recipes.
 
