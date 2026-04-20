@@ -230,9 +230,10 @@ components:
           description: 'ACTIVE: Normal operations permitted. SUSPENDED: Read-only, no new reservations.
             CLOSED: Terminal. Irreversible. Triggers the cascade defined in CASCADE SEMANTICS (info.description):
             owned budgets → CLOSED, API keys → REVOKED, open reservations → RELEASED, webhook subscriptions
-            → DISABLED, all atomically in the same transaction as the status flip. Every mutating operation
-            on an owned object of a CLOSED tenant returns HTTP 409 with error_code=TENANT_CLOSED (terminal-owner
-            mutation guard).'
+            → DISABLED. Cascade execution mode (atomic vs. flip-first-with-guard) is implementation-defined
+            per CASCADE SEMANTICS Rule 1. Every mutating operation on an owned object of a CLOSED tenant
+            returns HTTP 409 with error_code=TENANT_CLOSED per Rule 2, regardless of whether the child''s
+            own terminal transition has completed.'
         parent_tenant_id:
           type: string
           description: Optional parent tenant for hierarchical organizations. Enables budget delegation
@@ -4586,13 +4587,15 @@ paths:
         Modify tenant metadata, status, or hierarchy.
         STATUS TRANSITIONS: - ACTIVE → SUSPENDED: Blocks new reservations, existing active reservations can still commit/release - SUSPENDED → ACTIVE: Resume normal operations - * → CLOSED: Irreversible, archives tenant, and triggers
           the tenant-close cascade (see CASCADE SEMANTICS in
-          info.description). In the same transaction as the status
-          flip the server MUST drive all owned objects to their
-          terminal states: budgets → CLOSED, API keys → REVOKED,
-          open reservations → RELEASED, webhook subscriptions →
-          DISABLED. Every mutating call on an owned object after
-          close returns HTTP 409 TENANT_CLOSED. Re-issuing close on
-          an already-CLOSED tenant is a no-op.
+          info.description). As part of the close, the server MUST
+          drive all owned objects to their terminal states — either
+          atomically with the status flip (Mode A) or via a
+          Rule-2-guarded post-flip cascade (Mode B). Every mutating
+          call on an owned object after the close commits returns
+          HTTP 409 TENANT_CLOSED. Re-issuing close on an
+          already-CLOSED tenant is a no-op at the tenant level;
+          under Mode B it additionally drives any outstanding child
+          transitions to completion.
 
         Extends PATCH /v1/admin/tenants/{tenant_id} from the governance spec. All existing fields unchanged. observe_mode added with partial-update semantics. AUTHORIZATION: AdminKeyAuth (unchanged). BACKWARD COMPATIBILITY: requests omitting observe_mode are identical to v0.1.25.
       security:
@@ -4752,14 +4755,22 @@ paths:
           cascade (see CASCADE SEMANTICS in info.description):
           owned budgets → CLOSED, API keys → REVOKED, open
           reservations → RELEASED, webhook subscriptions →
-          DISABLED, all atomic with the status flip for that row.
-          Per-row cascade failure lands the row in `failed[]` with
-          an implementation-specific error_code and leaves that
-          tenant in its prior status; other rows are unaffected
-          (bulk op does not abort on individual row failure, per
-          SEMANTICS above). Implementations MAY require additional
-          confirmation (e.g. requiring `allow_close: true` in the
-          request body) in future minor revisions.
+          DISABLED. Per CASCADE SEMANTICS Rule 1 the server MAY
+          execute the cascade atomically (Mode A) or
+          flip-first-with-guarded-post-flip-cascade (Mode B).
+          Per-row failure handling depends on the mode: under Mode
+          A, cascade failure leaves the row in its prior status
+          and lands in `failed[]` with an implementation-specific
+          error_code; under Mode B, the tenant status flip succeeds
+          independently of cascade completion, so a partially-
+          applied cascade leaves the row in `failed[]` WITH the
+          tenant already in CLOSED status (cascade converges via
+          Rule 1(c)). Successful rows land in `updated[]`. Other
+          rows are unaffected (bulk op does not abort on individual
+          row failure, per SEMANTICS above). Implementations MAY
+          require additional confirmation (e.g. requiring
+          `allow_close: true` in the request body) in future minor
+          revisions.
 
         AUTHORIZATION: - AdminKeyAuth only. No ApiKeyAuth path — tenants cannot
           bulk-mutate their own peers.
