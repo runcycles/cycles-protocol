@@ -227,8 +227,12 @@ components:
           - ACTIVE
           - SUSPENDED
           - CLOSED
-          description: 'ACTIVE: Normal operations permitted SUSPENDED: Read-only, no new reservations
-            CLOSED: Archived, no operations permitted'
+          description: 'ACTIVE: Normal operations permitted. SUSPENDED: Read-only, no new reservations.
+            CLOSED: Terminal. Irreversible. Triggers the cascade defined in CASCADE SEMANTICS (info.description):
+            owned budgets → CLOSED, API keys → REVOKED, open reservations → RELEASED, webhook subscriptions
+            → DISABLED, all atomically in the same transaction as the status flip. Every mutating operation
+            on an owned object of a CLOSED tenant returns HTTP 409 with error_code=TENANT_CLOSED (terminal-owner
+            mutation guard).'
         parent_tenant_id:
           type: string
           description: Optional parent tenant for hierarchical organizations. Enables budget delegation
@@ -4580,7 +4584,15 @@ paths:
       summary: Update tenant properties
       description: |-
         Modify tenant metadata, status, or hierarchy.
-        STATUS TRANSITIONS: - ACTIVE → SUSPENDED: Blocks new reservations, existing active reservations can still commit/release - SUSPENDED → ACTIVE: Resume normal operations - * → CLOSED: Irreversible, archives tenant
+        STATUS TRANSITIONS: - ACTIVE → SUSPENDED: Blocks new reservations, existing active reservations can still commit/release - SUSPENDED → ACTIVE: Resume normal operations - * → CLOSED: Irreversible, archives tenant, and triggers
+          the tenant-close cascade (see CASCADE SEMANTICS in
+          info.description). In the same transaction as the status
+          flip the server MUST drive all owned objects to their
+          terminal states: budgets → CLOSED, API keys → REVOKED,
+          open reservations → RELEASED, webhook subscriptions →
+          DISABLED. Every mutating call on an owned object after
+          close returns HTTP 409 TENANT_CLOSED. Re-issuing close on
+          an already-CLOSED tenant is a no-op.
 
         Extends PATCH /v1/admin/tenants/{tenant_id} from the governance spec. All existing fields unchanged. observe_mode added with partial-update semantics. AUTHORIZATION: AdminKeyAuth (unchanged). BACKWARD COMPATIBILITY: requests omitting observe_mode are identical to v0.1.25.
       security:
@@ -4736,7 +4748,16 @@ paths:
         - REACTIVATE: SUSPENDED → ACTIVE. Idempotent when already
           ACTIVE. Invalid from CLOSED.
         - CLOSE: any status → CLOSED. Terminal — not reversible via
-          this API. Implementations MAY require additional
+          this API. Each matched row triggers the full tenant-close
+          cascade (see CASCADE SEMANTICS in info.description):
+          owned budgets → CLOSED, API keys → REVOKED, open
+          reservations → RELEASED, webhook subscriptions →
+          DISABLED, all atomic with the status flip for that row.
+          Per-row cascade failure lands the row in `failed[]` with
+          an implementation-specific error_code and leaves that
+          tenant in its prior status; other rows are unaffected
+          (bulk op does not abort on individual row failure, per
+          SEMANTICS above). Implementations MAY require additional
           confirmation (e.g. requiring `allow_close: true` in the
           request body) in future minor revisions.
 

@@ -40,7 +40,7 @@ Each source spec carries an OpenAPI vendor extension at `info.x-changelog`:
 
 ```yaml
 info:
-  version: 0.1.25.28
+  version: 0.1.25.29
   x-changelog:
     url: ./changelogs/cycles-governance-admin.md
     format: keep-a-changelog
