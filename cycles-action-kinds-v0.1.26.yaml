@@ -894,6 +894,7 @@ paths:
     get:
       tags: [ActionKinds]
       operationId: listActionKinds
+      x-conformance: normative
       summary: List the canonical action kind registry
       security: []  # Explicit empty to override any global security in merged artifacts
       description: >-
@@ -997,6 +998,7 @@ paths:
     get:
       tags: [ActionKinds]
       operationId: getActionKind
+      x-conformance: normative
       summary: Get a single action kind by its kind string (exact match)
       security: []  # Explicit empty to override any global security in merged artifacts
       description: >-
@@ -1044,6 +1046,7 @@ paths:
     get:
       tags: [ActionQuotas]
       operationId: listActionQuotaCounters
+      x-conformance: normative
       summary: List live action quota counters (operator debug view)
       description: >-
         Returns current quota counter states. Reads live Redis state without
@@ -1159,6 +1162,7 @@ paths:
     post:
       tags: [ActionQuotas]
       operationId: resetActionQuotaCounter
+      x-conformance: normative
       summary: Reset a specific quota counter (incident response)
       description: >-
         Atomically resets a single quota counter to zero. Intended for

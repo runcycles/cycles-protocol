@@ -44,6 +44,18 @@ spec_family:
     evolved independently. Cross-spec references are descriptive (prose)
     rather than mechanical ($ref) to preserve companion-spec portability.
 
+    Documents are further stratified by conformance status (see the
+    `conformance` field on each entry below). Four documents are normative
+    — a conformant implementation MUST implement them. The governance-admin
+    document is mixed: its endpoint definitions are reference (runcycles'
+    own management plane; implementers MAY diverge), while a small set of
+    cross-plane schemas (Event, EventType, EventData*, WebhookDelivery,
+    Permission) remain normative regardless of where they currently live.
+    Every operation also carries an `x-conformance: normative | reference`
+    OpenAPI extension so tooling can filter by conformance status. The
+    authoritative MUST / SHOULD / MAY statement is in CONFORMANCE.md at
+    the repo root.
+
     The tradeoff: human readers and implementers can read each file in
     isolation; SDK generators and validator pipelines need a merged artifact.
     The merge_recipes section below defines how to produce those artifacts.
@@ -71,6 +83,7 @@ documents:
     file: cycles-protocol-v0.yaml
     version: "0.1.25"
     role: base
+    conformance: normative
     title: Cycles Budget Authority API
     plane: runtime-enforcement
     owns:
@@ -91,6 +104,15 @@ documents:
     version: "0.1.25.28"          # trace_id on WebhookDelivery (matches info.version)
     semantic_base: "0.1.25.9"     # frozen wire baseline
     role: base
+    conformance: mixed
+    conformance_note: >-
+      Endpoint definitions are reference (implementers MAY diverge).
+      Event, EventType, EventData*, WebhookDelivery, WebhookRetryPolicy, and
+      Permission schemas are normative; a future revision will extract them
+      into dedicated files. See CONFORMANCE.md and the x-conformance labels
+      on individual operations (listEvents / getEvent / replayEvents /
+      listTenantEvents / listWebhookDeliveries / listTenantWebhookDeliveries /
+      getBalances / introspectAuth are normative; all others are reference).
     title: Complete Budget Governance Admin API
     plane: governance-admin
     owns:
@@ -111,6 +133,7 @@ documents:
     file: cycles-action-kinds-v0.1.26.yaml
     version: "0.1.27"          # trace_id on redeclared ErrorResponse
     role: companion
+    conformance: normative
     title: Cycles Action Kind Registry
     plane: registry-and-quota-primitives
     owns:
@@ -152,6 +175,7 @@ documents:
     version: "0.1.26"
     role: extension
     extends: runtime_base
+    conformance: normative
     title: Cycles Protocol Extensions — Runtime Enforcement Plane
     plane: runtime-enforcement
     owns:
@@ -185,6 +209,7 @@ documents:
     version: "0.1.27"          # trace_id on redeclared ErrorResponse
     role: extension
     extends: governance_base
+    conformance: normative
     title: Cycles Governance Extensions — Admin Plane
     plane: governance-admin
     owns:

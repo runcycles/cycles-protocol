@@ -2053,6 +2053,7 @@ paths:
       tags:
       - Decisions
       operationId: decide
+      x-conformance: normative
       summary: Optional preflight policy decision (no reservation created)
       description: |-
         Returns ALLOW / DENY, optionally with Caps for soft landing. This endpoint does not reserve budget. Clients that require concurrency safety MUST use /v1/reservations.
@@ -2101,6 +2102,7 @@ paths:
       tags:
       - Reservations
       operationId: createReservation
+      x-conformance: normative
       summary: Reserve budget for a planned action (concurrency-safe)
       description: "Atomically reserves the estimated amount across server-derived scopes and returns\
         \ a reservation_id. Reservations expire at expires_at_ms; commits are accepted through (expires_at_ms\
@@ -2170,6 +2172,7 @@ paths:
       tags:
       - Reservations
       operationId: listReservations
+      x-conformance: normative
       summary: List reservations (optional recovery/debug endpoint)
       description: |-
         Lists reservations visible to the effective tenant. This endpoint is OPTIONAL in v0 deployments.
@@ -2299,6 +2302,7 @@ paths:
       tags:
       - Reservations
       operationId: getReservation
+      x-conformance: normative
       summary: Get reservation details (optional, for debugging)
       description: |-
         Retrieve current status and details of a reservation by ID. Useful for debugging and monitoring long-running operations.
@@ -2344,6 +2348,7 @@ paths:
       tags:
       - Reservations
       operationId: commitReservation
+      x-conformance: normative
       summary: Commit actual spend for a reservation (auto-releases delta)
       description: |-
         Commits actual spend. If actual < reserved, delta is released automatically. If actual > reserved, behavior is controlled by the reservation's overage_policy.
@@ -2391,6 +2396,7 @@ paths:
       tags:
       - Reservations
       operationId: releaseReservation
+      x-conformance: normative
       summary: Release an unused reservation
       description: |-
         Releases reserved amount back to remaining budget.
@@ -2468,6 +2474,7 @@ paths:
       tags:
       - Reservations
       operationId: extendReservation
+      x-conformance: normative
       summary: Extend reservation TTL (lease refresh / heartbeat)
       description: |-
         Extends the expiry of an ACTIVE reservation to support long-running agent workflows.
@@ -2519,6 +2526,7 @@ paths:
       tags:
       - Balances
       operationId: getBalances
+      x-conformance: normative
       summary: Query current budget balances across scopes (nice-to-have)
       description: "Returns balances for scopes matching the provided subject filter. include_children\
         \ MAY be ignored by v0 implementations.\nSUBJECT FILTER REQUIREMENT (NORMATIVE): - At least one\
@@ -2586,6 +2594,7 @@ paths:
       tags:
       - Events
       operationId: createEvent
+      x-conformance: normative
       summary: Optional post-only accounting when pre-estimation is not available
       description: |-
         Records an accounting event without a reservation. This endpoint is optional in v0 deployments.  The event MUST be applied atomically across all derived scopes before the server returns 201.
@@ -2643,6 +2652,7 @@ paths:
       tags:
       - ActionKinds
       operationId: listActionKinds
+      x-conformance: normative
       summary: List the canonical action kind registry
       security: []
       description: |-
@@ -2744,6 +2754,7 @@ paths:
       tags:
       - ActionKinds
       operationId: getActionKind
+      x-conformance: normative
       summary: Get a single action kind by its kind string (exact match)
       security: []
       description: EXACT MATCH ONLY. Returns 200 if the kind string is in the registry, 404 if it is not.
@@ -2788,6 +2799,7 @@ paths:
       tags:
       - ActionQuotas
       operationId: listActionQuotaCounters
+      x-conformance: normative
       summary: List live action quota counters (operator debug view)
       description: |-
         Returns current quota counter states. Reads live Redis state without modifying it. No server-side caching.
@@ -2900,6 +2912,7 @@ paths:
       tags:
       - ActionQuotas
       operationId: resetActionQuotaCounter
+      x-conformance: normative
       summary: Reset a specific quota counter (incident response)
       description: |-
         Atomically resets a single quota counter to zero. Intended for INCIDENT RESPONSE, not routine operations. See ActionQuotaCounterResetRequest for full semantics.

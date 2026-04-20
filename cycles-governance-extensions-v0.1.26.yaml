@@ -574,6 +574,7 @@ paths:
     patch:
       tags: [Tenants]
       operationId: updateTenantObserveMode
+      x-conformance: normative
       summary: "Extended: PATCH tenant — adds observe_mode (v0.1.26)"
       description: >-
         Extends PATCH /v1/admin/tenants/{tenant_id} from the governance spec.
@@ -647,6 +648,7 @@ paths:
     patch:
       tags: [Policies]
       operationId: updatePolicyActionQuotas
+      x-conformance: normative
       summary: "Extended: PATCH policy — adds quotas and access control (v0.1.26)"
       description: >-
         Extends PATCH /v1/admin/policies/{policy_id} from the governance spec.

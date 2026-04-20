@@ -3330,6 +3330,7 @@ paths:
     post:
       tags: [Tenants]
       operationId: createTenant
+      x-conformance: reference
       summary: Create a new tenant
       description: >-
         Registers a new tenant in the system. This is typically the first
@@ -3394,6 +3395,7 @@ paths:
     get:
       tags: [Tenants]
       operationId: listTenants
+      x-conformance: reference
       summary: List all tenants
       description: >-
         Returns paginated list of all tenants. Useful for admin dashboards
@@ -3497,6 +3499,7 @@ paths:
     get:
       tags: [Tenants]
       operationId: getTenant
+      x-conformance: reference
       summary: Get tenant details
       description: Returns the full tenant configuration including status, defaults, and metadata.
       security:
@@ -3547,6 +3550,7 @@ paths:
     patch:
       tags: [Tenants]
       operationId: updateTenant
+      x-conformance: reference
       summary: Update tenant properties
       description: >-
         Modify tenant metadata, status, or hierarchy.
@@ -3636,6 +3640,7 @@ paths:
     post:
       tags: [Tenants]
       operationId: bulkActionTenants
+      x-conformance: reference
       summary: Apply a lifecycle action to every tenant matching a filter
       description: >-
         Apply SUSPEND, REACTIVATE, or CLOSE to every tenant matching the
@@ -3743,6 +3748,7 @@ paths:
     post:
       tags: [Budgets]
       operationId: createBudget
+      x-conformance: reference
       summary: Create a budget ledger for a scope
       description: >-
         Initializes a new budget ledger for a (scope, unit) pair.
@@ -3819,6 +3825,7 @@ paths:
     get:
       tags: [Budgets]
       operationId: listBudgets
+      x-conformance: reference
       summary: List budget ledgers
       description: >-
         Query budget ledgers by tenant, scope pattern, status, or
@@ -3995,6 +4002,7 @@ paths:
     patch:
       tags: [Budgets]
       operationId: updateBudget
+      x-conformance: reference
       summary: Update budget properties
       description: >-
         Update overdraft_limit, commit_overage_policy, or metadata on an existing budget.
@@ -4075,6 +4083,7 @@ paths:
     post:
       tags: [Budgets]
       operationId: freezeBudget
+      x-conformance: reference
       summary: Freeze a budget (ACTIVE → FROZEN)
       description: >-
         Transitions a budget from ACTIVE to FROZEN. Frozen budgets block all
@@ -4159,6 +4168,7 @@ paths:
     post:
       tags: [Budgets]
       operationId: unfreezeBudget
+      x-conformance: reference
       summary: Unfreeze a budget (FROZEN → ACTIVE)
       description: >-
         Transitions a budget from FROZEN back to ACTIVE, resuming normal operations.
@@ -4241,6 +4251,7 @@ paths:
     post:
       tags: [Budgets]
       operationId: fundBudget
+      x-conformance: reference
       summary: Credit, debit, or adjust budget allocation
       description: >-
         Modifies budget allocation and remaining balance outside the
@@ -4370,6 +4381,7 @@ paths:
     get:
       tags: [Budgets]
       operationId: lookupBudget
+      x-conformance: reference
       summary: Look up a single budget by exact scope and unit
       description: >-
         Returns a single budget ledger matching the exact (scope, unit) pair.
@@ -4438,6 +4450,7 @@ paths:
     post:
       tags: [Budgets]
       operationId: bulkActionBudgets
+      x-conformance: reference
       summary: Apply a balance-mutation to every budget matching a filter
       description: >-
         Apply CREDIT, DEBIT, RESET, RESET_SPENT, or REPAY_DEBT to every
@@ -4569,6 +4582,7 @@ paths:
     post:
       tags: [Policies]
       operationId: createPolicy
+      x-conformance: reference
       summary: Create a policy with caps and limits
       description: >-
         Defines caps (soft-landing constraints) and rate limits for scopes.
@@ -4646,6 +4660,7 @@ paths:
     get:
       tags: [Policies]
       operationId: listPolicies
+      x-conformance: reference
       summary: List policies
       description: >-
         AUTHORIZATION:
@@ -4743,6 +4758,7 @@ paths:
     patch:
       tags: [Policies]
       operationId: updatePolicy
+      x-conformance: reference
       summary: Update policy properties
       description: >-
         Update any mutable field on an existing policy.
@@ -4826,6 +4842,7 @@ paths:
     post:
       tags: [API Keys]
       operationId: createApiKey
+      x-conformance: reference
       summary: Create an API key for a tenant
       description: >-
         Provisions a new API key bound to a tenant. This is the only time
@@ -4898,6 +4915,7 @@ paths:
     get:
       tags: [API Keys]
       operationId: listApiKeys
+      x-conformance: reference
       summary: List API keys
       description: >-
         Returns API keys, optionally filtered by tenant. Full key
@@ -4999,6 +5017,7 @@ paths:
     patch:
       tags: [API Keys]
       operationId: updateApiKey
+      x-conformance: reference
       summary: Update API key properties
       description: >-
         Partial update — only provided fields are modified. Allows changing
@@ -5097,6 +5116,7 @@ paths:
     delete:
       tags: [API Keys]
       operationId: revokeApiKey
+      x-conformance: reference
       summary: Revoke an API key
       description: >-
         Immediately revokes a key. The key will fail validation from this
@@ -5167,6 +5187,7 @@ paths:
     post:
       tags: [Authentication]
       operationId: validateApiKey
+      x-conformance: reference
       summary: Validate an API key and resolve tenant
       description: >-
         Internal endpoint used by runtime enforcement layer to validate
@@ -5230,6 +5251,7 @@ paths:
     get:
       tags: [Dashboard]
       operationId: introspectAuth
+      x-conformance: normative
       summary: Introspect authenticated credential and return effective capabilities
       description: >-
         Returns the effective permissions and derived capabilities for the
@@ -5297,6 +5319,7 @@ paths:
     get:
       tags: [Audit]
       operationId: listAuditLogs
+      x-conformance: reference
       summary: Query audit logs
       description: >-
         Returns audit trail of all authenticated operations.
@@ -5583,6 +5606,7 @@ paths:
     get:
       tags: [Dashboard]
       operationId: getAdminOverview
+      x-conformance: reference
       summary: Get server-aggregated operational dashboard overview
       description: >-
         Returns a single-request operational health snapshot for the admin dashboard.
@@ -5641,6 +5665,7 @@ paths:
     post:
       tags: [Webhooks]
       operationId: createWebhookSubscription
+      x-conformance: reference
       summary: Create a webhook subscription
       description: >-
         Registers a new webhook endpoint to receive events.
@@ -5711,6 +5736,7 @@ paths:
     get:
       tags: [Webhooks]
       operationId: listWebhookSubscriptions
+      x-conformance: reference
       summary: List webhook subscriptions
       description: >-
         Returns paginated list of webhook subscriptions.
@@ -5810,6 +5836,7 @@ paths:
     get:
       tags: [Webhooks]
       operationId: getWebhookSubscription
+      x-conformance: reference
       summary: Get webhook subscription details
       description: >-
         Returns full subscription configuration and delivery health metrics.
@@ -5863,6 +5890,7 @@ paths:
     patch:
       tags: [Webhooks]
       operationId: updateWebhookSubscription
+      x-conformance: reference
       summary: Update webhook subscription
       description: >-
         Partial update — only provided fields are modified.
@@ -5927,6 +5955,7 @@ paths:
     delete:
       tags: [Webhooks]
       operationId: deleteWebhookSubscription
+      x-conformance: reference
       summary: Delete webhook subscription
       description: >-
         Permanently removes the subscription. Pending deliveries are cancelled.
@@ -5977,6 +6006,7 @@ paths:
     post:
       tags: [Webhooks]
       operationId: testWebhookSubscription
+      x-conformance: reference
       summary: Send a test event to the webhook endpoint
       description: >-
         Sends a synthetic test event to the subscription's URL to verify connectivity
@@ -6037,6 +6067,7 @@ paths:
     get:
       tags: [Webhooks]
       operationId: listWebhookDeliveries
+      x-conformance: normative
       summary: List delivery attempts for a subscription
       description: >-
         Returns paginated delivery history for debugging webhook issues.
@@ -6118,6 +6149,7 @@ paths:
     get:
       tags: [Events]
       operationId: listEvents
+      x-conformance: normative
       summary: Query the event stream
       description: >-
         Returns paginated events with filtering by type, category, tenant, scope,
@@ -6272,6 +6304,7 @@ paths:
     get:
       tags: [Events]
       operationId: getEvent
+      x-conformance: normative
       summary: Get a single event by ID
       description: >-
         Returns the full event record including data payload.
@@ -6326,6 +6359,7 @@ paths:
     post:
       tags: [Webhooks]
       operationId: replayEvents
+      x-conformance: normative
       summary: Replay events to a webhook subscription
       description: >-
         Re-delivers historical events to the subscription's endpoint.
@@ -6433,6 +6467,7 @@ paths:
     post:
       tags: [Webhooks]
       operationId: bulkActionWebhooks
+      x-conformance: reference
       summary: Apply a lifecycle action to every webhook subscription matching a filter
       description: >-
         Apply PAUSE, RESUME, or DELETE to every webhook subscription
@@ -6527,6 +6562,7 @@ paths:
     get:
       tags: [Webhooks]
       operationId: getWebhookSecurityConfig
+      x-conformance: reference
       summary: Get webhook security configuration
       description: >-
         Returns the current server-level webhook security configuration
@@ -6568,6 +6604,7 @@ paths:
     put:
       tags: [Webhooks]
       operationId: updateWebhookSecurityConfig
+      x-conformance: reference
       summary: Update webhook security configuration
       description: >-
         Replaces the server-level webhook security configuration.
@@ -6623,6 +6660,7 @@ paths:
     post:
       tags: [Webhooks]
       operationId: createTenantWebhook
+      x-conformance: reference
       summary: Create a webhook for the authenticated tenant
       description: >-
         Tenant-scoped webhook creation. The subscription is automatically scoped
@@ -6676,6 +6714,7 @@ paths:
     get:
       tags: [Webhooks]
       operationId: listTenantWebhooks
+      x-conformance: reference
       summary: List webhooks for the authenticated tenant (or a specified tenant under admin auth)
       description: >-
         Returns webhook subscriptions scoped by the authenticated caller.
@@ -6760,6 +6799,7 @@ paths:
     get:
       tags: [Webhooks]
       operationId: getTenantWebhook
+      x-conformance: reference
       summary: Get a tenant's webhook subscription
       description: >-
         Returns webhook details.
@@ -6826,6 +6866,7 @@ paths:
     patch:
       tags: [Webhooks]
       operationId: updateTenantWebhook
+      x-conformance: reference
       summary: Update a tenant's webhook subscription
       description: >-
         Partial update — only provided fields are modified. Restricted to tenant-accessible event types.
@@ -6903,6 +6944,7 @@ paths:
     delete:
       tags: [Webhooks]
       operationId: deleteTenantWebhook
+      x-conformance: reference
       summary: Delete a tenant's webhook subscription
       description: >-
         Permanently removes the subscription. Pending deliveries for this subscription will fail.
@@ -6970,6 +7012,7 @@ paths:
     post:
       tags: [Webhooks]
       operationId: testTenantWebhook
+      x-conformance: reference
       summary: Send a test event to a tenant's webhook
       description: >-
         Sends a synthetic system.webhook_test event. Does not count toward consecutive failures.
@@ -7040,6 +7083,7 @@ paths:
     get:
       tags: [Webhooks]
       operationId: listTenantWebhookDeliveries
+      x-conformance: normative
       summary: List delivery attempts for a tenant's webhook
       description: >-
         Returns delivery history with status, response codes, and error details.
@@ -7132,6 +7176,7 @@ paths:
     get:
       tags: [Events]
       operationId: listTenantEvents
+      x-conformance: normative
       summary: Query events for the authenticated tenant
       description: >-
         Returns events scoped to the authenticated tenant only.
@@ -7226,6 +7271,7 @@ paths:
     get:
       tags: [Balances]
       operationId: getBalances
+      x-conformance: normative
       summary: Query budget balances (admin-plane view)
       description: >-
         Returns budget ledger balances for the authenticated tenant, with

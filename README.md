@@ -7,7 +7,16 @@
 
 Cycles is an open protocol that ensures agents cannot authorize more spend than policy allows — even when dozens of them run concurrently.
 
-**Spec suite:** v0.1.26 &middot; **Runtime base:** v0.1.25 &middot; **Governance base:** v0.1.25.27 (semantic_base 0.1.25.9) &middot; **API path:** `/v1` &middot; **License:** Apache 2.0
+**Spec suite:** v0.1.26 &middot; **Runtime base:** v0.1.25 &middot; **Governance base:** v0.1.25.28 (semantic_base 0.1.25.9) &middot; **API path:** `/v1` &middot; **License:** Apache 2.0
+
+The Cycles spec suite is organized by conformance status:
+
+| Tier | Files | Status |
+|---|---|---|
+| **Normative** (required for conformance) | [`cycles-protocol-v0.yaml`](cycles-protocol-v0.yaml), [`cycles-protocol-extensions-v0.1.26.yaml`](cycles-protocol-extensions-v0.1.26.yaml), [`cycles-action-kinds-v0.1.26.yaml`](cycles-action-kinds-v0.1.26.yaml), [`cycles-governance-extensions-v0.1.26.yaml`](cycles-governance-extensions-v0.1.26.yaml) | A conformant server MUST implement these. |
+| **Mixed** | [`cycles-governance-admin-v0.1.25.yaml`](cycles-governance-admin-v0.1.25.yaml) | Mostly runcycles' reference admin API (implementers MAY diverge), but selected schemas (`Event`, `EventType`, `EventData*`, `WebhookDelivery`, `WebhookRetryPolicy`, `Permission`) and eight operations remain normative via `x-conformance` labels. See [`CONFORMANCE.md`](CONFORMANCE.md) and [`cycles-spec-index.yaml`](cycles-spec-index.yaml). |
+
+See [`CONFORMANCE.md`](CONFORMANCE.md) for the authoritative MUST / SHOULD / MAY statement, and [`cycles-spec-index.yaml`](cycles-spec-index.yaml) for the composition manifest and merge recipes.
 
 > **v0.1.26** adds action-level governance on top of the stable v0.1.25 runtime base:
 > - **Action kind registry** — 62 built-in kinds with risk classification and governance policy
@@ -28,6 +37,12 @@ AI agents do not just spend money autonomously. They call LLMs, execute tools, r
 That exposure can be financial, but it can also be consequential: records changed, emails sent, jobs triggered, APIs called, files overwritten, or external systems affected. Traditional cost controls assume predictable, human-initiated requests. Agent runtimes break those assumptions.
 
 Cycles exists because **budget and exposure are safety properties in agentic systems, not billing afterthoughts.** It provides a protocol-level enforcement point for governing spend and actions before execution, with correctness under concurrency, retries, and partial failures.
+
+## Conformance
+
+Cycles is a minimum protocol. A conformant server exposes ~23 operations — reserve / commit / release / decide / balances / events, the action-kind registry, the governance-extension fields, and the cross-plane event / webhook / auth-introspection surface — and is otherwise free to implement tenant management, budget provisioning, key rotation, and audit UX however it likes.
+
+[`CONFORMANCE.md`](CONFORMANCE.md) is the authoritative statement of what a Cycles implementation MUST, SHOULD, and MAY do. Operations across the spec suite carry an `x-conformance` OpenAPI extension (`normative` or `reference`) so tooling can filter by conformance status.
 
 ## When to use Cycles
 
@@ -150,7 +165,7 @@ docker compose up --build
 
 The server starts on port 7878 with interactive API docs at http://localhost:7878/swagger-ui.html. Pre-built images are published to `ghcr.io/runcycles/cycles-server`.
 
-> **Note:** The runtime server handles budget enforcement but cannot create tenants, API keys, or budgets on its own. For a complete setup, you also need the [Cycles Admin Server](https://github.com/runcycles/cycles-server-admin) (management plane). The easiest path is the one-command quickstart:
+> **Note:** The runtime server handles budget enforcement but cannot create tenants, API keys, or budgets on its own. For a complete setup, you also need runcycles' [reference admin server](https://github.com/runcycles/cycles-server-admin) (management plane) — which implements the mostly-reference [`cycles-governance-admin-v0.1.25.yaml`](cycles-governance-admin-v0.1.25.yaml) spec. That file is classified as Mixed: the tenant / budget / policy / API-key / audit CRUD surface is reference (implementers MAY adopt it, diverge from it, or replace it with their own provisioning mechanism), while a small set of cross-plane operations and schemas inside the same file are normative — see [`CONFORMANCE.md`](CONFORMANCE.md). The easiest path to try the reference stack is the one-command quickstart:
 >
 > ```bash
 > git clone https://github.com/runcycles/cycles-server.git

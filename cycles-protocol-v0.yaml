@@ -1343,6 +1343,7 @@ paths:
     post:
       tags: [Decisions]
       operationId: decide
+      x-conformance: normative
       summary: Optional preflight policy decision (no reservation created)
       description: >-
         Returns ALLOW / DENY, optionally with Caps for soft landing. This endpoint does not reserve budget. Clients that require
@@ -1390,6 +1391,7 @@ paths:
     post:
       tags: [Reservations]
       operationId: createReservation
+      x-conformance: normative
       summary: Reserve budget for a planned action (concurrency-safe)
       description: >-
         Atomically reserves the estimated amount across server-derived scopes and returns a reservation_id. Reservations expire
@@ -1453,6 +1455,7 @@ paths:
     get:
       tags: [Reservations]
       operationId: listReservations
+      x-conformance: normative
       summary: List reservations (optional recovery/debug endpoint)
       description: >-
         Lists reservations visible to the effective tenant. This endpoint is OPTIONAL in v0 deployments.
@@ -1568,6 +1571,7 @@ paths:
     get:
       tags: [Reservations]
       operationId: getReservation
+      x-conformance: normative
       summary: Get reservation details (optional, for debugging)
       description: >-
         Retrieve current status and details of a reservation by ID. Useful for debugging and monitoring long-running operations.
@@ -1604,6 +1608,7 @@ paths:
     post:
       tags: [Reservations]
       operationId: commitReservation
+      x-conformance: normative
       summary: Commit actual spend for a reservation (auto-releases delta)
       description: >-
         Commits actual spend. If actual < reserved, delta is released automatically. If actual > reserved, behavior is controlled
@@ -1644,6 +1649,7 @@ paths:
     post:
       tags: [Reservations]
       operationId: releaseReservation
+      x-conformance: normative
       summary: Release an unused reservation
       description: >-
         Releases reserved amount back to remaining budget.
@@ -1712,6 +1718,7 @@ paths:
     post:
       tags: [Reservations]
       operationId: extendReservation
+      x-conformance: normative
       summary: Extend reservation TTL (lease refresh / heartbeat)
       description: >-
         Extends the expiry of an ACTIVE reservation to support long-running agent workflows.
@@ -1764,6 +1771,7 @@ paths:
     get:
       tags: [Balances]
       operationId: getBalances
+      x-conformance: normative
       summary: Query current budget balances across scopes (nice-to-have)
       description: >
         Returns balances for scopes matching the provided subject filter.
@@ -1821,6 +1829,7 @@ paths:
     post:
       tags: [Events]
       operationId: createEvent
+      x-conformance: normative
       summary: Optional post-only accounting when pre-estimation is not available
       description: >-
         Records an accounting event without a reservation. This endpoint is optional in v0 deployments. 
