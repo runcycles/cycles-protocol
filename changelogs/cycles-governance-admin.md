@@ -8,7 +8,7 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ## v0.1.25.30 — 2026-04-20
 
-- Editorial: declares `409 TENANT_CLOSED` responses on the five
+- Editorial: declares `409 TENANT_CLOSED` responses on the ten
   mutating admin-plane operations that were missing it from their
   per-operation response maps, closing a gap between the normative
   `CASCADE SEMANTICS` Rule 2 prose (added in v0.1.25.29) and the
@@ -20,12 +20,21 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
   spec flagged a mismatch against reference servers that correctly
   implement the rule.
 
-  Operations updated:
+  Policy / API-key plane (2):
     * `PATCH /v1/admin/policies/{policy_id}` (updatePolicy)
-    * `POST /v1/admin/api-keys` (createApiKey)
-    * `PATCH /v1/admin/webhooks/{subscription_id}` (updateWebhookSubscription)
-    * `DELETE /v1/webhooks/{subscription_id}` (deleteTenantWebhook)
-    * `POST /v1/webhooks/{subscription_id}/test` (testTenantWebhook)
+    * `POST /v1/admin/api-keys`               (createApiKey)
+
+  Webhook admin plane (4):
+    * `POST   /v1/admin/webhooks`                        (createWebhookSubscription)
+    * `PATCH  /v1/admin/webhooks/{subscription_id}`      (updateWebhookSubscription)
+    * `DELETE /v1/admin/webhooks/{subscription_id}`      (deleteWebhookSubscription)
+    * `POST   /v1/admin/webhooks/{subscription_id}/test` (testWebhookSubscription)
+
+  Webhook tenant plane (4):
+    * `POST   /v1/webhooks`                        (createTenantWebhook)
+    * `PATCH  /v1/webhooks/{subscription_id}`      (updateTenantWebhook)
+    * `DELETE /v1/webhooks/{subscription_id}`      (deleteTenantWebhook)
+    * `POST   /v1/webhooks/{subscription_id}/test` (testTenantWebhook)
 
   Each entry references `ErrorResponse` and names the Rule 2
   trigger in its `description`. No schema changes, no new fields,
@@ -33,6 +42,13 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
   already-normative behavior. Clients that treat 4xx as
   `ErrorResponse` (the canonical contract) see no observable
   change.
+
+  Note: `createPolicy`, `updateApiKey`, `revokeApiKey`, and the
+  budget lifecycle ops (create/update/fund/freeze/unfreeze, plus
+  their bulk-action), along with `replayEvents` and
+  `bulkActionWebhooks`, already enumerated `409 TENANT_CLOSED` in
+  their response maps before this revision; this editorial pass
+  brings the remaining ten ops to parity.
 
 ## v0.1.25.29 — 2026-04-20
 
