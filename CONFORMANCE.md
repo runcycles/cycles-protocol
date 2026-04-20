@@ -38,15 +38,15 @@ A conformant implementation MUST:
 
 Implement and honor the semantics of all 9 runtime operations:
 
-1. `POST /v1/reservations` — **reserveBudget**
-2. `GET /v1/reservations/{reservation_id}` — **getReservation**
-3. `POST /v1/reservations/{reservation_id}/commit` — **commitReservation**
-4. `POST /v1/reservations/{reservation_id}/release` — **releaseReservation**
-5. `POST /v1/reservations/{reservation_id}/extend` — **extendReservation**
-6. `POST /v1/decide` — **decide** (soft-landing decision preview)
-7. `GET /v1/balances` — **getBalances**
-8. `POST /v1/events` — **createEvent** (direct settlement path)
-9. `GET /v1/health` — **health**
+1. `POST /v1/reservations` — **createReservation**
+2. `GET /v1/reservations` — **listReservations** (optional recovery/debug endpoint; still part of the protocol surface)
+3. `GET /v1/reservations/{reservation_id}` — **getReservation**
+4. `POST /v1/reservations/{reservation_id}/commit` — **commitReservation**
+5. `POST /v1/reservations/{reservation_id}/release` — **releaseReservation**
+6. `POST /v1/reservations/{reservation_id}/extend` — **extendReservation**
+7. `POST /v1/decide` — **decide** (soft-landing decision preview)
+8. `GET /v1/balances` — **getBalances**
+9. `POST /v1/events` — **createEvent** (direct settlement path)
 
 ### Action-kind registry (`cycles-action-kinds-v0.1.26.yaml`)
 
@@ -55,7 +55,7 @@ Implement all 4 registry and quota-primitive operations:
 1. `GET /v1/action-kinds` — **listActionKinds**
 2. `GET /v1/action-kinds/{kind}` — **getActionKind**
 3. `GET /v1/admin/action-quota-counters` — **listActionQuotaCounters**
-4. `POST /v1/admin/action-quota-counters/reset` — **resetActionQuotaCounters**
+4. `POST /v1/admin/action-quota-counters/reset` — **resetActionQuotaCounter**
 
 ### Governance extensions (`cycles-governance-extensions-v0.1.26.yaml`)
 
