@@ -40,7 +40,7 @@ Cycles exists because **budget and exposure are safety properties in agentic sys
 
 ## Conformance
 
-Cycles is a minimum protocol. A conformant server exposes ~15 operations — reserve / commit / release / decide / balances / events plus the action-kind registry and governance-extension fields — and is otherwise free to implement tenant management, budget provisioning, key rotation, and audit UX however it likes.
+Cycles is a minimum protocol. A conformant server exposes ~23 operations — reserve / commit / release / decide / balances / events, the action-kind registry, the governance-extension fields, and the cross-plane event / webhook / auth-introspection surface — and is otherwise free to implement tenant management, budget provisioning, key rotation, and audit UX however it likes.
 
 [`CONFORMANCE.md`](CONFORMANCE.md) is the authoritative statement of what a Cycles implementation MUST, SHOULD, and MAY do. Operations across the spec suite carry an `x-conformance` OpenAPI extension (`normative` or `reference`) so tooling can filter by conformance status.
 
@@ -165,7 +165,7 @@ docker compose up --build
 
 The server starts on port 7878 with interactive API docs at http://localhost:7878/swagger-ui.html. Pre-built images are published to `ghcr.io/runcycles/cycles-server`.
 
-> **Note:** The runtime server handles budget enforcement but cannot create tenants, API keys, or budgets on its own. For a complete setup, you also need runcycles' [reference admin server](https://github.com/runcycles/cycles-server-admin) (management plane) — which implements the non-normative [`cycles-governance-admin-v0.1.25.yaml`](cycles-governance-admin-v0.1.25.yaml) spec. Implementers MAY adopt this admin shape wholesale, diverge from it, or replace it entirely with their own tenant/budget/policy provisioning mechanism. The easiest path to try it is the one-command quickstart:
+> **Note:** The runtime server handles budget enforcement but cannot create tenants, API keys, or budgets on its own. For a complete setup, you also need runcycles' [reference admin server](https://github.com/runcycles/cycles-server-admin) (management plane) — which implements the mostly-reference [`cycles-governance-admin-v0.1.25.yaml`](cycles-governance-admin-v0.1.25.yaml) spec. That file is classified as Mixed: the tenant / budget / policy / API-key / audit CRUD surface is reference (implementers MAY adopt it, diverge from it, or replace it with their own provisioning mechanism), while a small set of cross-plane operations and schemas inside the same file are normative — see [`CONFORMANCE.md`](CONFORMANCE.md). The easiest path to try the reference stack is the one-command quickstart:
 >
 > ```bash
 > git clone https://github.com/runcycles/cycles-server.git
