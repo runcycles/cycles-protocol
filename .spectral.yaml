@@ -79,3 +79,15 @@ rules:
       function: pattern
       functionOptions:
         match: "^/v1"
+
+  # --- Conformance labeling (Phase 1; warn-only) ---
+
+  operation-must-declare-conformance:
+    description: "Operations should declare x-conformance: normative or reference (see CONFORMANCE.md)"
+    severity: warn
+    given: "$.paths[*][get,post,put,patch,delete]"
+    then:
+      field: "x-conformance"
+      function: enumeration
+      functionOptions:
+        values: [normative, reference]
