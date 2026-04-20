@@ -41,7 +41,7 @@ Cycles exists because **budget and exposure are safety properties in agentic sys
 
 ## Conformance
 
-Cycles is a minimum protocol. A conformant **v0.1.25** server exposes ~17 operations — 9 runtime reserve / commit / release / decide / balances / events ops, plus 8 cross-plane event / webhook / auth-introspection ops — and is otherwise free to implement tenant management, budget provisioning, key rotation, and audit UX however it likes. The additional v0.1.26 surface (action-kind registry + governance extensions, ~6 more ops) is upcoming and SHOULD-level today.
+Cycles is a minimum protocol. A conformant **v0.1.25** server MUST implement 12 operations (4 core runtime reserve/commit/release/extend, plus 8 cross-plane event / webhook / auth-introspection) and SHOULD implement an additional 5 runtime operations (decide, listReservations, getReservation, getBalances, createEvent) that the spec marks OPTIONAL / nice-to-have — together making up the ~17-operation protocol surface. Otherwise the server is free to implement tenant management, budget provisioning, key rotation, and audit UX however it likes. The additional v0.1.26 surface (action-kind registry + governance extensions, ~6 more ops) is upcoming and SHOULD-level today.
 
 [`CONFORMANCE.md`](CONFORMANCE.md) is the authoritative statement of what a Cycles implementation MUST, SHOULD, and MAY do — scoped to the current v0.1.25 conformance target, with v0.1.26 listed under SHOULD / upcoming. Operations across the spec suite carry an `x-conformance` OpenAPI extension (`normative` or `reference`) so tooling can filter by conformance status within each spec.
 

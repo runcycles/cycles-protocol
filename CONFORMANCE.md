@@ -17,7 +17,7 @@ Language follows [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119): MUST / MUST
 
 ## Summary
 
-Cycles is a **minimum protocol**. A conformant v0.1.25 server exposes approximately 17 operations — 9 runtime reserve/commit/release/decide/balances/events operations plus 8 cross-plane event / webhook / auth-introspection operations — and is otherwise free to implement tenant management, budget provisioning, key rotation, and audit UX however it likes.
+Cycles is a **minimum protocol**. A conformant v0.1.25 server MUST implement 12 operations (4 core runtime reserve/commit/release/extend + 8 cross-plane event / webhook / auth-introspection) and SHOULD implement an additional 5 runtime operations (decide, listReservations, getReservation, getBalances, createEvent) that the spec marks OPTIONAL / nice-to-have but that well-rounded servers expose. Total v0.1.25 protocol surface is approximately 17 operations. The server is otherwise free to implement tenant management, budget provisioning, key rotation, and audit UX however it likes.
 
 | File | Target | Conformance | What it defines |
 |---|---|---|---|
@@ -37,17 +37,14 @@ A conformant implementation MUST:
 
 ### Runtime operations (`cycles-protocol-v0.yaml`)
 
-Implement and honor the semantics of all 9 runtime operations:
+Implement and honor the semantics of the 4 core runtime operations:
 
 1. `POST /v1/reservations` — **createReservation**
-2. `GET /v1/reservations` — **listReservations** (optional recovery/debug endpoint; still part of the protocol surface)
-3. `GET /v1/reservations/{reservation_id}` — **getReservation**
-4. `POST /v1/reservations/{reservation_id}/commit` — **commitReservation**
-5. `POST /v1/reservations/{reservation_id}/release` — **releaseReservation**
-6. `POST /v1/reservations/{reservation_id}/extend` — **extendReservation**
-7. `POST /v1/decide` — **decide** (soft-landing decision preview)
-8. `GET /v1/balances` — **getBalances**
-9. `POST /v1/events` — **createEvent** (direct settlement path)
+2. `POST /v1/reservations/{reservation_id}/commit` — **commitReservation**
+3. `POST /v1/reservations/{reservation_id}/release` — **releaseReservation**
+4. `POST /v1/reservations/{reservation_id}/extend` — **extendReservation** (TTL heartbeat for long-running operations)
+
+The remaining runtime endpoints (`decide`, `listReservations`, `getReservation`, `getBalances`, `createEvent`) are marked OPTIONAL / nice-to-have in `cycles-protocol-v0.yaml` itself and are listed under §SHOULD below. Where implemented, they MUST follow the spec contract (paths, schemas, error codes) per their `x-conformance: normative` labels.
 
 ### Core invariants
 
@@ -98,8 +95,11 @@ A conformant implementation SHOULD:
 
 - Emit events for budget-state changes (reservation.*, budget.*, quota.*) matching the `EventType` enum. Implementations MAY sample or filter which events they emit, but emitted events MUST follow the schema.
 - Propagate `X-Cycles-Trace-Id` and W3C `traceparent` headers per `cycles-protocol-v0.yaml` §CORRELATION AND TRACING. Trace correlation is central to multi-service debugging.
-- Implement `POST /v1/decide` even though it's optional in v0 — agent frameworks need soft-landing signals for graceful degradation.
-- Expose `GET /v1/balances` for operator visibility into remaining budget per scope.
+- Implement `POST /v1/decide` — marked OPTIONAL in the v0 spec, but agent frameworks need soft-landing signals for graceful degradation.
+- Implement `GET /v1/reservations` (**listReservations**) — marked OPTIONAL in v0; useful for reservation recovery (re-discover a lost `reservation_id` via `idempotency_key`) and for identifying stuck `ACTIVE` reservations.
+- Implement `GET /v1/reservations/{reservation_id}` (**getReservation**) — marked "optional, for debugging" in v0; valuable for support / monitoring of long-running reservations.
+- Expose `GET /v1/balances` (**getBalances**) — marked "nice-to-have" in v0; required for operator visibility into remaining budget per scope.
+- Implement `POST /v1/events` (**createEvent**) — marked OPTIONAL in v0; the post-only accounting path for cases where pre-estimation is unavailable (bills-later providers, receipt ingestion).
 - Publish metrics / logs when scopes enter `is_over_limit: true` state so operators can reconcile.
 
 ### Upcoming (v0.1.26) — SHOULD today, MUST once promoted
