@@ -6,6 +6,34 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.30 — 2026-04-20
+
+- Editorial: declares `409 TENANT_CLOSED` responses on the five
+  mutating admin-plane operations that were missing it from their
+  per-operation response maps, closing a gap between the normative
+  `CASCADE SEMANTICS` Rule 2 prose (added in v0.1.25.29) and the
+  OpenAPI response declarations that client SDKs and contract
+  validators consume. Rule 2 already required these handlers to
+  return 409 with `error_code=TENANT_CLOSED` on a CLOSED-owning-
+  tenant mutation, but the response map didn't enumerate 409, so
+  conformance tooling that validates response-status against the
+  spec flagged a mismatch against reference servers that correctly
+  implement the rule.
+
+  Operations updated:
+    * `PATCH /v1/admin/policies/{policy_id}` (updatePolicy)
+    * `POST /v1/admin/api-keys` (createApiKey)
+    * `PATCH /v1/admin/webhooks/{subscription_id}` (updateWebhookSubscription)
+    * `DELETE /v1/webhooks/{subscription_id}` (deleteTenantWebhook)
+    * `POST /v1/webhooks/{subscription_id}/test` (testTenantWebhook)
+
+  Each entry references `ErrorResponse` and names the Rule 2
+  trigger in its `description`. No schema changes, no new fields,
+  no wire break — purely additive to the response catalog of
+  already-normative behavior. Clients that treat 4xx as
+  `ErrorResponse` (the canonical contract) see no observable
+  change.
+
 ## v0.1.25.29 — 2026-04-20
 
 - Adds a normative tenant-close cascade contract as a new
