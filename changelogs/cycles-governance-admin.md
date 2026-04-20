@@ -6,6 +6,63 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.31 — 2026-04-20
+
+- Editorial: relaxes `CASCADE SEMANTICS` Rule 1 to permit
+  flip-first-with-Rule-2-guard as a conformant alternative to the
+  atomic single-transaction cascade originally mandated in
+  v0.1.25.29. The prior wording ("all atomically in the same
+  transaction as the status flip") excluded otherwise-conformant
+  implementations backed by non-transactional stores (Redis,
+  DynamoDB without transactions, sharded SQL without 2PC). Rule 2's
+  HTTP 409 `TENANT_CLOSED` mutation guard — fully declared in
+  v0.1.25.30 — is the load-bearing client-observable invariant;
+  both cascade modes deliver it identically.
+
+  Rule 1 now defines two modes:
+
+  - **MODE A — ATOMIC CASCADE (preferred):** all owned-object
+    terminal transitions and the tenant flip commit in a single
+    transaction. Rollback on any failure. Strongest guarantee.
+
+  - **MODE B — FLIP-FIRST WITH GUARDED CASCADE (conformant
+    alternative):** tenant flip to CLOSED commits first, making
+    Rule 2 active; server then drives children to terminal states
+    inline or via reconciler. Valid ONLY when four invariants hold:
+    (a) Rule 2 activates at/before flip durability, (b) cascade is
+    idempotent, (c) eventual convergence is guaranteed within a
+    documented bound, (d) observable reads of non-terminal children
+    of a CLOSED tenant remain consistent with stored status until
+    cascade reaches them.
+
+  Audit / event emission requirements unchanged: one entry per
+  mutated owned object under the same `correlation_id` as the
+  originating `tenant.closed` audit entry; `event_kind` values
+  remain `budget.closed_via_tenant_cascade`,
+  `webhook.disabled_via_tenant_cascade`,
+  `api_key.revoked_via_tenant_cascade`,
+  `reservation.released_via_tenant_cascade`.
+
+  Updates the three downstream locations that previously echoed
+  the "atomic" wording:
+    * `schemas/Tenant.status.CLOSED` description
+    * `paths/updateTenant` STATUS TRANSITIONS `* → CLOSED` bullet
+    * `paths/bulkActionTenants` CLOSE action semantics (including
+      per-mode failure handling for the `failed[]` / `updated[]`
+      outcome under Mode B partial cascade)
+
+  Doc-revision drift fix: `info.description` previously carried
+  `Document revision 0.1.25.29` after the v0.1.25.30 `info.version`
+  bump. Now synchronized to `Document revision 0.1.25.31`.
+
+  No schema changes, no new fields, no new error codes, no new
+  event kinds, no wire change. Existing conformant clients
+  unaffected. Reference admin server (Spring/Redis, flip-first with
+  `TerminalOwnerMutationGuard`) is retroactively conformant to
+  v0.1.25.31 Mode B with no code change.
+
+---
+
 ## v0.1.25.30 — 2026-04-20
 
 - Editorial: declares `409 TENANT_CLOSED` responses on the ten

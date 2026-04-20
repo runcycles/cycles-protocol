@@ -1,16 +1,16 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.30
+  version: 0.1.25.31
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Stable governance base — document revision 0.1.25.30; semantic base
+    Stable governance base — document revision 0.1.25.31; semantic base
     frozen at 0.1.25.9. This file is self-sufficient for the current
     v0.1.25 conformance target (runcycles' reference servers implement
     this today — adds a normative tenant-close cascade contract at
-    document revision 0.1.25.30) and also serves as the base for the upcoming v0.1.26
+    document revision 0.1.25.31) and also serves as the base for the upcoming v0.1.26
     spec family. Covers tenant management, authentication, and runtime
     enforcement. NOTE: This file alone is NOT sufficient for the
     upcoming v0.1.26 admin tooling — to target v0.1.26 use the merged
@@ -40,19 +40,19 @@ info:
     CASCADE SEMANTICS (tenant close — terminal-owner contract):
       Closing a tenant (status ACTIVE|SUSPENDED → CLOSED, via
       updateTenant or bulkActionTenants) is a spec-declared terminal
-      transition. A closed tenant acts on its owned objects the way
-      `ON DELETE CASCADE` acts on child rows: the close atomically
-      drives each owned object into its own terminal (or
-      effectively-terminal) state, and every subsequent mutating
-      operation on an owned object of a CLOSED tenant MUST be
-      rejected. Two complementary rules make this normative:
+      transition. From the moment the close commits, a closed tenant
+      acts on its owned objects the way `ON DELETE CASCADE` acts on
+      child rows: every owned object becomes terminal (or
+      effectively-terminal) and every subsequent mutating operation
+      on an owned object of a CLOSED tenant MUST be rejected. Two
+      complementary rules make this normative:
 
-      RULE 1 — CLOSE CASCADE (atomic, server-issued):
-        On the tenant-close transition, the server MUST, in the same
-        transaction as the tenant status flip, drive each owned
-        object into its nearest terminal state:
+      RULE 1 — CLOSE CASCADE:
+        On the tenant-close transition, the server MUST drive each
+        owned object into its nearest terminal state:
           * BudgetLedger (ACTIVE|FROZEN) → CLOSED (stamp `closed_at`,
-            preserve final balance snapshot for audit)
+            preserve final balance snapshot for audit, drain any
+            outstanding `reserved` back to `remaining`)
           * ApiKey (ACTIVE) → REVOKED (stamp `revoked_at`)
           * Reservation (ACTIVE, not yet finalized) → RELEASED
             (equivalent to RESERVATION_FINALIZED finalization with
@@ -62,25 +62,85 @@ info:
             owner subscriptions Rule 2 blocks re-enable, making
             DISABLED effectively-terminal without a new enum value)
 
-        Ordering MUST be: (1) drain open reservations first (so
-        budget CLOSED is observed with no open holds), (2) close
-        budgets, (3) disable webhooks and revoke API keys in any
-        order, (4) flip tenant.status=CLOSED last. If any step fails,
-        the whole transaction MUST roll back and the tenant remains
-        in its prior status.
+        A conformant server MUST implement ONE of the following
+        cascade modes. Both deliver the same client-observable
+        guarantee: once `tenant.status=CLOSED` is observable to any
+        reader, NO mutation on any owned object will succeed.
 
-        The server MUST emit one audit entry per mutated owned object
-        under the same `correlation_id` as the originating
-        `tenant.closed` audit entry. The audit `event_kind` values
-        are RESERVED in this spec:
+        MODE A — ATOMIC CASCADE (preferred):
+          All owned-object terminal transitions and the tenant
+          status flip commit in a single transaction. Ordering
+          within the transaction SHOULD be: drain open reservations
+          → close budgets → disable webhooks and revoke API keys
+          (any order) → flip `tenant.status=CLOSED` last. If any
+          step fails, the whole transaction rolls back and the
+          tenant remains in its prior status. Mode A gives the
+          strongest guarantee — no observer ever sees a closed
+          tenant with a non-terminal child — and is the preferred
+          implementation for stores that support multi-key
+          transactions.
+
+        MODE B — FLIP-FIRST WITH GUARDED CASCADE (conformant alternative):
+          The tenant status flip to CLOSED commits first, before
+          any child transition. Once the flip is durable, Rule 2's
+          mutation guard is active and MUST reject every mutating
+          operation on any owned object with HTTP 409 TENANT_CLOSED,
+          regardless of that child's own current status. The server
+          then drives children to their terminal states, either
+          inline (per-child commit, iterated) or asynchronously via
+          a reconciler. Mode B is valid ONLY when ALL of the
+          following hold:
+
+            (a) Rule 2's mutation guard takes effect at or before
+                the moment the CLOSED flip is durable to readers.
+                A concurrent mutation on a child observed AFTER the
+                flip MUST NOT succeed, even if the cascade has not
+                yet touched that child.
+
+            (b) The cascade is idempotent. Re-invoking close on an
+                already-CLOSED tenant MUST complete any outstanding
+                child transitions without emitting duplicate audit
+                or event rows for already-terminal children.
+
+            (c) Eventual convergence is guaranteed. The server MUST
+                provide a mechanism (operator-issued re-close,
+                background reconciler, startup sweep, or
+                equivalent) by which an interrupted cascade drives
+                every non-terminal owned child to its terminal
+                state in bounded time. "Bounded" is
+                implementation-defined but MUST be documented in
+                the server's operations guide.
+
+            (d) Observable reads of a non-terminal child of a
+                CLOSED tenant are explicitly permitted and MUST
+                remain consistent with the child's stored status.
+                A client that reads a budget as FROZEN under a
+                CLOSED tenant is observing the pre-cascade state;
+                the child will converge to its terminal state per
+                (c). Operators rely on this read-visibility for
+                post-close audit.
+
+          Under Mode B the tenant-flip itself is the atomic commit;
+          everything else is guarded-eventually-consistent. This
+          matches Redis-backed and other key-value-store
+          implementations where a cross-key transaction spanning
+          tenant + budgets + webhooks + api-keys is not available.
+
+        Regardless of mode, the server MUST emit one audit entry
+        per mutated owned object under the same `correlation_id`
+        (or equivalent request-scoped identifier) as the
+        originating `tenant.closed` audit entry. The audit
+        `event_kind` values are RESERVED in this spec:
           * `budget.closed_via_tenant_cascade`
           * `webhook.disabled_via_tenant_cascade`
           * `api_key.revoked_via_tenant_cascade`
           * `reservation.released_via_tenant_cascade`
 
-        Idempotency: re-issuing close on an already-CLOSED tenant is
-        a no-op (spec-existing contract). No additional cascade
-        audit entries are emitted on re-close.
+        Idempotency: re-issuing close on an already-CLOSED tenant
+        is a no-op at the tenant level. Under Mode A, no child
+        work remains; under Mode B, any outstanding child
+        transitions complete but emit no duplicate audit/event rows
+        for already-terminal children.
 
       RULE 2 — TERMINAL-OWNER MUTATION GUARD:
         Every mutating admin-plane operation whose target resource
@@ -136,7 +196,7 @@ info:
       spec family. The current conformance target is v0.1.25 — this file
       alone (plus cycles-protocol-v0.yaml) is sufficient for the active
       target, and runcycles' reference servers implement that baseline
-      today. Document revision 0.1.25.29; semantic base frozen at 0.1.25.9
+      today. Document revision 0.1.25.31; semantic base frozen at 0.1.25.9
       (see cycles-spec-index.yaml for the versioning model).
 
       The upcoming v0.1.26 target adds new capabilities (action quotas,
@@ -437,11 +497,13 @@ components:
             CLOSED: Terminal. Irreversible. Triggers the cascade
             defined in CASCADE SEMANTICS (info.description): owned
             budgets → CLOSED, API keys → REVOKED, open reservations
-            → RELEASED, webhook subscriptions → DISABLED, all
-            atomically in the same transaction as the status flip.
+            → RELEASED, webhook subscriptions → DISABLED. Cascade
+            execution mode (atomic vs. flip-first-with-guard) is
+            implementation-defined per CASCADE SEMANTICS Rule 1.
             Every mutating operation on an owned object of a CLOSED
             tenant returns HTTP 409 with error_code=TENANT_CLOSED
-            (terminal-owner mutation guard).
+            per Rule 2, regardless of whether the child's own
+            terminal transition has completed.
         parent_tenant_id:
           type: string
           description: >-
@@ -3671,13 +3733,15 @@ paths:
         - SUSPENDED → ACTIVE: Resume normal operations
         - * → CLOSED: Irreversible, archives tenant, and triggers
           the tenant-close cascade (see CASCADE SEMANTICS in
-          info.description). In the same transaction as the status
-          flip the server MUST drive all owned objects to their
-          terminal states: budgets → CLOSED, API keys → REVOKED,
-          open reservations → RELEASED, webhook subscriptions →
-          DISABLED. Every mutating call on an owned object after
-          close returns HTTP 409 TENANT_CLOSED. Re-issuing close on
-          an already-CLOSED tenant is a no-op.
+          info.description). As part of the close, the server MUST
+          drive all owned objects to their terminal states — either
+          atomically with the status flip (Mode A) or via a
+          Rule-2-guarded post-flip cascade (Mode B). Every mutating
+          call on an owned object after the close commits returns
+          HTTP 409 TENANT_CLOSED. Re-issuing close on an
+          already-CLOSED tenant is a no-op at the tenant level;
+          under Mode B it additionally drives any outstanding child
+          transitions to completion.
       security:
         - AdminKeyAuth: []
       parameters:
@@ -3810,14 +3874,22 @@ paths:
           cascade (see CASCADE SEMANTICS in info.description):
           owned budgets → CLOSED, API keys → REVOKED, open
           reservations → RELEASED, webhook subscriptions →
-          DISABLED, all atomic with the status flip for that row.
-          Per-row cascade failure lands the row in `failed[]` with
-          an implementation-specific error_code and leaves that
-          tenant in its prior status; other rows are unaffected
-          (bulk op does not abort on individual row failure, per
-          SEMANTICS above). Implementations MAY require additional
-          confirmation (e.g. requiring `allow_close: true` in the
-          request body) in future minor revisions.
+          DISABLED. Per CASCADE SEMANTICS Rule 1 the server MAY
+          execute the cascade atomically (Mode A) or
+          flip-first-with-guarded-post-flip-cascade (Mode B).
+          Per-row failure handling depends on the mode: under Mode
+          A, cascade failure leaves the row in its prior status
+          and lands in `failed[]` with an implementation-specific
+          error_code; under Mode B, the tenant status flip succeeds
+          independently of cascade completion, so a partially-
+          applied cascade leaves the row in `failed[]` WITH the
+          tenant already in CLOSED status (cascade converges via
+          Rule 1(c)). Successful rows land in `updated[]`. Other
+          rows are unaffected (bulk op does not abort on individual
+          row failure, per SEMANTICS above). Implementations MAY
+          require additional confirmation (e.g. requiring
+          `allow_close: true` in the request body) in future minor
+          revisions.
 
         AUTHORIZATION:
         - AdminKeyAuth only. No ApiKeyAuth path — tenants cannot
