@@ -5872,6 +5872,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: >-
+            Owning tenant is CLOSED (`TENANT_CLOSED`). Terminal-owner
+            mutation guard per CASCADE SEMANTICS Rule 2 — cannot create
+            a webhook subscription scoped to a CLOSED tenant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Internal server error
           content:
@@ -6150,6 +6159,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: >-
+            Owning tenant is CLOSED (`TENANT_CLOSED`). Terminal-owner
+            mutation guard per CASCADE SEMANTICS Rule 2 — admin-plane
+            deletion of a subscription whose owning tenant is CLOSED is
+            rejected.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Internal server error
           content:
@@ -6207,6 +6226,16 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: >-
+            Owning tenant is CLOSED (`TENANT_CLOSED`). Terminal-owner
+            mutation guard per CASCADE SEMANTICS Rule 2 — admin-plane
+            test delivery on a subscription whose owning tenant is
+            CLOSED is rejected.
           content:
             application/json:
               schema:
@@ -6859,6 +6888,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: >-
+            Owning tenant is CLOSED (`TENANT_CLOSED`). Terminal-owner
+            mutation guard per CASCADE SEMANTICS Rule 2 — cannot
+            create a webhook subscription under a CLOSED tenant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Internal server error
           content:
@@ -7085,6 +7123,15 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: Subscription not found or belongs to different tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: >-
+            Owning tenant is CLOSED (`TENANT_CLOSED`). Terminal-owner
+            mutation guard per CASCADE SEMANTICS Rule 2 — cannot update
+            a webhook subscription whose owning tenant is CLOSED.
           content:
             application/json:
               schema:
