@@ -1,11 +1,14 @@
 # Cycles Protocol Conformance
 
-This document is the authoritative statement of what a Cycles implementation MUST, SHOULD, and MAY do to claim conformance with the v0.1.26 spec suite.
+This document is the authoritative statement of what a Cycles implementation MUST, SHOULD, and MAY do to claim conformance with the Cycles Protocol.
 
-**Applies to:** spec suite v0.1.26.
-**Authoritative sources:**
+**Current conformance target:** **v0.1.25** (runtime base + governance-admin cross-plane surface). This is the version runcycles' own reference servers implement today and the version against which a second implementation can be validated.
 
-1. all files enumerated in [`cycles-spec-index.yaml`](cycles-spec-index.yaml) under `conformance: normative`, and
+**Upcoming conformance target:** **v0.1.26** (action-kind registry, runtime extensions, governance extensions). These specs are published in this repo but are **not yet required for conformance**; implementations SHOULD plan for them. They will be promoted to MUST in a future revision of this document once the reference stack implements them.
+
+**Authoritative sources (v0.1.25):**
+
+1. all files enumerated in [`cycles-spec-index.yaml`](cycles-spec-index.yaml) under `conformance: normative` **at or below v0.1.25** (currently `cycles-protocol-v0.yaml`), and
 2. any schemas or operations inside `conformance: mixed` documents (currently `cycles-governance-admin-v0.1.25.yaml`) that are individually labeled `x-conformance: normative`.
 
 Language follows [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119): MUST / MUST NOT / SHOULD / SHOULD NOT / MAY.
@@ -14,50 +17,34 @@ Language follows [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119): MUST / MUST
 
 ## Summary
 
-Cycles is a **minimum protocol**. A conformant server exposes a small, tightly specified surface — approximately 23 operations — and is free to implement everything else (tenant management, budget provisioning, key rotation, audit UX) however it likes.
+Cycles is a **minimum protocol**. A conformant v0.1.25 server MUST implement 12 operations (4 core runtime reserve/commit/release/extend + 8 cross-plane event / webhook / auth-introspection; `getBalances` is cross-plane MUST because the admin spec re-declares the runtime's "nice-to-have" path as normative) and SHOULD implement an additional 4 runtime operations (decide, listReservations, getReservation, createEvent) that the spec marks OPTIONAL but that well-rounded servers expose. Total v0.1.25 protocol surface is 16 distinct operations. The server is otherwise free to implement tenant management, budget provisioning, key rotation, and audit UX however it likes.
 
-Normative content is drawn from four fully-normative spec files, plus specific cross-plane operations and schemas inside one mixed file:
+| File | Target | Conformance | What it defines |
+|---|---|---|---|
+| [`cycles-protocol-v0.yaml`](cycles-protocol-v0.yaml) | v0.1.25 | normative | Runtime base: reserve / commit / release / decide / balances / events |
+| [`cycles-governance-admin-v0.1.25.yaml`](cycles-governance-admin-v0.1.25.yaml) | v0.1.25 | mixed | Mostly reference admin API (runcycles' management plane; implementers MAY diverge). Eight cross-plane operations and a set of schemas inside this file are normative — see §MUST below. |
+| [`cycles-action-kinds-v0.1.26.yaml`](cycles-action-kinds-v0.1.26.yaml) | v0.1.26 | upcoming | Action-kind registry + quota primitives. SHOULD today; MUST once v0.1.26 is the active target. |
+| [`cycles-protocol-extensions-v0.1.26.yaml`](cycles-protocol-extensions-v0.1.26.yaml) | v0.1.26 | upcoming | DenyDetail, ObserveMode, v0.1.26 evaluation order, v0.1.26 schemas. SHOULD today. |
+| [`cycles-governance-extensions-v0.1.26.yaml`](cycles-governance-extensions-v0.1.26.yaml) | v0.1.26 | upcoming | Policy fields for action quotas / access control; tenant observe_mode. SHOULD today. |
 
-| File | Conformance | What it defines |
-|---|---|---|
-| [`cycles-protocol-v0.yaml`](cycles-protocol-v0.yaml) | normative | Runtime base: reserve / commit / release / decide / balances / events |
-| [`cycles-protocol-extensions-v0.1.26.yaml`](cycles-protocol-extensions-v0.1.26.yaml) | normative | DenyDetail, ObserveMode, evaluation order, v0.1.26 schemas |
-| [`cycles-action-kinds-v0.1.26.yaml`](cycles-action-kinds-v0.1.26.yaml) | normative | Action-kind registry + quota primitives |
-| [`cycles-governance-extensions-v0.1.26.yaml`](cycles-governance-extensions-v0.1.26.yaml) | normative | Policy fields for action quotas / access control; tenant observe_mode |
-| [`cycles-governance-admin-v0.1.25.yaml`](cycles-governance-admin-v0.1.25.yaml) | mixed | Mostly reference admin API (runcycles' management plane; implementers MAY diverge). Specific cross-plane operations and schemas inside this file are normative — see §MUST below. |
+Operations inside v0.1.26 files still carry `x-conformance: normative` — that label describes each operation's contract *within its own spec*. Whether the spec is currently required for conformance is a separate question, answered by "current conformance target" above.
 
 ---
 
-## MUST — required for conformance
+## MUST — required for v0.1.25 conformance
 
 A conformant implementation MUST:
 
 ### Runtime operations (`cycles-protocol-v0.yaml`)
 
-Implement and honor the semantics of all 9 runtime operations:
+Implement and honor the semantics of the 4 core runtime operations:
 
 1. `POST /v1/reservations` — **createReservation**
-2. `GET /v1/reservations` — **listReservations** (optional recovery/debug endpoint; still part of the protocol surface)
-3. `GET /v1/reservations/{reservation_id}` — **getReservation**
-4. `POST /v1/reservations/{reservation_id}/commit` — **commitReservation**
-5. `POST /v1/reservations/{reservation_id}/release` — **releaseReservation**
-6. `POST /v1/reservations/{reservation_id}/extend` — **extendReservation**
-7. `POST /v1/decide` — **decide** (soft-landing decision preview)
-8. `GET /v1/balances` — **getBalances**
-9. `POST /v1/events` — **createEvent** (direct settlement path)
+2. `POST /v1/reservations/{reservation_id}/commit` — **commitReservation**
+3. `POST /v1/reservations/{reservation_id}/release` — **releaseReservation**
+4. `POST /v1/reservations/{reservation_id}/extend` — **extendReservation** (TTL heartbeat for long-running operations)
 
-### Action-kind registry (`cycles-action-kinds-v0.1.26.yaml`)
-
-Implement all 4 registry and quota-primitive operations:
-
-1. `GET /v1/action-kinds` — **listActionKinds**
-2. `GET /v1/action-kinds/{kind}` — **getActionKind**
-3. `GET /v1/admin/action-quota-counters` — **listActionQuotaCounters**
-4. `POST /v1/admin/action-quota-counters/reset` — **resetActionQuotaCounter**
-
-### Governance extensions (`cycles-governance-extensions-v0.1.26.yaml`)
-
-Honor the fields and their evaluation semantics. The two PATCH endpoints enumerated in this spec MAY be implemented as-is or replaced by an equivalent mechanism (config file, direct DB write, etc.), but the **field contracts** (action_quotas, risk_class_quotas, allowed/denied_action_kinds, observe_mode) MUST be evaluated at reserve time per `cycles-protocol-extensions-v0.1.26.yaml` §RESERVATION EVALUATION ORDER.
+The other runtime endpoints marked OPTIONAL / nice-to-have in `cycles-protocol-v0.yaml` (`decide`, `listReservations`, `getReservation`, `createEvent`) are listed under §SHOULD below. `GET /v1/balances` is also marked "nice-to-have" in the runtime spec but is re-declared as a normative cross-plane op in `cycles-governance-admin-v0.1.25.yaml` — it therefore appears under §MUST / Cross-plane operations, not §SHOULD. Where implemented, all these endpoints MUST follow the spec contract (paths, schemas, error codes) per their `x-conformance: normative` labels.
 
 ### Core invariants
 
@@ -68,7 +55,7 @@ Honor the fields and their evaluation semantics. The two PATCH endpoints enumera
 
 ### Error semantics
 
-Return the exact HTTP status + `error` code pairs defined in `cycles-protocol-v0.yaml` §ERROR SEMANTICS — including `BUDGET_EXCEEDED` (409), `OVERDRAFT_LIMIT_EXCEEDED` (409), `IDEMPOTENCY_MISMATCH` (409), `RESERVATION_FINALIZED` (409), `RESERVATION_EXPIRED` (410), `UNIT_MISMATCH` (400), `NOT_FOUND` (404), `DEBT_OUTSTANDING` (409), and the v0.1.26 additions (`ACTION_QUOTA_EXCEEDED`, `ACTION_KIND_NOT_ALLOWED`, `ACTION_KIND_DENIED`).
+Return the exact HTTP status + `error` code pairs defined in `cycles-protocol-v0.yaml` §ERROR SEMANTICS — including `BUDGET_EXCEEDED` (409), `OVERDRAFT_LIMIT_EXCEEDED` (409), `IDEMPOTENCY_MISMATCH` (409), `RESERVATION_FINALIZED` (409), `RESERVATION_EXPIRED` (410), `UNIT_MISMATCH` (400), `NOT_FOUND` (404), and `DEBT_OUTSTANDING` (409). The v0.1.26 action-governance error codes (`ACTION_QUOTA_EXCEEDED`, `ACTION_KIND_NOT_ALLOWED`, `ACTION_KIND_DENIED`) are upcoming and listed under §Upcoming below.
 
 ### Authentication & tenancy
 
@@ -108,9 +95,25 @@ A conformant implementation SHOULD:
 
 - Emit events for budget-state changes (reservation.*, budget.*, quota.*) matching the `EventType` enum. Implementations MAY sample or filter which events they emit, but emitted events MUST follow the schema.
 - Propagate `X-Cycles-Trace-Id` and W3C `traceparent` headers per `cycles-protocol-v0.yaml` §CORRELATION AND TRACING. Trace correlation is central to multi-service debugging.
-- Implement `POST /v1/decide` even though it's optional in v0 — agent frameworks need soft-landing signals for graceful degradation.
-- Expose `GET /v1/balances` for operator visibility into remaining budget per scope.
+- Implement `POST /v1/decide` — marked OPTIONAL in the v0 spec, but agent frameworks need soft-landing signals for graceful degradation.
+- Implement `GET /v1/reservations` (**listReservations**) — marked OPTIONAL in v0; useful for reservation recovery (re-discover a lost `reservation_id` via `idempotency_key`) and for identifying stuck `ACTIVE` reservations.
+- Implement `GET /v1/reservations/{reservation_id}` (**getReservation**) — marked "optional, for debugging" in v0; valuable for support / monitoring of long-running reservations.
+- Implement `POST /v1/events` (**createEvent**) — marked OPTIONAL in v0; the post-only accounting path for cases where pre-estimation is unavailable (bills-later providers, receipt ingestion).
+
+> **Note on `GET /v1/balances`**: the runtime spec summary calls it "nice-to-have", but the admin spec (`cycles-governance-admin-v0.1.25.yaml`) re-declares the same path + operationId as a normative cross-plane op. The more-restrictive declaration wins: `getBalances` is therefore listed under §MUST (cross-plane operations), not here.
 - Publish metrics / logs when scopes enter `is_over_limit: true` state so operators can reconcile.
+
+### Upcoming (v0.1.26) — SHOULD today, MUST once promoted
+
+These specs are published in this repo but are **not yet required for conformance**. runcycles' reference servers do not implement them yet. A conformant implementation SHOULD plan for them; they will become MUST in a future revision of this document once the reference stack ships support.
+
+- **Action-kind registry** (`cycles-action-kinds-v0.1.26.yaml`) — 4 operations:
+  1. `GET /v1/action-kinds` — **listActionKinds**
+  2. `GET /v1/action-kinds/{kind}` — **getActionKind**
+  3. `GET /v1/admin/action-quota-counters` — **listActionQuotaCounters**
+  4. `POST /v1/admin/action-quota-counters/reset` — **resetActionQuotaCounter**
+- **Runtime extensions** (`cycles-protocol-extensions-v0.1.26.yaml`) — no new paths; adds `DenyDetail`, `ObserveMode`, the full reservation evaluation order (access control → risk-class quotas → per-kind quotas → budget), and the new error codes `ACTION_QUOTA_EXCEEDED`, `ACTION_KIND_NOT_ALLOWED`, `ACTION_KIND_DENIED`.
+- **Governance extensions** (`cycles-governance-extensions-v0.1.26.yaml`) — 2 PATCH operations (`updateTenantObserveMode`, `updatePolicyActionQuotas`) and the policy field contracts (`action_quotas`, `risk_class_quotas`, `allowed_action_kinds`, `denied_action_kinds`, tenant `observe_mode`). The PATCH endpoints MAY be replaced by an equivalent mechanism (config file, direct DB write), but once v0.1.26 is the active target the **field contracts** MUST be evaluated at reserve time per `cycles-protocol-extensions-v0.1.26.yaml` §RESERVATION EVALUATION ORDER.
 
 ---
 
@@ -119,7 +122,7 @@ A conformant implementation SHOULD:
 A conformant implementation MAY:
 
 - Adopt the shape of `cycles-governance-admin-v0.1.25.yaml` (tenants, budgets, policies, API keys, audit, webhook subscriptions, bulk operations) wholesale, as runcycles does.
-- Replace any or all of that surface with an alternative provisioning mechanism: OAuth/OIDC for auth, GitOps YAML for policies, internal admin console for tenants, direct DB writes for budget allocation, etc.
+- Replace any or all of those reference portions with an alternative provisioning mechanism: OAuth/OIDC for auth, GitOps YAML for policies, internal admin console for tenants, direct DB writes for budget allocation, etc. (The reference portions only — the eight normative cross-plane operations listed under §MUST still apply.)
 - Skip `audit_log` entirely. Not required by the protocol.
 - Expose additional endpoints beyond those specified, as long as they use a non-`/v1` path prefix or a vendor-namespaced extension path (e.g., `/v1/x-runcycles/...`).
 

@@ -7,11 +7,14 @@ info:
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
     Stable governance base — document revision 0.1.25.28; semantic base
-    frozen at 0.1.25.9. Serves as the base for the Cycles Protocol v0.1.26
+    frozen at 0.1.25.9. This file is self-sufficient for the current
+    v0.1.25 conformance target (runcycles' reference servers implement
+    this today) and also serves as the base for the upcoming v0.1.26
     spec family. Covers tenant management, authentication, and runtime
-    enforcement. NOTE: This file alone is NOT sufficient for v0.1.26 admin
-    tooling — use the merged artifact or read with the governance extension
-    spec. See cycles-spec-index.yaml.
+    enforcement. NOTE: This file alone is NOT sufficient for the
+    upcoming v0.1.26 admin tooling — to target v0.1.26 use the merged
+    artifact or read with the governance extension spec. See
+    cycles-spec-index.yaml and CONFORMANCE.md.
   x-changelog:
     url: ./changelogs/cycles-governance-admin.md
     format: keep-a-changelog
@@ -33,20 +36,26 @@ info:
       full normative propagation contract. No conflicting contract is
       stated here.
 
-    SPEC FAMILY CONTEXT (v0.1.26):
-      This is the STABLE GOVERNANCE BASE for the Cycles Protocol v0.1.26
-      family. Document revision 0.1.25.28; semantic base frozen at 0.1.25.9
-      (see cycles-spec-index.yaml for the versioning model). New capabilities
-      (action quotas, risk-class quotas, access control lists, tenant
-      observe_mode, action_quotas:read permission) are delivered via
-      cycles-governance-extensions-v0.1.26.yaml as additive extensions.
+    SPEC FAMILY CONTEXT:
+      This is the STABLE GOVERNANCE BASE for the Cycles Protocol v0.1.x
+      spec family. The current conformance target is v0.1.25 — this file
+      alone (plus cycles-protocol-v0.yaml) is sufficient for the active
+      target, and runcycles' reference servers implement that baseline
+      today. Document revision 0.1.25.28; semantic base frozen at 0.1.25.9
+      (see cycles-spec-index.yaml for the versioning model).
 
-      This file ALONE is NOT sufficient for v0.1.26 admin tooling,
-      SDK codegen, or strict response validators. It exposes Policy,
-      PolicyCreateRequest, and Tenant in their base-spec shapes without
-      the v0.1.26 additions.
+      The upcoming v0.1.26 target adds new capabilities (action quotas,
+      risk-class quotas, access control lists, tenant observe_mode,
+      action_quotas:read permission) via cycles-governance-extensions-v0.1.26.yaml
+      as additive extensions. v0.1.26 is not yet required for conformance
+      and runcycles' reference servers do not implement it yet. See
+      CONFORMANCE.md for the active conformance statement.
 
-      For v0.1.26 admin tooling, use one of:
+      For v0.1.25 admin tooling, this file is self-sufficient.
+
+      For v0.1.26 admin tooling (upcoming), this file ALONE is NOT
+      sufficient — it exposes Policy, PolicyCreateRequest, and Tenant
+      in their base-spec shapes without the v0.1.26 additions. Use one of:
         - Read this file together with cycles-governance-extensions-v0.1.26.yaml
           and apply the extension manually (small tooling footprint).
         - Build merged/cycles-openapi-admin-merged.yaml via the admin_merged

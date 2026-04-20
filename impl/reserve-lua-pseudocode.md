@@ -1,6 +1,11 @@
 # reserve.lua — 5-Step Evaluation Pseudocode
 
-Reference pseudocode for the v0.1.26 reservation evaluation path.
+Reference pseudocode for the **upcoming v0.1.26** reservation evaluation
+path (action-kind access control + risk-class quotas + per-kind quotas
+layered on top of v0.1.25 budget checks). v0.1.26 is not yet the active
+conformance target — see `CONFORMANCE.md`. This document is a forward-
+looking implementation aid for servers planning v0.1.26 support.
+
 This is **not** executable Lua — it is a structural guide for implementers
 building the atomic evaluation block described in the spec.
 

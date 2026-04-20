@@ -45,16 +45,19 @@ spec_family:
     rather than mechanical ($ref) to preserve companion-spec portability.
 
     Documents are further stratified by conformance status (see the
-    `conformance` field on each entry below). Four documents are normative
-    — a conformant implementation MUST implement them. The governance-admin
-    document is mixed: its endpoint definitions are reference (runcycles'
-    own management plane; implementers MAY diverge), while a small set of
-    cross-plane schemas (Event, EventType, EventData*, WebhookDelivery,
-    Permission) remain normative regardless of where they currently live.
+    `conformance` and `conformance_status` fields on each entry below).
+    The current conformance target is **v0.1.25**: cycles-protocol-v0.yaml
+    (normative) and cycles-governance-admin-v0.1.25.yaml (mixed — endpoint
+    definitions are reference; Event, EventType, EventData*, WebhookDelivery,
+    Permission schemas and eight cross-plane operations are normative via
+    individual x-conformance labels). The three v0.1.26 extension specs
+    are normative within their own spec contracts but carry
+    `conformance_status: upcoming` — they are SHOULD-level today and will
+    be promoted to MUST once the reference stack ships v0.1.26 support.
     Every operation also carries an `x-conformance: normative | reference`
-    OpenAPI extension so tooling can filter by conformance status. The
-    authoritative MUST / SHOULD / MAY statement is in CONFORMANCE.md at
-    the repo root.
+    OpenAPI extension so tooling can filter by conformance status within
+    each spec. The authoritative MUST / SHOULD / MAY statement is in
+    CONFORMANCE.md at the repo root.
 
     The tradeoff: human readers and implementers can read each file in
     isolation; SDK generators and validator pipelines need a merged artifact.
@@ -134,6 +137,12 @@ documents:
     version: "0.1.27"          # trace_id on redeclared ErrorResponse
     role: companion
     conformance: normative
+    conformance_status: upcoming
+    conformance_note: >-
+      Normative within its own spec contract, but v0.1.26 is not yet the
+      active conformance target. runcycles' reference servers implement
+      v0.1.25 today; this spec is SHOULD-level until v0.1.26 is promoted
+      to the active target in a future revision of CONFORMANCE.md.
     title: Cycles Action Kind Registry
     plane: registry-and-quota-primitives
     owns:
@@ -176,6 +185,11 @@ documents:
     role: extension
     extends: runtime_base
     conformance: normative
+    conformance_status: upcoming
+    conformance_note: >-
+      Normative within its own spec contract, but v0.1.26 is not yet the
+      active conformance target. SHOULD-level today; will become MUST
+      once v0.1.26 is promoted in CONFORMANCE.md.
     title: Cycles Protocol Extensions — Runtime Enforcement Plane
     plane: runtime-enforcement
     owns:
@@ -210,6 +224,11 @@ documents:
     role: extension
     extends: governance_base
     conformance: normative
+    conformance_status: upcoming
+    conformance_note: >-
+      Normative within its own spec contract, but v0.1.26 is not yet the
+      active conformance target. SHOULD-level today; will become MUST
+      once v0.1.26 is promoted in CONFORMANCE.md.
     title: Cycles Governance Extensions — Admin Plane
     plane: governance-admin
     owns:
