@@ -3,7 +3,10 @@
 This document is the authoritative statement of what a Cycles implementation MUST, SHOULD, and MAY do to claim conformance with the v0.1.26 spec suite.
 
 **Applies to:** spec suite v0.1.26.
-**Authoritative sources:** the files enumerated in [`cycles-spec-index.yaml`](cycles-spec-index.yaml) under `conformance: normative`.
+**Authoritative sources:**
+
+1. all files enumerated in [`cycles-spec-index.yaml`](cycles-spec-index.yaml) under `conformance: normative`, and
+2. any schemas or operations inside `conformance: mixed` documents (currently `cycles-governance-admin-v0.1.25.yaml`) that are individually labeled `x-conformance: normative`.
 
 Language follows [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119): MUST / MUST NOT / SHOULD / SHOULD NOT / MAY.
 
@@ -11,22 +14,17 @@ Language follows [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119): MUST / MUST
 
 ## Summary
 
-Cycles is a **minimum protocol**. A conformant server exposes a small, tightly specified surface — approximately 15 operations — and is free to implement everything else (tenant management, budget provisioning, key rotation, audit UX) however it likes.
+Cycles is a **minimum protocol**. A conformant server exposes a small, tightly specified surface — approximately 23 operations — and is free to implement everything else (tenant management, budget provisioning, key rotation, audit UX) however it likes.
 
-Normative content lives in four spec files:
+Normative content is drawn from four fully-normative spec files, plus specific cross-plane operations and schemas inside one mixed file:
 
-| File | What it defines |
-|---|---|
-| [`cycles-protocol-v0.yaml`](cycles-protocol-v0.yaml) | Runtime base: reserve / commit / release / decide / balances / events |
-| [`cycles-protocol-extensions-v0.1.26.yaml`](cycles-protocol-extensions-v0.1.26.yaml) | DenyDetail, ObserveMode, evaluation order, v0.1.26 schemas |
-| [`cycles-action-kinds-v0.1.26.yaml`](cycles-action-kinds-v0.1.26.yaml) | Action-kind registry + quota primitives |
-| [`cycles-governance-extensions-v0.1.26.yaml`](cycles-governance-extensions-v0.1.26.yaml) | Policy fields for action quotas / access control; tenant observe_mode |
-
-Reference (non-normative) content lives in one file:
-
-| File | Status |
-|---|---|
-| [`cycles-governance-admin-v0.1.25.yaml`](cycles-governance-admin-v0.1.25.yaml) | Reference admin API. Describes runcycles' own management plane. Implementers MAY diverge. |
+| File | Conformance | What it defines |
+|---|---|---|
+| [`cycles-protocol-v0.yaml`](cycles-protocol-v0.yaml) | normative | Runtime base: reserve / commit / release / decide / balances / events |
+| [`cycles-protocol-extensions-v0.1.26.yaml`](cycles-protocol-extensions-v0.1.26.yaml) | normative | DenyDetail, ObserveMode, evaluation order, v0.1.26 schemas |
+| [`cycles-action-kinds-v0.1.26.yaml`](cycles-action-kinds-v0.1.26.yaml) | normative | Action-kind registry + quota primitives |
+| [`cycles-governance-extensions-v0.1.26.yaml`](cycles-governance-extensions-v0.1.26.yaml) | normative | Policy fields for action quotas / access control; tenant observe_mode |
+| [`cycles-governance-admin-v0.1.25.yaml`](cycles-governance-admin-v0.1.25.yaml) | mixed | Mostly reference admin API (runcycles' management plane; implementers MAY diverge). Specific cross-plane operations and schemas inside this file are normative — see §MUST below. |
 
 ---
 
@@ -76,11 +74,31 @@ Return the exact HTTP status + `error` code pairs defined in `cycles-protocol-v0
 
 Authenticate via `X-Cycles-API-Key` header and enforce tenant isolation per `cycles-protocol-v0.yaml` §AUTH & TENANCY. How API keys are provisioned, rotated, or scoped to permissions is implementation-specific.
 
-### Event and webhook shape (currently in `cycles-governance-admin-v0.1.25.yaml`)
+### Cross-plane operations and schemas (currently in `cycles-governance-admin-v0.1.25.yaml`)
 
-Any events emitted MUST conform to the `EventType` enum and `EventData*` payload schemas. Any webhooks delivered MUST match the `WebhookDelivery` envelope shape, signature header rules, and retry semantics.
+Although `cycles-governance-admin-v0.1.25.yaml` is mostly reference (the tenant / budget / policy / API-key / audit CRUD is runcycles' own shape), **eight operations and a set of schemas in that file are normative** because they expose the protocol's event stream, webhook delivery contract, and balance / auth introspection surface across planes. Each carries an explicit `x-conformance: normative` label.
 
-> **Transitional**: these schemas currently live inside `cycles-governance-admin-v0.1.25.yaml`. A future revision will extract them into dedicated `cycles-events-v0.yaml` and `cycles-webhooks-v0.yaml` files. The contract is normative regardless of file location. See the `x-conformance: normative` labels on the affected schemas.
+Normative operations (8):
+
+1. `GET /v1/admin/events` — **listEvents**
+2. `GET /v1/admin/events/{event_id}` — **getEvent**
+3. `POST /v1/admin/webhooks/{subscription_id}/replay` — **replayEvents**
+4. `GET /v1/events` — **listTenantEvents** (tenant-scoped)
+5. `GET /v1/admin/webhooks/{subscription_id}/deliveries` — **listWebhookDeliveries**
+6. `GET /v1/webhooks/{subscription_id}/deliveries` — **listTenantWebhookDeliveries** (tenant-scoped)
+7. `GET /v1/balances` — **getBalances** (admin-plane view of the same path served by the runtime base)
+8. `GET /v1/auth/introspect` — **introspectAuth**
+
+Normative schemas:
+
+- `Event`, `EventType`, and all `EventData*` payload variants
+- `WebhookDelivery` envelope, signature header rules, and retry semantics (`WebhookRetryPolicy`)
+- `Permission` enum
+- shared `Amount`, `Subject`, `Balance` (originate in `cycles-protocol-v0.yaml`; re-referenced here)
+
+Any events emitted MUST conform to the `EventType` enum and `EventData*` payload schemas; any webhooks delivered MUST match the `WebhookDelivery` envelope shape, signature header rules, and retry semantics.
+
+> **Transitional**: these operations and schemas currently live inside `cycles-governance-admin-v0.1.25.yaml`. A future revision will extract the event and webhook content into dedicated `cycles-events-v0.yaml` and `cycles-webhooks-v0.yaml` files. The contract is normative regardless of file location.
 
 ---
 
