@@ -7,7 +7,7 @@
 
 Cycles is an open protocol that ensures agents cannot authorize more spend than policy allows — even when dozens of them run concurrently.
 
-**Spec suite:** v0.1.26 &middot; **Current conformance target:** v0.1.25 &middot; **Runtime base:** v0.1.25 &middot; **Governance base:** v0.1.25.28 (semantic_base 0.1.25.9) &middot; **API path:** `/v1` &middot; **License:** Apache 2.0
+**Spec suite:** v0.1.26 &middot; **Current conformance target:** v0.1.25 &middot; **Runtime base:** v0.1.25 &middot; **Governance base:** v0.1.25.29 (semantic_base 0.1.25.9) &middot; **API path:** `/v1` &middot; **License:** Apache 2.0
 
 The Cycles spec suite is organized by conformance status. The **current conformance target is v0.1.25** — the version runcycles' own reference servers implement today. v0.1.26 specs are published in this repo but not yet required; they are the **upcoming** target and will be promoted to normative once the reference stack implements them.
 

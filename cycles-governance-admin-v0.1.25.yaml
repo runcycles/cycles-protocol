@@ -136,7 +136,7 @@ info:
       spec family. The current conformance target is v0.1.25 — this file
       alone (plus cycles-protocol-v0.yaml) is sufficient for the active
       target, and runcycles' reference servers implement that baseline
-      today. Document revision 0.1.25.28; semantic base frozen at 0.1.25.9
+      today. Document revision 0.1.25.29; semantic base frozen at 0.1.25.9
       (see cycles-spec-index.yaml for the versioning model).
 
       The upcoming v0.1.26 target adds new capabilities (action quotas,
