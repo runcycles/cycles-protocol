@@ -7,18 +7,19 @@
 
 Cycles is an open protocol that ensures agents cannot authorize more spend than policy allows — even when dozens of them run concurrently.
 
-**Spec suite:** v0.1.26 &middot; **Runtime base:** v0.1.25 &middot; **Governance base:** v0.1.25.28 (semantic_base 0.1.25.9) &middot; **API path:** `/v1` &middot; **License:** Apache 2.0
+**Spec suite:** v0.1.26 &middot; **Current conformance target:** v0.1.25 &middot; **Runtime base:** v0.1.25 &middot; **Governance base:** v0.1.25.28 (semantic_base 0.1.25.9) &middot; **API path:** `/v1` &middot; **License:** Apache 2.0
 
-The Cycles spec suite is organized by conformance status:
+The Cycles spec suite is organized by conformance status. The **current conformance target is v0.1.25** — the version runcycles' own reference servers implement today. v0.1.26 specs are published in this repo but not yet required; they are the **upcoming** target and will be promoted to normative once the reference stack implements them.
 
 | Tier | Files | Status |
 |---|---|---|
-| **Normative** (required for conformance) | [`cycles-protocol-v0.yaml`](cycles-protocol-v0.yaml), [`cycles-protocol-extensions-v0.1.26.yaml`](cycles-protocol-extensions-v0.1.26.yaml), [`cycles-action-kinds-v0.1.26.yaml`](cycles-action-kinds-v0.1.26.yaml), [`cycles-governance-extensions-v0.1.26.yaml`](cycles-governance-extensions-v0.1.26.yaml) | A conformant server MUST implement these. |
-| **Mixed** | [`cycles-governance-admin-v0.1.25.yaml`](cycles-governance-admin-v0.1.25.yaml) | Mostly runcycles' reference admin API (implementers MAY diverge), but selected schemas (`Event`, `EventType`, `EventData*`, `WebhookDelivery`, `WebhookRetryPolicy`, `Permission`) and eight operations remain normative via `x-conformance` labels. See [`CONFORMANCE.md`](CONFORMANCE.md) and [`cycles-spec-index.yaml`](cycles-spec-index.yaml). |
+| **Normative (v0.1.25)** | [`cycles-protocol-v0.yaml`](cycles-protocol-v0.yaml) | A conformant server MUST implement this today. |
+| **Mixed (v0.1.25)** | [`cycles-governance-admin-v0.1.25.yaml`](cycles-governance-admin-v0.1.25.yaml) | Mostly runcycles' reference admin API (implementers MAY diverge), but eight cross-plane operations and selected schemas (`Event`, `EventType`, `EventData*`, `WebhookDelivery`, `WebhookRetryPolicy`, `Permission`) are normative via `x-conformance` labels. See [`CONFORMANCE.md`](CONFORMANCE.md). |
+| **Upcoming (v0.1.26)** | [`cycles-protocol-extensions-v0.1.26.yaml`](cycles-protocol-extensions-v0.1.26.yaml), [`cycles-action-kinds-v0.1.26.yaml`](cycles-action-kinds-v0.1.26.yaml), [`cycles-governance-extensions-v0.1.26.yaml`](cycles-governance-extensions-v0.1.26.yaml) | Published but not yet required for conformance. SHOULD today; will become MUST once the reference stack ships v0.1.26 support. |
 
 See [`CONFORMANCE.md`](CONFORMANCE.md) for the authoritative MUST / SHOULD / MAY statement, and [`cycles-spec-index.yaml`](cycles-spec-index.yaml) for the composition manifest and merge recipes.
 
-> **v0.1.26** adds action-level governance on top of the stable v0.1.25 runtime base:
+> **v0.1.26 (upcoming)** adds action-level governance on top of the stable v0.1.25 runtime base:
 > - **Action kind registry** — 62 built-in kinds with risk classification and governance policy
 > - **Per-kind and risk-class quotas** — with burst protection (`per_minute_tumbling`) and threshold warnings
 > - **Access control lists** — `allowed_action_kinds` / `denied_action_kinds` on policies
@@ -40,9 +41,9 @@ Cycles exists because **budget and exposure are safety properties in agentic sys
 
 ## Conformance
 
-Cycles is a minimum protocol. A conformant server exposes ~23 operations — reserve / commit / release / decide / balances / events, the action-kind registry, the governance-extension fields, and the cross-plane event / webhook / auth-introspection surface — and is otherwise free to implement tenant management, budget provisioning, key rotation, and audit UX however it likes.
+Cycles is a minimum protocol. A conformant **v0.1.25** server exposes ~17 operations — 9 runtime reserve / commit / release / decide / balances / events ops, plus 8 cross-plane event / webhook / auth-introspection ops — and is otherwise free to implement tenant management, budget provisioning, key rotation, and audit UX however it likes. The additional v0.1.26 surface (action-kind registry + governance extensions, ~6 more ops) is upcoming and SHOULD-level today.
 
-[`CONFORMANCE.md`](CONFORMANCE.md) is the authoritative statement of what a Cycles implementation MUST, SHOULD, and MAY do. Operations across the spec suite carry an `x-conformance` OpenAPI extension (`normative` or `reference`) so tooling can filter by conformance status.
+[`CONFORMANCE.md`](CONFORMANCE.md) is the authoritative statement of what a Cycles implementation MUST, SHOULD, and MAY do — scoped to the current v0.1.25 conformance target, with v0.1.26 listed under SHOULD / upcoming. Operations across the spec suite carry an `x-conformance` OpenAPI extension (`normative` or `reference`) so tooling can filter by conformance status within each spec.
 
 ## When to use Cycles
 
