@@ -9,6 +9,15 @@ Cycles is an open protocol that ensures agents cannot authorize more spend than 
 
 **Spec suite:** v0.1.26 &middot; **Runtime base:** v0.1.25 &middot; **Governance base:** v0.1.25.27 (semantic_base 0.1.25.9) &middot; **API path:** `/v1` &middot; **License:** Apache 2.0
 
+The Cycles spec suite is organized into two tiers:
+
+| Tier | Files | Status |
+|---|---|---|
+| **Normative** (required for conformance) | [`cycles-protocol-v0.yaml`](cycles-protocol-v0.yaml), [`cycles-protocol-extensions-v0.1.26.yaml`](cycles-protocol-extensions-v0.1.26.yaml), [`cycles-action-kinds-v0.1.26.yaml`](cycles-action-kinds-v0.1.26.yaml), [`cycles-governance-extensions-v0.1.26.yaml`](cycles-governance-extensions-v0.1.26.yaml) | A conformant server MUST implement these. |
+| **Reference** (runcycles' admin API) | [`cycles-governance-admin-v0.1.25.yaml`](cycles-governance-admin-v0.1.25.yaml) | Describes runcycles' own management plane. Implementers MAY adopt it, diverge, or replace it. |
+
+See [`CONFORMANCE.md`](CONFORMANCE.md) for the authoritative MUST / SHOULD / MAY statement, and [`cycles-spec-index.yaml`](cycles-spec-index.yaml) for the composition manifest and merge recipes.
+
 > **v0.1.26** adds action-level governance on top of the stable v0.1.25 runtime base:
 > - **Action kind registry** — 62 built-in kinds with risk classification and governance policy
 > - **Per-kind and risk-class quotas** — with burst protection (`per_minute_tumbling`) and threshold warnings
@@ -28,6 +37,12 @@ AI agents do not just spend money autonomously. They call LLMs, execute tools, r
 That exposure can be financial, but it can also be consequential: records changed, emails sent, jobs triggered, APIs called, files overwritten, or external systems affected. Traditional cost controls assume predictable, human-initiated requests. Agent runtimes break those assumptions.
 
 Cycles exists because **budget and exposure are safety properties in agentic systems, not billing afterthoughts.** It provides a protocol-level enforcement point for governing spend and actions before execution, with correctness under concurrency, retries, and partial failures.
+
+## Conformance
+
+Cycles is a minimum protocol. A conformant server exposes ~15 operations — reserve / commit / release / decide / balances / events plus the action-kind registry and governance-extension fields — and is otherwise free to implement tenant management, budget provisioning, key rotation, and audit UX however it likes.
+
+[`CONFORMANCE.md`](CONFORMANCE.md) is the authoritative statement of what a Cycles implementation MUST, SHOULD, and MAY do. Operations across the spec suite carry an `x-conformance` OpenAPI extension (`normative` or `reference`) so tooling can filter by conformance status.
 
 ## When to use Cycles
 
@@ -150,7 +165,7 @@ docker compose up --build
 
 The server starts on port 7878 with interactive API docs at http://localhost:7878/swagger-ui.html. Pre-built images are published to `ghcr.io/runcycles/cycles-server`.
 
-> **Note:** The runtime server handles budget enforcement but cannot create tenants, API keys, or budgets on its own. For a complete setup, you also need the [Cycles Admin Server](https://github.com/runcycles/cycles-server-admin) (management plane). The easiest path is the one-command quickstart:
+> **Note:** The runtime server handles budget enforcement but cannot create tenants, API keys, or budgets on its own. For a complete setup, you also need runcycles' [reference admin server](https://github.com/runcycles/cycles-server-admin) (management plane) — which implements the non-normative [`cycles-governance-admin-v0.1.25.yaml`](cycles-governance-admin-v0.1.25.yaml) spec. Implementers MAY adopt this admin shape wholesale, diverge from it, or replace it entirely with their own tenant/budget/policy provisioning mechanism. The easiest path to try it is the one-command quickstart:
 >
 > ```bash
 > git clone https://github.com/runcycles/cycles-server.git
