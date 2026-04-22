@@ -6,6 +6,71 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.32 — 2026-04-22
+
+- Editorial: adds normative `EVENTS` sections to `bulkActionBudgets`
+  and `bulkActionTenants`, documenting per-row Event emission for
+  observability parity with their single-op counterparts
+  (`fundBudget`, `PATCH /v1/admin/tenants/{tenant_id}`).
+
+  Prior revisions specified "one AuditLogEntry per invocation (not per
+  row)" for bulk endpoints but were silent on Event emission. Since
+  single-op paths emit lifecycle Events (e.g. `budget.funded`,
+  `tenant.closed`) that operators query via `listEvents`, the bulk
+  paths produced an audit-trail blind spot: the same operation
+  performed via two entry points yielded different event visibility.
+
+  `bulkActionBudgets` — server MUST emit one Event per
+  successfully-mutated row:
+
+  * CREDIT → `budget.funded`
+  * DEBIT → `budget.debited`
+  * RESET → `budget.reset`
+  * RESET_SPENT → `budget.reset_spent`
+  * REPAY_DEBT → `budget.debt_repaid`
+
+  `bulkActionTenants` — server MUST emit one Event per
+  successfully-mutated row:
+
+  * SUSPEND → `tenant.suspended`
+  * REACTIVATE → `tenant.reactivated`
+  * CLOSE → `tenant.closed`
+
+  Skipped and failed rows MUST NOT produce an Event. Emission is
+  bound to actual state transition, matching the single-op contract.
+
+  Correlation identity:
+
+  * `bulkActionBudgets` → `budget_bulk_action:<action>:<request_id>`
+  * `bulkActionTenants` → `tenant_bulk_action:<action>:<request_id>`
+
+  For action=CLOSE on `bulkActionTenants`, the parent `tenant.closed`
+  event carries the new `tenant_bulk_action:close:<request_id>`
+  correlation_id; the existing cascade fan-out children
+  (`budget.closed_via_tenant_cascade`,
+  `webhook.disabled_via_tenant_cascade`,
+  `api_key.revoked_via_tenant_cascade`,
+  `reservation.released_via_tenant_cascade`) retain their v0.1.25.29
+  Rule 1 identity `tenant_close_cascade:<tenant_id>:<request_id>`.
+  The two correlation_ids are complementary — unchanged cascade
+  semantics, new parent-event surface.
+
+  `bulkActionWebhooks` deliberately out of scope: webhooks have no
+  lifecycle Event kinds in v0.1.25 today (only the cascade variant
+  `webhook.disabled_via_tenant_cascade` and the system-level
+  `system.webhook_delivery_failed` / `system.webhook_test`).
+  A separate minor revision will introduce `webhook.created` /
+  `webhook.updated` / `webhook.deleted` / `webhook.enabled` /
+  `webhook.disabled` and wire them into both single-op and bulk-op
+  paths together.
+
+  No schema changes, no new event kinds, no new error codes, no
+  wire change. Reuses existing `budget.*` and `tenant.*` EventType
+  values already declared in this document. Existing conformant
+  clients unaffected — additive documentation requirement on a
+  previously-silent surface. Reference admin server will land the
+  implementation in v0.1.25.38.
+
 ## v0.1.25.31 — 2026-04-20
 
 - Editorial: relaxes `CASCADE SEMANTICS` Rule 1 to permit
