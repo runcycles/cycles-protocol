@@ -4772,6 +4772,40 @@ paths:
           `allow_close: true` in the request body) in future minor
           revisions.
 
+        EVENTS (document revision 0.1.25.32): - Server MUST emit one Event per successfully-mutated row,
+          typed by action: SUSPEND → `tenant.suspended`,
+          REACTIVATE → `tenant.reactivated`, CLOSE → `tenant.closed`.
+          Skipped rows (ALREADY_IN_TARGET_STATE) and failed rows
+          MUST NOT produce an Event — emission is bound to actual
+          state transition, matching the single-op PATCH path.
+        - Each emitted Event carries
+          `correlation_id = tenant_bulk_action:<action>:<request_id>`
+          (action lowercased, e.g. `tenant_bulk_action:close:req_abc`).
+          Operators retrieve the full bulk fan-out via
+          GET /v1/admin/events?correlation_id=…; the shared
+          request_id also ties every emitted row to the invocation's
+          single AuditLogEntry.
+        - For action=CLOSE, the parent `tenant.closed` event and the
+          per-child cascade fan-out (`budget.closed_via_tenant_cascade`,
+          `webhook.disabled_via_tenant_cascade`,
+          `api_key.revoked_via_tenant_cascade`,
+          `reservation.released_via_tenant_cascade`) carry DIFFERENT
+          correlation_ids: the parent uses
+          `tenant_bulk_action:close:<request_id>`; the cascade
+          children retain the Rule 1 identity
+          `tenant_close_cascade:<tenant_id>:<request_id>`
+          (unchanged from document revision 0.1.25.29). The two
+          identities are complementary — operators tracing a
+          specific tenant's close query the cascade id; operators
+          tracing the bulk invocation as a whole query the bulk id.
+
+        AUDIT LOG: - One AuditLogEntry per bulk-action invocation (not per
+          row). The entry records actor_type=ADMIN_ON_BEHALF_OF,
+          operation=bulkActionTenants, and embeds the full per-row
+          outcome in the entry payload. Per-row Events (above) are
+          the operator-visible audit trail; the AuditLogEntry is
+          the compliance-facing invocation record.
+
         AUTHORIZATION: - AdminKeyAuth only. No ApiKeyAuth path — tenants cannot
           bulk-mutate their own peers.
       security:
@@ -5499,6 +5533,24 @@ paths:
           Common per-row failure codes: BUDGET_EXCEEDED (DEBIT would
           take remaining negative), INVALID_TRANSITION (unit
           mismatch, ledger CLOSED).
+
+        EVENTS (document revision 0.1.25.32): - Server MUST emit one Event per successfully-mutated row,
+          typed by action:
+          * CREDIT → `budget.funded`
+          * DEBIT → `budget.debited`
+          * RESET → `budget.reset`
+          * RESET_SPENT → `budget.reset_spent`
+          * REPAY_DEBT → `budget.debt_repaid`
+          Skipped rows (idempotent no-ops) and failed rows MUST NOT
+          produce an Event — emission is bound to actual balance
+          mutation, matching the single-op fundBudget path.
+        - Each emitted Event carries
+          `correlation_id = budget_bulk_action:<action>:<request_id>`
+          (action lowercased, e.g. `budget_bulk_action:credit:req_abc`).
+          Operators retrieve the full bulk fan-out via
+          GET /v1/admin/events?correlation_id=…; the shared
+          request_id also ties every emitted row to the invocation's
+          single AuditLogEntry.
 
         AUDIT LOG: - One AuditLogEntry per bulk-action invocation (not per
           row). The entry records actor_type=ADMIN_ON_BEHALF_OF,
