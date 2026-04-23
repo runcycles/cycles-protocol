@@ -1233,7 +1233,10 @@ components:
       - policy
       - reservation
       - system
-      description: Top-level event category. Used for filtering webhook subscriptions.
+      - webhook
+      description: Top-level event category. Used for filtering webhook subscriptions. The `webhook` category
+        groups the webhook.* EventTypes introduced at document revision 0.1.25.33 (webhook.created / webhook.updated
+        / webhook.paused / webhook.resumed / webhook.disabled / webhook.deleted / webhook.disabled_via_tenant_cascade).
     EventType:
       type: string
       description: |-

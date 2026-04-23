@@ -6,6 +6,37 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.34 — 2026-04-23
+
+- Adds `webhook` to the `EventCategory` enum. Closes a same-release
+  enum gap: v0.1.25.33 introduced six `webhook.*` EventType values but
+  left the parallel `EventCategory` enum (used on `Event.category`,
+  `WebhookSubscription.event_categories`, `WebhookCreateRequest` /
+  `WebhookUpdateRequest.event_categories`, and the
+  `GET /v1/admin/events?category=…` filter) unchanged. Reference
+  server implementations tagging those new EventTypes with
+  `EventCategory.WEBHOOK` emit a `category: "webhook"` response field
+  that fails runtime contract validation against the pre-0.1.25.34
+  enum. This patch re-opens the enum so that Event responses, webhook
+  subscription filters, and the category query parameter all accept
+  `webhook` uniformly.
+
+  **Compatibility:** Additive, non-breaking. Existing clients that
+  never filter or decode `category` are unaffected; clients that do
+  MUST ignore unknown enum values gracefully per the spec's
+  EXTENSIBILITY rule for enums. No schema shapes change. Reference
+  admin servers already had an internal `EventCategory.WEBHOOK`
+  constant pending this enum extension — no server code changes are
+  required to consume the expanded enum; the prior emit that
+  triggered the mismatch now validates cleanly.
+
+  **Scope bounded:** No EventType enum changes, no new schemas, no
+  operation contract changes. This patch is exclusively the
+  EventCategory enum addition plus description update noting the
+  `webhook.*` grouping.
+
+---
+
 ## v0.1.25.33 — 2026-04-23
 
 - Adds webhook lifecycle EventTypes and documents per-row Event
