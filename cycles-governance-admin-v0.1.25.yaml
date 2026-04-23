@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.33
+  version: 0.1.25.34
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Stable governance base — document revision 0.1.25.33; semantic base
+    Stable governance base — document revision 0.1.25.34; semantic base
     frozen at 0.1.25.9. This file is self-sufficient for the current
     v0.1.25 conformance target (runcycles' reference servers implement
     this today — adds a normative tenant-close cascade contract at
@@ -18,7 +18,11 @@ info:
     webhook.resumed / webhook.disabled / webhook.deleted — and wires
     per-row Event emission into bulkActionWebhooks, the single-op
     create / update / delete webhook operations, and the dispatcher's
-    auto-disable path, closing the v0.1.25.32 deferral)
+    auto-disable path, closing the v0.1.25.32 deferral; document
+    revision 0.1.25.34 closes a same-release enum gap by adding
+    `webhook` to the EventCategory enum so that Event responses
+    carrying the new webhook.* EventTypes validate against the spec's
+    Event.category field)
     and also serves as the base for the upcoming v0.1.26
     spec family. Covers tenant management, authentication, and runtime
     enforcement. NOTE: This file alone is NOT sufficient for the
@@ -1569,8 +1573,13 @@ components:
         - policy
         - reservation
         - system
+        - webhook
       description: >-
         Top-level event category. Used for filtering webhook subscriptions.
+        The `webhook` category groups the webhook.* EventTypes introduced
+        at document revision 0.1.25.33 (webhook.created / webhook.updated /
+        webhook.paused / webhook.resumed / webhook.disabled /
+        webhook.deleted / webhook.disabled_via_tenant_cascade).
 
     EventType:
       type: string
