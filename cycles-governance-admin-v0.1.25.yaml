@@ -1,18 +1,24 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.32
+  version: 0.1.25.33
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Stable governance base — document revision 0.1.25.32; semantic base
+    Stable governance base — document revision 0.1.25.33; semantic base
     frozen at 0.1.25.9. This file is self-sufficient for the current
     v0.1.25 conformance target (runcycles' reference servers implement
     this today — adds a normative tenant-close cascade contract at
     document revision 0.1.25.31; document revision 0.1.25.32 adds
     per-row Event emission requirements to bulkActionBudgets and
-    bulkActionTenants for observability parity with single-op paths)
+    bulkActionTenants for observability parity with single-op paths;
+    document revision 0.1.25.33 introduces webhook lifecycle EventTypes
+    — webhook.created / webhook.updated / webhook.paused /
+    webhook.resumed / webhook.disabled / webhook.deleted — and wires
+    per-row Event emission into bulkActionWebhooks, the single-op
+    create / update / delete webhook operations, and the dispatcher's
+    auto-disable path, closing the v0.1.25.32 deferral)
     and also serves as the base for the upcoming v0.1.26
     spec family. Covers tenant management, authentication, and runtime
     enforcement. NOTE: This file alone is NOT sufficient for the
@@ -1612,6 +1618,14 @@ components:
         - tenant.closed                 # Tenant status → CLOSED (irreversible)
         - tenant.settings_changed       # Default overage policy, TTL, or overdraft limit changed
 
+        # --- Webhook lifecycle events (document revision 0.1.25.33) ---
+        - webhook.created               # New subscription provisioned
+        - webhook.updated               # Subscription properties modified (url, event_types, etc.) with no status change
+        - webhook.paused                # Subscription status ACTIVE → PAUSED (operator action)
+        - webhook.resumed               # Subscription status PAUSED → ACTIVE (operator action)
+        - webhook.disabled              # Subscription status → DISABLED (auto, after failure threshold)
+        - webhook.deleted               # Subscription record removed
+
         # --- API key events ---
         - api_key.created               # New API key provisioned
         - api_key.revoked               # Key revoked (manual or automated)
@@ -2101,6 +2115,47 @@ components:
             List of fields that were modified (e.g., ["name", "default_commit_overage_policy"]).
             Empty for create events.
 
+    EventDataWebhookLifecycle:
+      type: object
+      description: >-
+        Payload for webhook.created, webhook.updated, webhook.paused,
+        webhook.resumed, webhook.disabled, webhook.deleted events
+        (document revision 0.1.25.33). Mirrors EventDataTenantLifecycle
+        in shape — carries the subscription identity, the status
+        transition, and the fields modified (for update events).
+      properties:
+        subscription_id:
+          type: string
+          description: Subscription identifier (e.g., "whsub_01abc...").
+        tenant_id:
+          type: string
+          description: >-
+            Tenant owning the subscription. Use "__system__" for
+            system-wide subscriptions.
+        previous_status:
+          type: string
+          enum: [ACTIVE, PAUSED, DISABLED]
+          description: >-
+            Status before the transition. Omitted on webhook.created.
+        new_status:
+          type: string
+          enum: [ACTIVE, PAUSED, DISABLED]
+          description: >-
+            Status after the transition. Omitted on webhook.deleted.
+        changed_fields:
+          type: array
+          items:
+            type: string
+          description: >-
+            Fields modified (e.g., ["url", "event_types"]). Populated on
+            webhook.updated; empty on create, pause, resume, disable,
+            and delete events.
+        disable_reason:
+          type: string
+          description: >-
+            Only set on webhook.disabled. Human-readable reason
+            (e.g., "consecutive_failures_exceeded_threshold").
+
     EventDataApiKey:
       type: object
       description: >-
@@ -2192,7 +2247,14 @@ components:
         - On non-2xx response: retry with exponential backoff (1s, 2s, 4s, ... up to max_retries).
         - After max_retries exhausted: mark delivery as FAILED, emit system.webhook_delivery_failed event.
         - After consecutive_failures exceeds disable_after_failures: status → DISABLED automatically.
-        - Disabled subscriptions can be re-enabled via PATCH.
+          The dispatcher MUST emit one `webhook.disabled` Event on this
+          auto-transition (document revision 0.1.25.33). Payload conforms
+          to EventDataWebhookLifecycle with `previous_status` = ACTIVE
+          or PAUSED, `new_status` = DISABLED, and `disable_reason`
+          populated (e.g., "consecutive_failures_exceeded_threshold").
+          correlation_id = `webhook_auto_disable:<subscription_id>:<failure_batch_id>`.
+        - Disabled subscriptions can be re-enabled via PATCH — that path
+          emits `webhook.resumed` (see updateWebhookSubscription).
       required: [subscription_id, tenant_id, url, event_types, status, created_at]
       additionalProperties: false
       properties:
@@ -5955,6 +6017,12 @@ paths:
         - Omit tenant_id to create a system-wide subscription (receives events from all tenants).
         - System-wide subscriptions still respect scope_filter if provided.
 
+        EVENTS (document revision 0.1.25.33):
+        - On success, server MUST emit one `webhook.created` Event.
+          Payload conforms to EventDataWebhookLifecycle with
+          `new_status` = ACTIVE and `previous_status` omitted.
+          correlation_id = `webhook_create:<subscription_id>`.
+
         AUTHORIZATION:
         - Requires admin key (X-Admin-API-Key)
       security:
@@ -6185,6 +6253,27 @@ paths:
         - Pause delivery: set status to PAUSED
         - Rotate signing secret: provide new signing_secret value
         - Change event types: provide new event_types array (replaces, does not merge)
+
+        EVENTS (document revision 0.1.25.33):
+        - On every successful PATCH the server MUST emit exactly one
+          Event, typed by the nature of the change:
+            * Status unchanged, any other field(s) mutated →
+              `webhook.updated`. `changed_fields` lists the mutated
+              field names.
+            * Status ACTIVE → PAUSED → `webhook.paused`.
+            * Status PAUSED → ACTIVE → `webhook.resumed`.
+            * Status DISABLED → ACTIVE (operator re-enable) →
+              `webhook.resumed`.
+          When a single PATCH both changes status AND mutates other
+          fields, the server emits the status-typed event
+          (`webhook.paused` / `webhook.resumed`) and `changed_fields`
+          lists the non-status mutations for operator visibility.
+          A no-op PATCH (zero fields mutated) MUST NOT emit an Event.
+        - Payload conforms to EventDataWebhookLifecycle.
+          correlation_id = `webhook_update:<subscription_id>:<request_id>`.
+        - Auto-disable after failure threshold produces
+          `webhook.disabled` via the dispatcher, not via this PATCH
+          path. See WebhookSubscription.FAILURE HANDLING.
       security:
         - AdminKeyAuth: []
       parameters:
@@ -6254,6 +6343,13 @@ paths:
       description: >-
         Permanently removes the subscription. Pending deliveries are cancelled.
         This operation is irreversible.
+
+        EVENTS (document revision 0.1.25.33):
+        - On success, server MUST emit one `webhook.deleted` Event.
+          Payload conforms to EventDataWebhookLifecycle with
+          `previous_status` set to the subscription's status at time
+          of deletion and `new_status` omitted.
+          correlation_id = `webhook_delete:<subscription_id>`.
       security:
         - AdminKeyAuth: []
       parameters:
@@ -6819,6 +6915,35 @@ paths:
           LIMIT_EXCEEDED.
         - Overall HTTP 200 even when some rows fail; response envelope
           reports success/failure counts.
+
+        EVENTS (document revision 0.1.25.33):
+        - Server MUST emit one Event per successfully-mutated row,
+          typed by action: PAUSE → `webhook.paused`,
+          RESUME → `webhook.resumed`, DELETE → `webhook.deleted`.
+          Skipped rows (ALREADY_IN_TARGET_STATE, MISSING) and failed
+          rows MUST NOT produce an Event — emission is bound to actual
+          state transition, matching the single-op
+          createWebhookSubscription / updateWebhookSubscription /
+          deleteWebhookSubscription contract.
+        - Each emitted Event carries
+          `correlation_id = webhook_bulk_action:<action>:<request_id>`
+          (action lowercased, e.g.
+          `webhook_bulk_action:pause:req_abc`). Operators retrieve the
+          full bulk fan-out via
+          GET /v1/admin/events?correlation_id=…; the shared request_id
+          also ties every emitted row to the invocation's single
+          AuditLogEntry.
+        - Event payload conforms to EventDataWebhookLifecycle.
+        - `webhook.disabled` is NOT produced by bulkActionWebhooks —
+          that EventType is reserved for the auto-health-driven
+          transition described in
+          WebhookSubscription.FAILURE HANDLING. Operator PAUSE actions
+          always emit `webhook.paused` regardless of prior status.
+
+        AUDIT LOG:
+        - One AuditLogEntry per bulk-action invocation (not per row).
+          Per-row Events (above) are the operator-visible audit trail;
+          the AuditLogEntry is the compliance-facing invocation record.
 
         AUTHORIZATION:
         - AdminKeyAuth only.

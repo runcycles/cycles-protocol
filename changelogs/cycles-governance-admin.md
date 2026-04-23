@@ -6,6 +6,90 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.33 — 2026-04-23
+
+- Adds webhook lifecycle EventTypes and documents per-row Event
+  emission on `bulkActionWebhooks`, the three single-op webhook
+  operations (`createWebhookSubscription`, `updateWebhookSubscription`,
+  `deleteWebhookSubscription`), and the dispatcher's auto-disable
+  transition. Closes the v0.1.25.32 deferral, which explicitly carved
+  out webhooks because no `webhook.*` lifecycle EventTypes existed.
+
+  New EventType enum values (six):
+
+  * `webhook.created`  — new subscription provisioned
+  * `webhook.updated`  — subscription properties modified (url,
+    event_types, etc.) with no status change
+  * `webhook.paused`   — subscription status ACTIVE → PAUSED (operator)
+  * `webhook.resumed`  — subscription status PAUSED → ACTIVE (operator,
+    or DISABLED → ACTIVE when operator re-enables a dispatcher-disabled
+    subscription)
+  * `webhook.disabled` — subscription status → DISABLED (auto, after
+    failure threshold; never produced by the admin API)
+  * `webhook.deleted`  — subscription record removed
+
+  Naming follows the `tenant.suspended` / `tenant.reactivated`
+  precedent — each event name mirrors the resulting status. This
+  intentionally diverges from the v0.1.25.32 note's provisional
+  `webhook.enabled` / `webhook.disabled` pairing: webhook status has
+  three values (ACTIVE / PAUSED / DISABLED), and conflating a user
+  PAUSE with the dispatcher's auto-DISABLE under one event name would
+  hide a meaningful operational distinction. `webhook.disabled` is
+  now reserved exclusively for the health-driven transition.
+
+  `bulkActionWebhooks` — server MUST emit one Event per
+  successfully-mutated row:
+
+  * PAUSE  → `webhook.paused`
+  * RESUME → `webhook.resumed`
+  * DELETE → `webhook.deleted`
+
+  Skipped and failed rows MUST NOT produce an Event. Emission is
+  bound to actual state transition, matching the single-op contract.
+
+  Correlation identity for bulk: `webhook_bulk_action:<action>:<request_id>`
+  (mirrors `tenant_bulk_action:...` / `budget_bulk_action:...` from
+  v0.1.25.32).
+
+  Single-op endpoints — correlation identities:
+
+  * `createWebhookSubscription` → `webhook_create:<subscription_id>`
+  * `updateWebhookSubscription` → `webhook_update:<subscription_id>:<request_id>`
+  * `deleteWebhookSubscription` → `webhook_delete:<subscription_id>`
+
+  Dispatcher auto-disable — when `consecutive_failures` exceeds
+  `disable_after_failures` and status flips to DISABLED, the
+  dispatcher MUST emit `webhook.disabled` with correlation_id
+  `webhook_auto_disable:<subscription_id>:<failure_batch_id>` and
+  populate `disable_reason` in the payload
+  (e.g. `consecutive_failures_exceeded_threshold`). Documented
+  under `WebhookSubscription.FAILURE HANDLING`; emission happens in
+  the dispatcher component, not the admin API.
+
+  New payload schema: `EventDataWebhookLifecycle` (mirrors
+  `EventDataTenantLifecycle`) carrying `subscription_id`, `tenant_id`,
+  `previous_status`, `new_status`, `changed_fields`, and
+  `disable_reason`. `previous_status` is omitted on `webhook.created`;
+  `new_status` is omitted on `webhook.deleted`; `changed_fields` is
+  populated only on `webhook.updated`; `disable_reason` is populated
+  only on `webhook.disabled`.
+
+  The existing cascade variant
+  `webhook.disabled_via_tenant_cascade` (referenced in the tenant
+  close cascade prose) is unchanged — the cascade path retains its
+  v0.1.25.29 Rule 1 identity
+  `tenant_close_cascade:<tenant_id>:<request_id>` and is distinct from
+  the new standalone `webhook.disabled` event.
+
+  Additive-only spec change: six new EventType enum values (existing
+  clients MUST ignore unrecognized values per the EventType
+  extensibility note at line 1575), one new schema, new prose sections
+  on four operations plus FAILURE HANDLING. No removals, no renames,
+  no wire-incompatible changes. Reference servers continue to compile
+  against the regenerated model without code changes; a follow-up
+  cycles-server-admin patch release will wire the emits into
+  `WebhookAdminController` and the dispatcher's auto-disable path.
+
 ## v0.1.25.32 — 2026-04-22
 
 - Editorial: adds normative `EVENTS` sections to `bulkActionBudgets`
