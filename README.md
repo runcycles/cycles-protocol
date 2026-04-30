@@ -1,11 +1,11 @@
 [![Validate OpenAPI Spec Suite](https://github.com/runcycles/cycles-protocol/actions/workflows/validate.yml/badge.svg)](https://github.com/runcycles/cycles-protocol/actions/workflows/validate.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
-# Cycles Protocol — Runtime Authority for Autonomous Agents
+# Cycles Protocol — Runtime budget and action authority for AI agents
 
-**An open protocol for concurrency-safe spend and action control in autonomous agent runtimes.**
+**Open protocol for AI agent governance: enforce cost limits, action permissions, and multi-tenant policies before LLM tools execute.** Concurrency-safe budget reservations, risk-classified action kinds, and webhook-based event delivery for autonomous agent runtimes.
 
-Cycles is an open protocol that ensures agents cannot authorize more spend than policy allows — even when dozens of them run concurrently.
+Cycles is the protocol layer that ensures agents cannot authorize more spend or take riskier actions than policy allows — even when dozens of them run concurrently across providers (OpenAI, Anthropic, MCP servers, OpenAI Agents SDK, custom tools).
 
 **Spec suite:** v0.1.26 &middot; **Current conformance target:** v0.1.25 &middot; **Runtime base:** v0.1.25 &middot; **Governance base:** v0.1.25.29 (semantic_base 0.1.25.9) &middot; **API path:** `/v1` &middot; **License:** Apache 2.0
 
