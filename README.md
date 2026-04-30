@@ -7,6 +7,15 @@
 
 Cycles is the protocol layer that ensures agents cannot authorize more spend or take riskier actions than policy allows — even when dozens of them run concurrently across providers (OpenAI, Anthropic, MCP servers, OpenAI Agents SDK, custom tools).
 
+## Start here
+
+- **Implementing a compatible server?** Read [`CONFORMANCE.md`](CONFORMANCE.md) — it's the authoritative MUST/SHOULD/MAY statement.
+- **Want the runtime API?** Start with [`cycles-protocol-v0.yaml`](cycles-protocol-v0.yaml) (4 core ops: reserve, commit, release, extend).
+- **Want governance/admin operations?** See [`cycles-governance-admin-v0.1.25.yaml`](cycles-governance-admin-v0.1.25.yaml).
+- **Want upcoming action-level governance?** See the v0.1.26 extension specs ([protocol extensions](cycles-protocol-extensions-v0.1.26.yaml), [action kinds](cycles-action-kinds-v0.1.26.yaml), [governance extensions](cycles-governance-extensions-v0.1.26.yaml)).
+
+---
+
 **Spec suite:** v0.1.26 &middot; **Current conformance target:** v0.1.25 &middot; **Runtime base:** v0.1.25 &middot; **Governance base:** v0.1.25.29 (semantic_base 0.1.25.9) &middot; **API path:** `/v1` &middot; **License:** Apache 2.0
 
 The Cycles spec suite is organized by conformance status. The **current conformance target is v0.1.25** — the version runcycles' own reference servers implement today. v0.1.26 specs are published in this repo but not yet required; they are the **upcoming** target and will be promoted to normative once the reference stack implements them.
