@@ -473,25 +473,72 @@ components:
         evidence envelope with `decision: DENY` and
         `dry_run: false` (or `dry_run` absent). Conformant evidence
         verifiers MAY reject such envelopes as protocol-impossible
-        wire shapes. The if/then constraint below encodes this rule
-        schema-side so JSON Schema validators reject the bad shape
-        without needing custom logic.
-      if:
-        properties:
-          response:
+        wire shapes.
+
+        The `allOf` below encodes three normative rules schema-side
+        so JSON Schema validators reject the bad shapes without
+        needing custom logic:
+
+          1. Non-dry reserve with decision: DENY is impossible
+             (must surface as a 409 error via ErrorPayload).
+          2. dry_run=true: `reservation_id` and `expires_at_ms`
+             MUST be ABSENT on the response (canonical L981, L1404).
+          3. dry_run NOT true (false or absent): `reservation_id`
+             and `expires_at_ms` MUST be PRESENT on the response.
+             Combined with rule 1, this means decision is
+             guaranteed ALLOW or ALLOW_WITH_CAPS in this branch,
+             both of which require the IDs per canonical L981.
+      allOf:
+        # Existing: non-dry reserve with decision: DENY is impossible (must be 409 error).
+        - if:
             properties:
-              decision:
-                const: DENY
-            required: [decision]
-        required: [response]
-      then:
-        properties:
-          request:
+              response:
+                properties:
+                  decision: { const: DENY }
+                required: [decision]
+            required: [response]
+          then:
             properties:
-              dry_run:
-                const: true
-            required: [dry_run]
-        required: [request]
+              request:
+                properties:
+                  dry_run: { const: true }
+                required: [dry_run]
+            required: [request]
+        # dry_run=true: reservation_id and expires_at_ms MUST be ABSENT
+        # on the response (canonical L981, L1404).
+        - if:
+            properties:
+              request:
+                properties:
+                  dry_run: { const: true }
+                required: [dry_run]
+            required: [request]
+          then:
+            properties:
+              response:
+                allOf:
+                  - not: { required: [reservation_id] }
+                  - not: { required: [expires_at_ms] }
+            required: [response]
+        # dry_run NOT true (false or absent): reservation_id and
+        # expires_at_ms MUST be PRESENT on the response. Because the
+        # prior rule already forbids decision=DENY in this branch,
+        # decision is guaranteed ALLOW or ALLOW_WITH_CAPS — both of
+        # which require the IDs per canonical L981.
+        - if:
+            properties:
+              request:
+                not:
+                  allOf:
+                    - properties:
+                        dry_run: { const: true }
+                    - required: [dry_run]
+            required: [request]
+          then:
+            properties:
+              response:
+                required: [reservation_id, expires_at_ms]
+            required: [response]
       properties:
         request:
           $ref: "#/components/schemas/ReservationCreateRequestMirror"
@@ -686,6 +733,21 @@ components:
             required: [endpoint]
           then:
             required: [reservation_id]
+        # reservation_id MUST be absent for endpoints that take no
+        # reservation_id path argument (decisions, reservations). A
+        # stray reservation_id on those would mislead audit consumers
+        # into trying to bind the error to a reservation that the
+        # endpoint never named.
+        - if:
+            properties:
+              endpoint:
+                enum:
+                  - "POST /v1/decisions"
+                  - "POST /v1/reservations"
+            required: [endpoint]
+          then:
+            not:
+              required: [reservation_id]
 
     # =====================================================================
     # Schema mirrors of the Cycles runtime types.
@@ -726,7 +788,11 @@ components:
 
     DecisionResponseMirror:
       type: object
-      description: Mirror of `cycles-protocol-v0.yaml#/components/schemas/DecisionResponse` — the body of `POST /v1/decisions`.
+      description: |
+        Mirror of `cycles-protocol-v0.yaml#/components/schemas/DecisionResponse`
+        — the body of `POST /v1/decisions`. The `allOf` below
+        encodes the canonical L752 rule: caps is present only when
+        decision=ALLOW_WITH_CAPS and MUST be absent otherwise.
       required: [decision]
       additionalProperties: false
       properties:
@@ -735,6 +801,16 @@ components:
         reason_code:     { type: string, maxLength: 128 }
         retry_after_ms:  { type: integer, format: int64, minimum: 0 }
         affected_scopes: { type: array, items: { type: string } }
+      allOf:
+        - if:
+            properties:
+              decision: { const: ALLOW_WITH_CAPS }
+            required: [decision]
+          then:
+            required: [caps]
+          else:
+            not:
+              required: [caps]
 
     ReservationCreateRequestMirror:
       type: object
@@ -754,7 +830,15 @@ components:
 
     ReservationCreateResponseMirror:
       type: object
-      description: Mirror of `cycles-protocol-v0.yaml#/components/schemas/ReservationCreateResponse` — the body of `POST /v1/reservations`.
+      description: |
+        Mirror of `cycles-protocol-v0.yaml#/components/schemas/ReservationCreateResponse`
+        — the body of `POST /v1/reservations`. The `allOf` below
+        encodes the canonical L997 caps rule: caps is present only
+        when decision=ALLOW_WITH_CAPS and MUST be absent otherwise.
+
+        The dry_run-vs-reservation_id-and-expires_at_ms rules
+        (canonical L981 and L1404) span request and response, so they
+        live at the `ReservePayload` level rather than here.
       required: [decision, affected_scopes]
       additionalProperties: false
       properties:
@@ -770,6 +854,16 @@ components:
         balances:
           type: array
           items: { $ref: "#/components/schemas/Balance" }
+      allOf:
+        - if:
+            properties:
+              decision: { const: ALLOW_WITH_CAPS }
+            required: [decision]
+          then:
+            required: [caps]
+          else:
+            not:
+              required: [caps]
 
     CommitRequestMirror:
       type: object
