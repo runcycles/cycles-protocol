@@ -264,6 +264,57 @@ components:
             with `evidence_id` populated and this field set to "".
             See "Signature derivation" in the schema description.
 
+      # artifact_type ↔ payload-key pairing (NORMATIVE).
+      # The EvidencePayload `oneOf` enforces that payload has exactly
+      # one of {decide, reserve, commit, release, error}. The allOf
+      # below additionally ties that key to artifact_type: an envelope
+      # with `artifact_type: reserve` and `payload.error` is impossible
+      # on the wire and MUST be rejected. Schema-only validators (i.e.
+      # any consumer using JSON Schema without the custom verify.py)
+      # would otherwise accept these mismatches because oneOf alone
+      # only constrains which payload key is present, not which one.
+      allOf:
+        - if:
+            properties:
+              artifact_type: { const: decide }
+            required: [artifact_type]
+          then:
+            properties:
+              payload:
+                required: [decide]
+        - if:
+            properties:
+              artifact_type: { const: reserve }
+            required: [artifact_type]
+          then:
+            properties:
+              payload:
+                required: [reserve]
+        - if:
+            properties:
+              artifact_type: { const: commit }
+            required: [artifact_type]
+          then:
+            properties:
+              payload:
+                required: [commit]
+        - if:
+            properties:
+              artifact_type: { const: release }
+            required: [artifact_type]
+          then:
+            properties:
+              payload:
+                required: [release]
+        - if:
+            properties:
+              artifact_type: { const: error }
+            required: [artifact_type]
+          then:
+            properties:
+              payload:
+                required: [error]
+
       example:
         schema_version: cycles-evidence/v0.1
         artifact_type: reserve
@@ -343,9 +394,13 @@ components:
     EvidencePayload:
       type: object
       description: |
-        Per-artifact payload. Exactly one of the four properties below
+        Per-artifact payload. Exactly one of the five properties below
         MUST be present, matching the envelope's `artifact_type`. The
-        other three MUST be absent (not present-but-null).
+        other four MUST be absent (not present-but-null). The
+        artifact_type ↔ payload-key pairing is enforced at the
+        top-level CyclesEvidence schema via `allOf`/`if`/`then`, so
+        schema-only validators reject mismatches without needing
+        custom logic.
 
         This is the field that hoists `reservation_id` into the
         signed canonical bytes for `commit` and `release` artifacts
@@ -520,9 +575,21 @@ components:
         `request` is OPTIONAL: a Cycles server MAY redact the
         request body from error evidence (for tenants subject to
         request-body retention policies) but SHOULD include it for
-        full audit trail. `reservation_id` is OPTIONAL and only
-        meaningful when `endpoint` includes the path argument
-        (commit / release).
+        full audit trail.
+
+        `reservation_id` is REQUIRED when `endpoint` is the commit
+        or release path (`POST /v1/reservations/{reservation_id}/
+        commit` or `.../release`) — the value is the URL path
+        argument that names which reservation the failed operation
+        targeted, and dropping it from the signed payload would
+        leave the authorization → settlement chain
+        unreconstructable for evidence-only readers (the same
+        rationale that drives `reservation_id` hoisting on
+        `CommitPayload` and `ReleasePayload`). For
+        `endpoint: POST /v1/decisions` or `POST /v1/reservations`,
+        `reservation_id` is absent — those endpoints take no
+        reservation_id path argument. The endpoint-discriminated
+        `allOf` below enforces both rules.
 
         Request validation: when `request` is present, the
         endpoint-discriminated `allOf` of if/then below routes it
@@ -572,6 +639,12 @@ components:
         response:
           $ref: "#/components/schemas/ErrorResponseMirror"
       allOf:
+        # Endpoint-discriminated request validation. Each branch fires
+        # only when `endpoint` matches its const AND `request` is
+        # present (request is optional); the matching mirror schema is
+        # then applied to `request`. A plain oneOf doesn't work because
+        # the four request mirrors share identical required-field sets
+        # — see schema description above.
         - if:
             properties:
               endpoint: { const: "POST /v1/decisions" }
@@ -600,6 +673,19 @@ components:
           then:
             properties:
               request: { $ref: "#/components/schemas/ReleaseRequestMirror" }
+        # reservation_id linkage for commit/release endpoints (NORMATIVE).
+        # The path argument names which reservation the failed operation
+        # targeted; an error envelope missing it cannot reconstruct the
+        # authorization → settlement chain for evidence-only readers.
+        - if:
+            properties:
+              endpoint:
+                enum:
+                  - "POST /v1/reservations/{reservation_id}/commit"
+                  - "POST /v1/reservations/{reservation_id}/release"
+            required: [endpoint]
+          then:
+            required: [reservation_id]
 
     # =====================================================================
     # Schema mirrors of the Cycles runtime types.
