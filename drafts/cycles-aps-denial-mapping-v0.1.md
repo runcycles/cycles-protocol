@@ -5,8 +5,13 @@
 **Purpose:** Specifies the contract for `mapCyclesDenialToFoundation()` —
 the function the APS-side Cycles adapter at
 `src/v2/payment-rails/cycles/index.ts` (in `aeoess/agent-passport-system`)
-will implement to translate Cycles denial signals into APS PaymentReceipt
-Tier-1 `denial_reason` values.
+will implement to translate Cycles denial signals into APS `PaymentDenial`
+Tier-1 `denial_reason` values. Note: in APS, `PaymentReceipt` (success
+path) and `PaymentDenial` (denial path) are distinct top-level types —
+`denial_reason` is only carried on `PaymentDenial`, never on
+`PaymentReceipt` (see `aeoess/agent-passport-system` `src/v2/payment-rails/types.ts`
+L92 and L137 respectively, plus the GovernanceHooks `emitReceipt` /
+`emitDenial` split at L340 / L344).
 
 The mapping is intentionally **lossy by design**: Cycles emits 15
 `ErrorCode` values and 6 known `DecisionReasonCode` values, and APS
@@ -227,7 +232,7 @@ import type { DenialReason } from '../types';
 // Local return shape: Tier-1 reason + Tier-2 cycles.denial_detail
 // ride-along. The actual emit path (emitDenial in hooks.ts) consumes
 // `denial_reason` directly; the `cycles` namespace is attached to the
-// PaymentDenialReceipt envelope by the caller before signing.
+// PaymentDenial envelope by the caller before signing.
 interface FoundationDenialMapping {
   denial_reason: DenialReason;
   cycles: {
@@ -369,7 +374,7 @@ will move to a numbered spec file at repo root (e.g.
      literals has merged (committed-to but not yet open as of this
      draft per `aeoess/agent-passport-system#25` comment 4433715146).
   3. End-to-end test coverage demonstrates the round-trip: a Cycles
-     denial → CyclesEvidence envelope → APS PaymentReceipt with the
+     denial → CyclesEvidence envelope → APS PaymentDenial with the
      mapped Tier-1 reason and intact Tier-2 detail, verifiable offline.
 
 Until those land, this doc is the canonical reference for the mapping
