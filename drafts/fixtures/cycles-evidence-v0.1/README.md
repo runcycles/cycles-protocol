@@ -34,7 +34,7 @@ cases/
   10-reserve-credits-allow.json         — ReservePayload, unit=CREDITS (implementation-defined class), Balance.allocated populated
   11-reserve-live-budget-exceeded.json  — ErrorPayload, 409 BUDGET_EXCEEDED, endpoint="POST /v1/reservations" — the canonical live-denial wire shape that issue #25's APS gateway needs to bind evidence to
   12-decide-live-forbidden.json         — ErrorPayload, 403 FORBIDDEN, endpoint="POST /v1/decide" — exercises the corrected endpoint name (canonical /v1/decide, not /v1/decisions) and a non-budget ErrorCode
-  13-commit-with-metrics.json           — CommitPayload with StandardMetrics populated (5 fields incl. `custom` escape hatch) — exercises the closed-enum StandardMetrics mirror added in round 6
+  13-commit-with-metrics.json           — CommitPayload with StandardMetrics populated (5 fields incl. `custom` escape hatch) — exercises the constrained StandardMetrics mirror added in round 6 (object schema with `additionalProperties: false` and per-field constraints; not an enum)
 ```
 
 ## What each fixture proves
