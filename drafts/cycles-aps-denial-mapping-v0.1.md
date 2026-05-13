@@ -32,9 +32,16 @@ The mapping uses ONLY the six closed APS Tier-1 values:
   - `rail_error`
   - `requires_owner_confirmation`
 
-A conformant implementation MUST NOT invent new Tier-1 values; the APS
-verifier (`hooks.ts:115-123`) hard-rejects any value outside this set
-with `INVALID_DENIAL_REASON`.
+A conformant implementation MUST NOT invent new Tier-1 values. The
+closed taxonomy is enforced on three axes in `aeoess/agent-passport-system`:
+
+  - `DenialReason` is a closed string-literal TypeScript union in
+    `src/v2/payment-rails/types.ts`.
+  - `VALID_DENIAL_REASONS` is the runtime array in
+    `src/v2/payment-rails/hooks.ts:87-94` — the same six strings.
+  - `emitDenial` (`hooks.ts:381`) and the two verifier paths
+    (`hooks.ts:606`, `hooks.ts:629`) all reject values outside this
+    set with `INVALID_DENIAL_REASON`.
 
 ## Mapping table 1 — Cycles `ErrorCode` → APS Tier-1
 
@@ -148,10 +155,29 @@ one function.
 
 ```typescript
 import type { CyclesEvidence } from './evidence-envelope';
-import type { TierOneDenial } from '../types';
+import type { DenialReason } from '../types';
+
+// Local return shape: Tier-1 reason + Tier-2 cycles.denial_detail
+// ride-along. The actual emit path (emitDenial in hooks.ts) consumes
+// `denial_reason` directly; the `cycles` namespace is attached to the
+// PaymentDenialReceipt envelope by the caller before signing.
+interface FoundationDenialMapping {
+  denial_reason: DenialReason;
+  cycles: {
+    denial_detail: {
+      layer: 'cycles';
+      source: 'ErrorCode' | 'DecisionReasonCode';
+      code: string;
+      http_status?: number;
+      message?: string;
+      request_id?: string;
+      trace_id?: string;
+    };
+  };
+}
 
 // Cycles ErrorCode (15 closed values, canonical L429-L446).
-const ERROR_CODE_TO_TIER1: Record<string, TierOneDenial['denial_reason']> = {
+const ERROR_CODE_TO_TIER1: Record<string, DenialReason> = {
   INVALID_REQUEST:           'rail_error',
   UNAUTHORIZED:              'rail_error',
   FORBIDDEN:                 'no_commerce_scope',
@@ -170,7 +196,7 @@ const ERROR_CODE_TO_TIER1: Record<string, TierOneDenial['denial_reason']> = {
 };
 
 // Cycles DecisionReasonCode (9 known values; OPEN enum per canonical L487).
-const DECISION_REASON_TO_TIER1: Record<string, TierOneDenial['denial_reason']> = {
+const DECISION_REASON_TO_TIER1: Record<string, DenialReason> = {
   // v0.1.25 base
   BUDGET_EXCEEDED:          'spend_limit_exceeded',
   BUDGET_FROZEN:            'wallet_revoked',
@@ -195,7 +221,7 @@ const DECISION_REASON_TO_TIER1: Record<string, TierOneDenial['denial_reason']> =
  */
 export function mapCyclesDenialToFoundation(
   evidence: CyclesEvidence,
-): TierOneDenial | null {
+): FoundationDenialMapping | null {
   const p = evidence.payload;
 
   // Path A: HTTP 4xx/5xx error envelope.
