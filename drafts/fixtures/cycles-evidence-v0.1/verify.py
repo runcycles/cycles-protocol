@@ -39,7 +39,7 @@ import nacl.signing
 
 
 SCHEMA_VERSION = "cycles-evidence/v0.1"
-ARTIFACT_TYPES = ("decide", "reserve", "commit", "release")
+ARTIFACT_TYPES = ("decide", "reserve", "commit", "release", "error")
 TRACE_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 EVIDENCE_ID_RE = re.compile(r"^[0-9a-f]{64}$")
 SIGNATURE_RE = re.compile(r"^[0-9a-f]{128}$")

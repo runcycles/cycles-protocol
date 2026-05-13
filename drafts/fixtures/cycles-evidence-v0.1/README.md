@@ -1,10 +1,11 @@
 # CyclesEvidence v0.1 — reference fixtures
 
-Ten signed, content-addressed `CyclesEvidence` envelopes covering the
-four artifact types, the decision branches an audit consumer needs to
-handle, and every value of the closed `Unit` enum. Each fixture is the
-JCS-canonical bytes of a fully populated envelope, exactly as a Cycles
-server would emit it.
+Eleven signed, content-addressed `CyclesEvidence` envelopes covering
+the five artifact types, the decision branches an audit consumer needs
+to handle (including the live-path 4xx denial introduced for the issue
+#25 integration), and every value of the closed `Unit` enum. Each
+fixture is the JCS-canonical bytes of a fully populated envelope,
+exactly as a Cycles server would emit it.
 
 These fixtures back the test-plan checkbox on PR
 `runcycles/cycles-protocol#90`:
@@ -20,16 +21,17 @@ generate.py                       — generator (deterministic)
 verify.py                         — verifier (round-trip check)
 requirements.txt                  — jcs, pynacl
 cases/
-  01-decide-allow.json            — DecidePayload, decision=ALLOW
-  02-reserve-allow.json           — ReservePayload, decision=ALLOW, balances populated
-  03-reserve-deny.json            — ReservePayload, decision=DENY, no reservation_id
-  04-reserve-allow-with-caps.json — ReservePayload, decision=ALLOW_WITH_CAPS, Caps populated
-  05-commit-success.json          — CommitPayload, reservation_id hoisted, partial commit
-  06-release-success.json         — ReleasePayload, ALLOW_WITH_CAPS reservation released
-  07-release-with-reason.json     — ReleasePayload with optional ReleaseRequest.reason
-  08-reserve-allow-no-trace-id.json — ReservePayload, optional trace_id omitted (field absent, NOT empty string)
-  09-decide-risk-points-allow.json  — DecidePayload, unit=RISK_POINTS (authority class), Action.tags populated
-  10-reserve-credits-allow.json     — ReservePayload, unit=CREDITS (implementation-defined class), Balance.allocated populated
+  01-decide-allow.json                  — DecidePayload, decision=ALLOW
+  02-reserve-allow.json                 — ReservePayload, decision=ALLOW, balances populated
+  03-reserve-dry-run-deny.json          — ReservePayload with dry_run=true, decision=DENY (the ONLY valid wire shape for decision=DENY on reserve, per cycles-protocol-v0:978)
+  04-reserve-allow-with-caps.json       — ReservePayload, decision=ALLOW_WITH_CAPS, Caps populated
+  05-commit-success.json                — CommitPayload, reservation_id hoisted, partial commit
+  06-release-success.json               — ReleasePayload, ALLOW_WITH_CAPS reservation released
+  07-release-with-reason.json           — ReleasePayload with optional ReleaseRequest.reason
+  08-reserve-allow-no-trace-id.json     — ReservePayload, optional trace_id omitted (field absent, NOT empty string)
+  09-decide-risk-points-allow.json      — DecidePayload, unit=RISK_POINTS (authority class), Action.tags populated
+  10-reserve-credits-allow.json         — ReservePayload, unit=CREDITS (implementation-defined class), Balance.allocated populated
+  11-reserve-live-budget-exceeded.json  — ErrorPayload, 409 BUDGET_EXCEEDED, endpoint="POST /v1/reservations" — the canonical live-denial wire shape that issue #25's APS gateway needs to bind evidence to
 ```
 
 ## What each fixture proves
@@ -38,7 +40,7 @@ cases/
 |---|---|
 | 01 | `decide` payload one-of branch; `DecisionResponse` minimal-required shape (only `decision`) |
 | 02 | `reserve` happy path; `Balance` with `SignedAmount` `remaining` |
-| 03 | DENY-branch evidence; `reservation_id` absent on DENY (both states are valid evidence per spec) |
+| 03 | Dry-run reserve DENY — the *only* legal wire shape with `decision: DENY` on a reserve. Per `cycles-protocol-v0.yaml` §ReservationCreateResponse.decision: "For dry_run=true, decision MAY be DENY. For dry_run=false, insufficient budget MUST be expressed via 409 BUDGET_EXCEEDED (not decision=DENY)." Live (non-dry) denials are case 11. |
 | 04 | ALLOW_WITH_CAPS preserves the `Caps` payload in signed bytes (load-bearing for audit per `#25` thread) |
 | 05 | `reservation_id` hoisted into the signed payload — closes the `commit_reservation` linkage gap from `#92` review round 4 |
 | 06 | `release` payload one-of branch; symmetric `reservation_id` hoist |
@@ -46,6 +48,7 @@ cases/
 | 08 | Optional `trace_id` **omitted** (field absent in canonical bytes — distinct from `""` or `null` per spec normative note on omit/null/empty) |
 | 09 | `RISK_POINTS` unit (authority class per `#25` `unit_class` discussion); optional `Action.tags` populated |
 | 10 | `CREDITS` unit (implementation-defined class per `cycles-protocol-v0` UnitEnum); optional `Balance.allocated` populated |
+| 11 | `error` artifact type — live (non-dry) 409 `BUDGET_EXCEEDED` from `POST /v1/reservations`. The canonical wire shape for the pre-execution denial path that issue #25 needs APS receipts to bind evidence to. The request body is preserved in the signed payload; `endpoint` discriminates which Mirror schema `request` follows. |
 
 ## Reproducing the fixtures
 

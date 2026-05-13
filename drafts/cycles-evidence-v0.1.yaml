@@ -307,14 +307,28 @@ components:
         - reserve
         - commit
         - release
+        - error
       description: |
-        Cycles lifecycle event this envelope attests to. Maps 1:1
-        to the four core runtime endpoints:
+        Cycles lifecycle event this envelope attests to. The four
+        success-path artifact types map 1:1 to the four core runtime
+        endpoints, plus an `error` artifact type that wraps any
+        4xx/5xx ErrorResponse emitted by any of those endpoints:
 
-          - `decide`  → POST /v1/decisions             (stateless pre-check)
-          - `reserve` → POST /v1/reservations          (atomic authorization)
-          - `commit`  → POST /v1/reservations/{id}/commit   (settle at actual)
-          - `release` → POST /v1/reservations/{id}/release  (clear without debit)
+          - `decide`  → POST /v1/decisions             (stateless pre-check; 2xx)
+          - `reserve` → POST /v1/reservations          (atomic authorization; 2xx)
+          - `commit`  → POST /v1/reservations/{id}/commit   (settle at actual; 2xx)
+          - `release` → POST /v1/reservations/{id}/release  (clear without debit; 2xx)
+          - `error`   → 4xx/5xx ErrorResponse from any of the above
+
+        The `error` artifact type is normative for v0.1 because non-dry
+        reserve denials are the highest-signal evidence APS receipts
+        carry (per aeoess/agent-passport-system#25) and the canonical
+        wire shape for those denials is a 409 with
+        `error: BUDGET_EXCEEDED`, NOT a 200 with `decision: DENY` (see
+        `cycles-protocol-v0.yaml` §ReservationCreateResponse.decision
+        and §DecisionReasonCode). Without an `error` artifact slot,
+        v0.1 would have no evidence for the most important denial
+        path.
 
         `expire` is NOT an artifact_type in v0.1: server-side TTL
         expiry is silent on the wire and produces no Cycles
@@ -347,6 +361,7 @@ components:
         - { type: object, required: [reserve], properties: { reserve: { $ref: "#/components/schemas/ReservePayload" } }, additionalProperties: false }
         - { type: object, required: [commit],  properties: { commit:  { $ref: "#/components/schemas/CommitPayload"  } }, additionalProperties: false }
         - { type: object, required: [release], properties: { release: { $ref: "#/components/schemas/ReleasePayload" } }, additionalProperties: false }
+        - { type: object, required: [error],   properties: { error:   { $ref: "#/components/schemas/ErrorPayload"   } }, additionalProperties: false }
 
     # =====================================================================
     # Per-artifact payload shapes.
@@ -380,9 +395,48 @@ components:
       additionalProperties: false
       description: |
         Reservation-creation envelope. Pairs the `ReservationCreateRequest`
-        with the `ReservationCreateResponse`. On `decision: DENY` the
-        response's `reservation_id` is absent and `reason_code`
-        carries the denial reason — both states are valid evidence.
+        with the `ReservationCreateResponse`.
+
+        Decision-shape constraint (NORMATIVE, mirrors
+        `cycles-protocol-v0.yaml` §ReservationCreateResponse.decision):
+
+          - `dry_run: true` reserves: `decision` MAY be ALLOW,
+            ALLOW_WITH_CAPS, or DENY. A DENY response with
+            `reason_code` populated and `reservation_id` absent is a
+            valid 2xx wire shape — both ALLOW and DENY states are
+            captured as `reserve` evidence.
+          - `dry_run: false` (or omitted, the default): `decision`
+            MUST be ALLOW or ALLOW_WITH_CAPS. Insufficient budget
+            MUST surface as an HTTP 409 with
+            `error: BUDGET_EXCEEDED`, NOT as a 200 with
+            `decision: DENY`. Those non-dry denials are captured via
+            the `error` artifact type with
+            `endpoint: POST /v1/reservations`, NOT via a `reserve`
+            artifact with decision: DENY.
+
+        Conformant evidence emitters MUST NOT produce a `reserve`
+        evidence envelope with `decision: DENY` and
+        `dry_run: false` (or `dry_run` absent). Conformant evidence
+        verifiers MAY reject such envelopes as protocol-impossible
+        wire shapes. The if/then constraint below encodes this rule
+        schema-side so JSON Schema validators reject the bad shape
+        without needing custom logic.
+      if:
+        properties:
+          response:
+            properties:
+              decision:
+                const: DENY
+            required: [decision]
+        required: [response]
+      then:
+        properties:
+          request:
+            properties:
+              dry_run:
+                const: true
+            required: [dry_run]
+        required: [request]
       properties:
         request:
           $ref: "#/components/schemas/ReservationCreateRequestMirror"
@@ -418,14 +472,16 @@ components:
         `POST /v1/reservations/{reservation_id}/release`) into the
         signed payload.
 
-        APS-side handling of release evidence is the subject of an
-        open question on aeoess/agent-passport-system#25 (whether to
-        bridge it to a third `rail.budget_authority.release.v1`
-        literal, reuse the denial literal with a release-flavored
-        `scope_of_claim`, or omit the APS receipt entirely). The
-        Cycles-side envelope is unaffected by that choice — release
-        evidence is emitted uniformly regardless of which APS
-        literal the consumer chooses.
+        APS-side handling: release evidence binds to
+        `rail.budget_reservation.release.v1` per
+        aeoess/agent-passport-system#25 comment 4433275511. (The APS
+        rail-literal namespace was renamed from `budget_authority`
+        to `budget_reservation` in the same thread, comment
+        4433715146; the three lifecycle literals are
+        `rail.budget_reservation.{permit,release,denial}.v1`.) The
+        Cycles-side envelope is unaffected by the APS namespace
+        decision — release evidence is emitted uniformly regardless
+        of which APS literal the consumer chooses to bind to.
       properties:
         reservation_id:
           type: string
@@ -434,14 +490,104 @@ components:
         response:
           $ref: "#/components/schemas/ReleaseResponseMirror"
 
+    ErrorPayload:
+      type: object
+      required: [endpoint, http_status, response]
+      additionalProperties: false
+      description: |
+        Error-response evidence envelope. Wraps a 4xx/5xx
+        `ErrorResponse` body from any of the four core runtime
+        endpoints, with the originating request body and HTTP status
+        preserved for offline audit.
+
+        This is the canonical wire shape for non-dry reserve
+        denials. Per `cycles-protocol-v0.yaml`
+        §ReservationCreateResponse.decision, insufficient budget on
+        a non-dry `POST /v1/reservations` MUST be expressed via
+        HTTP 409 with `error: BUDGET_EXCEEDED`, NOT via a 200 with
+        `decision: DENY`. Other live denial codes (BUDGET_FROZEN,
+        BUDGET_CLOSED, OVERDRAFT_LIMIT_EXCEEDED, DEBT_OUTSTANDING,
+        UNIT_MISMATCH, etc.) surface the same way; the full
+        ErrorCode enum is in the canonical spec.
+
+        For pre-execution decisions (`POST /v1/decisions`) and
+        dry-run reserves, denials surface as a 2xx
+        DecisionResponse / ReservationCreateResponse with
+        `decision: DENY` and `reason_code` populated — those are
+        captured via `DecidePayload` and `ReservePayload`
+        respectively, NOT via this envelope.
+
+        `request` is OPTIONAL: a Cycles server MAY redact the
+        request body from error evidence (for tenants subject to
+        request-body retention policies) but SHOULD include it for
+        full audit trail. `reservation_id` is OPTIONAL and only
+        meaningful when `endpoint` includes the path argument
+        (commit / release).
+      properties:
+        endpoint:
+          type: string
+          enum:
+            - "POST /v1/decisions"
+            - "POST /v1/reservations"
+            - "POST /v1/reservations/{reservation_id}/commit"
+            - "POST /v1/reservations/{reservation_id}/release"
+          description: |
+            Which canonical endpoint returned the error. Acts as
+            the discriminator for offline readers and constrains
+            the shape of `request` (a conformant emitter populates
+            `request` with the request-body schema matching this
+            endpoint, when present).
+        http_status:
+          type: integer
+          minimum: 400
+          maximum: 599
+          description: HTTP status code on the wire (4xx or 5xx).
+        reservation_id:
+          type: string
+          description: |
+            Path-argument `reservation_id` when `endpoint` is
+            commit or release. Hoisted into the signed payload so
+            evidence-only verifiers can recover the authorization
+            chain without reconstructing the URL. Omitted for
+            endpoints that have no `reservation_id` path argument.
+        request:
+          description: |
+            Request body that triggered the error, matching the
+            request-mirror schema of `endpoint`. OPTIONAL; one of
+            DecisionRequestMirror, ReservationCreateRequestMirror,
+            CommitRequestMirror, or ReleaseRequestMirror, as
+            determined by `endpoint`.
+          oneOf:
+            - $ref: "#/components/schemas/DecisionRequestMirror"
+            - $ref: "#/components/schemas/ReservationCreateRequestMirror"
+            - $ref: "#/components/schemas/CommitRequestMirror"
+            - $ref: "#/components/schemas/ReleaseRequestMirror"
+        response:
+          $ref: "#/components/schemas/ErrorResponseMirror"
+
     # =====================================================================
     # Schema mirrors of the Cycles runtime types.
     # v0.1 inlines these by name rather than $ref-ing across files so
     # `cycles-evidence-v0.1.yaml` validates standalone. When promoted
     # to normative, these should be replaced with cross-file refs into
     # `cycles-protocol-v0.yaml` for single-source-of-truth.
-    # The field lists below are derived from runcycles Python SDK
-    # introspection on 2026-05-12 (see PR description for verification).
+    #
+    # MIRROR CONTRACT (v0.1, normative):
+    #   - Mirror schemas copy field names, types, required-lists,
+    #     enum values, AND structural constraints (minLength,
+    #     maxLength, minProperties, anyOf, etc.) from the canonical
+    #     spec as of the verification date below.
+    #   - `additionalProperties: false` on every mirror is normative
+    #     for evidence — extra fields would change the canonical
+    #     bytes and invalidate the signature.
+    #   - Drift from the canonical spec is a v0.1 bug. New canonical
+    #     constraints MUST be reflected here (or this file must be
+    #     re-cut against a newer canonical version) before evidence
+    #     consumers may rely on them.
+    #
+    # Field lists and constraints derived from runcycles Python SDK
+    # introspection + cycles-protocol-v0.yaml inspection on
+    # 2026-05-13 (see PR description for verification).
     # =====================================================================
 
     DecisionRequestMirror:
@@ -450,7 +596,7 @@ components:
       required: [idempotency_key, subject, action, estimate]
       additionalProperties: false
       properties:
-        idempotency_key: { type: string }
+        idempotency_key: { type: string, minLength: 1, maxLength: 256 }
         subject:         { $ref: "#/components/schemas/Subject" }
         action:          { $ref: "#/components/schemas/Action" }
         estimate:        { $ref: "#/components/schemas/Amount" }
@@ -464,8 +610,8 @@ components:
       properties:
         decision:        { $ref: "#/components/schemas/Decision" }
         caps:            { $ref: "#/components/schemas/Caps" }
-        reason_code:     { type: string }
-        retry_after_ms:  { type: integer, format: int64 }
+        reason_code:     { type: string, maxLength: 128 }
+        retry_after_ms:  { type: integer, format: int64, minimum: 0 }
         affected_scopes: { type: array, items: { type: string } }
 
     ReservationCreateRequestMirror:
@@ -474,12 +620,12 @@ components:
       required: [idempotency_key, subject, action, estimate]
       additionalProperties: false
       properties:
-        idempotency_key:   { type: string }
+        idempotency_key:   { type: string, minLength: 1, maxLength: 256 }
         subject:           { $ref: "#/components/schemas/Subject" }
         action:            { $ref: "#/components/schemas/Action" }
         estimate:          { $ref: "#/components/schemas/Amount" }
-        ttl_ms:            { type: integer, format: int64 }
-        grace_period_ms:   { type: integer, format: int64 }
+        ttl_ms:            { type: integer, format: int64, minimum: 0 }
+        grace_period_ms:   { type: integer, format: int64, minimum: 0 }
         overage_policy:    { type: string }
         dry_run:           { type: boolean }
         metadata:          { type: object, additionalProperties: true }
@@ -495,9 +641,9 @@ components:
         reservation_id:  { type: string }
         reserved:        { $ref: "#/components/schemas/Amount" }
         caps:            { $ref: "#/components/schemas/Caps" }
-        reason_code:     { type: string }
-        retry_after_ms:  { type: integer, format: int64 }
-        expires_at_ms:   { type: integer, format: int64 }
+        reason_code:     { type: string, maxLength: 128 }
+        retry_after_ms:  { type: integer, format: int64, minimum: 0 }
+        expires_at_ms:   { type: integer, format: int64, minimum: 0 }
         scope_path:      { type: string }
         balances:
           type: array
@@ -509,7 +655,7 @@ components:
       required: [idempotency_key, actual]
       additionalProperties: false
       properties:
-        idempotency_key: { type: string }
+        idempotency_key: { type: string, minLength: 1, maxLength: 256 }
         actual:          { $ref: "#/components/schemas/Amount" }
         metrics:         { type: object, additionalProperties: true }
         metadata:        { type: object, additionalProperties: true }
@@ -533,7 +679,7 @@ components:
       required: [idempotency_key]
       additionalProperties: false
       properties:
-        idempotency_key: { type: string }
+        idempotency_key: { type: string, minLength: 1, maxLength: 256 }
         reason:          { type: string }
 
     ReleaseResponseMirror:
@@ -548,6 +694,40 @@ components:
           type: array
           items: { $ref: "#/components/schemas/Balance" }
 
+    ErrorResponseMirror:
+      type: object
+      description: |
+        Mirror of `cycles-protocol-v0.yaml#/components/schemas/ErrorResponse`
+        — the body of any 4xx/5xx response from the four core
+        runtime endpoints.
+      required: [error, message, request_id]
+      additionalProperties: false
+      properties:
+        error:
+          type: string
+          description: |
+            ErrorCode value. The canonical `cycles-protocol-v0.yaml`
+            ErrorCode enum is closed (INVALID_REQUEST, UNAUTHORIZED,
+            FORBIDDEN, NOT_FOUND, BUDGET_EXCEEDED, BUDGET_FROZEN,
+            BUDGET_CLOSED, RESERVATION_EXPIRED,
+            RESERVATION_FINALIZED, IDEMPOTENCY_MISMATCH,
+            UNIT_MISMATCH, OVERDRAFT_LIMIT_EXCEEDED,
+            DEBT_OUTSTANDING, MAX_EXTENSIONS_EXCEEDED,
+            INTERNAL_ERROR). Future v0 minor versions MAY add codes;
+            evidence consumers SHOULD treat unknown codes as terminal
+            error states rather than rejecting the envelope.
+        message:
+          type: string
+        request_id:
+          type: string
+        trace_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+          description: W3C Trace Context trace-id. OPTIONAL on the wire for forward compatibility, but conformant servers MUST populate.
+        details:
+          type: object
+          additionalProperties: true
+
     # =====================================================================
     # Common nested types.
     # =====================================================================
@@ -555,37 +735,51 @@ components:
     Subject:
       type: object
       description: |
-        Cycles `Subject` — the budgeting dimension a reservation is
-        debited against. All seven fields are optional in the SDK
-        model (the Cycles server applies its own minimum-validity
-        constraints based on the effective tenant resolved from auth
-        context); the envelope preserves the request shape verbatim.
-        Field list verified against runcycles Python SDK introspection
-        on 2026-05-12.
+        Cycles `Subject` — dimension bag for hierarchical budgets.
+        Mirror of `cycles-protocol-v0.yaml#/components/schemas/Subject`
+        per the MIRROR CONTRACT above; constraints copied from the
+        canonical spec as of 2026-05-13.
+
+        At least one standard field (tenant, workspace, app,
+        workflow, agent, or toolset) MUST be provided; a Subject
+        containing only `dimensions` is invalid on the wire (the
+        canonical server returns 400 INVALID_REQUEST).
       additionalProperties: false
+      minProperties: 1
+      anyOf:
+        - required: [tenant]
+        - required: [workspace]
+        - required: [app]
+        - required: [workflow]
+        - required: [agent]
+        - required: [toolset]
       properties:
-        tenant:     { type: string }
-        workspace:  { type: string }
-        app:        { type: string }
-        workflow:   { type: string }
-        agent:      { type: string }
-        toolset:    { type: string }
+        tenant:     { type: string, maxLength: 128 }
+        workspace:  { type: string, maxLength: 128 }
+        app:        { type: string, maxLength: 128 }
+        workflow:   { type: string, maxLength: 128 }
+        agent:      { type: string, maxLength: 128 }
+        toolset:    { type: string, maxLength: 128 }
         dimensions:
           type: object
-          additionalProperties: true
-          description: Free-form per-deployment subject dimensions.
+          description: Free-form per-deployment subject dimensions (keys lowercase, opaque string values).
+          maxProperties: 16
+          additionalProperties:
+            type: string
+            maxLength: 256
 
     Action:
       type: object
-      description: Cycles `Action` — the caller-declared `(kind, name)` of the gated action (e.g. `model.call` / `gpt-4o`).
+      description: Cycles `Action` — the caller-declared `(kind, name)` of the gated action (e.g. `model.call` / `gpt-4o`). Constraints copied from `cycles-protocol-v0.yaml#/components/schemas/Action`.
       required: [kind, name]
       additionalProperties: false
       properties:
-        kind: { type: string }
-        name: { type: string }
+        kind: { type: string, maxLength: 64 }
+        name: { type: string, maxLength: 256 }
         tags:
           type: array
-          items: { type: string }
+          maxItems: 10
+          items: { type: string, maxLength: 64 }
           description: Optional policy tags (e.g. `["prod", "customer-facing"]`).
 
     Amount:
@@ -598,7 +792,7 @@ components:
       additionalProperties: false
       properties:
         unit:   { $ref: "#/components/schemas/Unit" }
-        amount: { type: integer, minimum: 0 }
+        amount: { type: integer, format: int64, minimum: 0 }
 
     SignedAmount:
       type: object
@@ -611,7 +805,7 @@ components:
       additionalProperties: false
       properties:
         unit:   { $ref: "#/components/schemas/Unit" }
-        amount: { type: integer }
+        amount: { type: integer, format: int64 }
 
     Balance:
       type: object
@@ -663,6 +857,6 @@ components:
       properties:
         max_tokens:           { type: integer, minimum: 0 }
         max_steps_remaining:  { type: integer, minimum: 0 }
-        tool_allowlist:       { type: array, items: { type: string } }
-        tool_denylist:        { type: array, items: { type: string } }
+        tool_allowlist:       { type: array, items: { type: string, maxLength: 256 } }
+        tool_denylist:        { type: array, items: { type: string, maxLength: 256 } }
         cooldown_ms:          { type: integer, minimum: 0 }

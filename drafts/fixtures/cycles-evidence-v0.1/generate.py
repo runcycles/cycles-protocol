@@ -130,7 +130,14 @@ def case_02_reserve_allow() -> dict:
     )
 
 
-def case_03_reserve_deny() -> dict:
+def case_03_reserve_dry_run_deny() -> dict:
+    # decision: DENY on a reserve is only valid on dry_run=true per
+    # cycles-protocol-v0.yaml §ReservationCreateResponse.decision:
+    # "For dry_run=true, decision MAY be DENY. For dry_run=false,
+    # insufficient budget MUST be expressed via 409 BUDGET_EXCEEDED
+    # (not decision=DENY)."
+    # Live (non-dry) budget denials are captured by case_11 via the
+    # `error` artifact type.
     return base(
         "reserve",
         1810000000200,
@@ -143,6 +150,7 @@ def case_03_reserve_deny() -> dict:
                     "action": {"kind": "model.call", "name": "gpt-4o"},
                     "estimate": {"unit": "USD_MICROCENTS", "amount": 50000000},
                     "ttl_ms": 30000,
+                    "dry_run": True,
                 },
                 "response": {
                     "decision": "DENY",
@@ -388,10 +396,45 @@ def case_08_reserve_allow_no_trace_id() -> dict:
     )
 
 
+def case_11_reserve_live_budget_exceeded() -> dict:
+    # Non-dry reserve over budget: the canonical wire shape is a 409
+    # ErrorResponse with error: BUDGET_EXCEEDED, NOT a 200 with
+    # decision: DENY (see cycles-protocol-v0.yaml:978). Captured here
+    # via the `error` artifact type with endpoint
+    # "POST /v1/reservations". This is the live denial path
+    # referenced in aeoess/agent-passport-system#25 ("Cycles denies
+    # → APS blocks/audits") — without an error-artifact slot, v0.1
+    # would have no evidence for the most important denial branch.
+    return base(
+        "error",
+        1810000040000,
+        "0123456789abcdef0123456789abcdef",
+        {
+            "error": {
+                "endpoint": "POST /v1/reservations",
+                "http_status": 409,
+                "request": {
+                    "idempotency_key": "01HZZ8N4F8FBQX5K6TGYR0M0G1",
+                    "subject": {"tenant": "acme", "agent": "researcher"},
+                    "action": {"kind": "model.call", "name": "gpt-4o"},
+                    "estimate": {"unit": "USD_MICROCENTS", "amount": 100000000},
+                    "ttl_ms": 30000,
+                },
+                "response": {
+                    "error": "BUDGET_EXCEEDED",
+                    "message": "Insufficient remaining budget for scope tenant=acme",
+                    "request_id": "req_01HZZ8N4F8FBQX5K6TGYR0M0G2",
+                    "trace_id": "0123456789abcdef0123456789abcdef",
+                },
+            },
+        },
+    )
+
+
 CASES: list[tuple[str, dict]] = [
     ("01-decide-allow.json", case_01_decide_allow()),
     ("02-reserve-allow.json", case_02_reserve_allow()),
-    ("03-reserve-deny.json", case_03_reserve_deny()),
+    ("03-reserve-dry-run-deny.json", case_03_reserve_dry_run_deny()),
     ("04-reserve-allow-with-caps.json", case_04_reserve_allow_with_caps()),
     ("05-commit-success.json", case_05_commit_success()),
     ("06-release-success.json", case_06_release_success()),
@@ -399,6 +442,7 @@ CASES: list[tuple[str, dict]] = [
     ("08-reserve-allow-no-trace-id.json", case_08_reserve_allow_no_trace_id()),
     ("09-decide-risk-points-allow.json", case_09_decide_risk_points_allow()),
     ("10-reserve-credits-allow.json", case_10_reserve_credits_allow()),
+    ("11-reserve-live-budget-exceeded.json", case_11_reserve_live_budget_exceeded()),
 ]
 
 
@@ -406,6 +450,12 @@ def main() -> None:
     signer = derive_signer()
     out_dir = Path(__file__).parent / "cases"
     out_dir.mkdir(exist_ok=True)
+
+    expected = {filename for filename, _ in CASES}
+    for stale in sorted(out_dir.glob("*.json")):
+        if stale.name not in expected:
+            stale.unlink()
+            print(f"removed stale {stale.name}")
 
     for filename, raw in CASES:
         signed = sign_envelope(raw, signer)
