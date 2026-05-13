@@ -85,7 +85,7 @@ info:
     url: https://github.com/runcycles/cycles-protocol
 
 # This file is schema-only. It does not declare server endpoints
-# because the canonical event surface (`/v1/decisions`, `/v1/reservations`,
+# because the canonical event surface (`/v1/decide`, `/v1/reservations`,
 # etc.) is already defined in `cycles-protocol-v0.yaml`; CyclesEvidence
 # is the *evidence shape* that wraps the bodies those endpoints return,
 # not a separate endpoint family.
@@ -365,7 +365,7 @@ components:
         endpoints, plus an `error` artifact type that wraps any
         4xx/5xx ErrorResponse emitted by any of those endpoints:
 
-          - `decide`  → POST /v1/decisions             (stateless pre-check; 2xx)
+          - `decide`  → POST /v1/decide             (stateless pre-check; 2xx)
           - `reserve` → POST /v1/reservations          (atomic authorization; 2xx)
           - `commit`  → POST /v1/reservations/{id}/commit   (settle at actual; 2xx)
           - `release` → POST /v1/reservations/{id}/release  (clear without debit; 2xx)
@@ -435,12 +435,12 @@ components:
       properties:
         request:
           description: |
-            DecisionRequest as submitted to `POST /v1/decisions`.
+            DecisionRequest as submitted to `POST /v1/decide`.
             Schema mirror of `cycles-protocol-v0.yaml#/components/schemas/DecisionRequest`.
           $ref: "#/components/schemas/DecisionRequestMirror"
         response:
           description: |
-            DecisionResponse as returned by `POST /v1/decisions`.
+            DecisionResponse as returned by `POST /v1/decide`.
             Schema mirror of `cycles-protocol-v0.yaml#/components/schemas/DecisionResponse`.
           $ref: "#/components/schemas/DecisionResponseMirror"
 
@@ -484,10 +484,14 @@ components:
           2. dry_run=true: `reservation_id` and `expires_at_ms`
              MUST be ABSENT on the response (canonical L981, L1404).
           3. dry_run NOT true (false or absent): `reservation_id`
-             and `expires_at_ms` MUST be PRESENT on the response.
-             Combined with rule 1, this means decision is
-             guaranteed ALLOW or ALLOW_WITH_CAPS in this branch,
-             both of which require the IDs per canonical L981.
+             MUST be PRESENT on the response. Combined with rule 1,
+             decision is guaranteed ALLOW or ALLOW_WITH_CAPS in
+             this branch, both of which require `reservation_id`
+             per canonical L981 ("Present if decision is ALLOW or
+             ALLOW_WITH_CAPS and dry_run is false"). `expires_at_ms`
+             is NOT in the rule-3 required list because canonical
+             only requires its ABSENCE on dry_run; the canonical
+             schema's required list never includes it.
       allOf:
         # Existing: non-dry reserve with decision: DENY is impossible (must be 409 error).
         - if:
@@ -520,11 +524,18 @@ components:
                   - not: { required: [reservation_id] }
                   - not: { required: [expires_at_ms] }
             required: [response]
-        # dry_run NOT true (false or absent): reservation_id and
-        # expires_at_ms MUST be PRESENT on the response. Because the
-        # prior rule already forbids decision=DENY in this branch,
-        # decision is guaranteed ALLOW or ALLOW_WITH_CAPS — both of
-        # which require the IDs per canonical L981.
+        # dry_run NOT true (false or absent): reservation_id MUST be
+        # PRESENT on the response. Because the prior rule already
+        # forbids decision=DENY in this branch, decision is guaranteed
+        # ALLOW or ALLOW_WITH_CAPS — both of which require the
+        # reservation_id per canonical L981 ("Present if decision is
+        # ALLOW or ALLOW_WITH_CAPS and dry_run is false").
+        # NOTE: expires_at_ms is NOT in this required list. The
+        # canonical only normatively requires its ABSENCE on dry_run
+        # (L1404); its presence on non-dry is described but not
+        # required by the canonical schema's required list. Requiring
+        # it here would over-tighten relative to the protocol and
+        # reject envelopes the canonical accepts.
         - if:
             properties:
               request:
@@ -537,7 +548,7 @@ components:
           then:
             properties:
               response:
-                required: [reservation_id, expires_at_ms]
+                required: [reservation_id]
             required: [response]
       properties:
         request:
@@ -612,7 +623,7 @@ components:
         UNIT_MISMATCH, etc.) surface the same way; the full
         ErrorCode enum is in the canonical spec.
 
-        For pre-execution decisions (`POST /v1/decisions`) and
+        For pre-execution decisions (`POST /v1/decide`) and
         dry-run reserves, denials surface as a 2xx
         DecisionResponse / ReservationCreateResponse with
         `decision: DENY` and `reason_code` populated — those are
@@ -633,7 +644,7 @@ components:
         unreconstructable for evidence-only readers (the same
         rationale that drives `reservation_id` hoisting on
         `CommitPayload` and `ReleasePayload`). For
-        `endpoint: POST /v1/decisions` or `POST /v1/reservations`,
+        `endpoint: POST /v1/decide` or `POST /v1/reservations`,
         `reservation_id` is absent — those endpoints take no
         reservation_id path argument. The endpoint-discriminated
         `allOf` below enforces both rules.
@@ -651,7 +662,7 @@ components:
         endpoint:
           type: string
           enum:
-            - "POST /v1/decisions"
+            - "POST /v1/decide"
             - "POST /v1/reservations"
             - "POST /v1/reservations/{reservation_id}/commit"
             - "POST /v1/reservations/{reservation_id}/release"
@@ -694,7 +705,7 @@ components:
         # — see schema description above.
         - if:
             properties:
-              endpoint: { const: "POST /v1/decisions" }
+              endpoint: { const: "POST /v1/decide" }
             required: [endpoint, request]
           then:
             properties:
@@ -734,7 +745,7 @@ components:
           then:
             required: [reservation_id]
         # reservation_id MUST be absent for endpoints that take no
-        # reservation_id path argument (decisions, reservations). A
+        # reservation_id path argument (decide, reservations). A
         # stray reservation_id on those would mislead audit consumers
         # into trying to bind the error to a reservation that the
         # endpoint never named.
@@ -742,7 +753,7 @@ components:
             properties:
               endpoint:
                 enum:
-                  - "POST /v1/decisions"
+                  - "POST /v1/decide"
                   - "POST /v1/reservations"
             required: [endpoint]
           then:
@@ -776,7 +787,7 @@ components:
 
     DecisionRequestMirror:
       type: object
-      description: Mirror of `cycles-protocol-v0.yaml#/components/schemas/DecisionRequest` — the body of `POST /v1/decisions`.
+      description: Mirror of `cycles-protocol-v0.yaml#/components/schemas/DecisionRequest` — the body of `POST /v1/decide`.
       required: [idempotency_key, subject, action, estimate]
       additionalProperties: false
       properties:
@@ -790,7 +801,7 @@ components:
       type: object
       description: |
         Mirror of `cycles-protocol-v0.yaml#/components/schemas/DecisionResponse`
-        — the body of `POST /v1/decisions`. The `allOf` below
+        — the body of `POST /v1/decide`. The `allOf` below
         encodes the canonical L752 rule: caps is present only when
         decision=ALLOW_WITH_CAPS and MUST be absent otherwise.
       required: [decision]
@@ -921,17 +932,31 @@ components:
       properties:
         error:
           type: string
+          enum:
+            - INVALID_REQUEST
+            - UNAUTHORIZED
+            - FORBIDDEN
+            - NOT_FOUND
+            - BUDGET_EXCEEDED
+            - BUDGET_FROZEN
+            - BUDGET_CLOSED
+            - RESERVATION_EXPIRED
+            - RESERVATION_FINALIZED
+            - IDEMPOTENCY_MISMATCH
+            - UNIT_MISMATCH
+            - OVERDRAFT_LIMIT_EXCEEDED
+            - DEBT_OUTSTANDING
+            - MAX_EXTENSIONS_EXCEEDED
+            - INTERNAL_ERROR
           description: |
-            ErrorCode value. The canonical `cycles-protocol-v0.yaml`
-            ErrorCode enum is closed (INVALID_REQUEST, UNAUTHORIZED,
-            FORBIDDEN, NOT_FOUND, BUDGET_EXCEEDED, BUDGET_FROZEN,
-            BUDGET_CLOSED, RESERVATION_EXPIRED,
-            RESERVATION_FINALIZED, IDEMPOTENCY_MISMATCH,
-            UNIT_MISMATCH, OVERDRAFT_LIMIT_EXCEEDED,
-            DEBT_OUTSTANDING, MAX_EXTENSIONS_EXCEEDED,
-            INTERNAL_ERROR). Future v0 minor versions MAY add codes;
-            evidence consumers SHOULD treat unknown codes as terminal
-            error states rather than rejecting the envelope.
+            ErrorCode value — mirror of the canonical closed
+            `ErrorCode` enum at `cycles-protocol-v0.yaml` L429-L446
+            per the MIRROR CONTRACT above. Future v0 minor versions
+            that add ErrorCode values will trigger a re-cut of this
+            mirror against the newer canonical version (which is the
+            normal mirror-drift process); evidence consumers MUST
+            NOT accept envelopes whose `error` value is outside this
+            enum until the mirror is re-cut.
         message:
           type: string
         request_id:

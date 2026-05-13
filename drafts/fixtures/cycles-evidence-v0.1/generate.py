@@ -403,6 +403,36 @@ def case_08_reserve_allow_no_trace_id() -> dict:
     )
 
 
+def case_12_decide_live_forbidden() -> dict:
+    # Live 4xx error on POST /v1/decide. Exercises the corrected
+    # endpoint name (canonical is /v1/decide, not /v1/decisions; the
+    # earlier draft had this wrong and no fixture caught it because
+    # no error fixture used the decide endpoint).
+    return base(
+        "error",
+        1810000050000,
+        "fedcba9876543210fedcba9876543210",
+        {
+            "error": {
+                "endpoint": "POST /v1/decide",
+                "http_status": 403,
+                "request": {
+                    "idempotency_key": "01HZZ8N4F8FBQX5K6TGYR0M0H1",
+                    "subject": {"tenant": "acme", "agent": "researcher"},
+                    "action": {"kind": "model.call", "name": "gpt-4o"},
+                    "estimate": {"unit": "USD_MICROCENTS", "amount": 1000000},
+                },
+                "response": {
+                    "error": "FORBIDDEN",
+                    "message": "Tenant scope mismatch with effective auth context",
+                    "request_id": "req_01HZZ8N4F8FBQX5K6TGYR0M0H2",
+                    "trace_id": "fedcba9876543210fedcba9876543210",
+                },
+            },
+        },
+    )
+
+
 def case_11_reserve_live_budget_exceeded() -> dict:
     # Non-dry reserve over budget: the canonical wire shape is a 409
     # ErrorResponse with error: BUDGET_EXCEEDED, NOT a 200 with
@@ -450,6 +480,7 @@ CASES: list[tuple[str, dict]] = [
     ("09-decide-risk-points-allow.json", case_09_decide_risk_points_allow()),
     ("10-reserve-credits-allow.json", case_10_reserve_credits_allow()),
     ("11-reserve-live-budget-exceeded.json", case_11_reserve_live_budget_exceeded()),
+    ("12-decide-live-forbidden.json", case_12_decide_live_forbidden()),
 ]
 
 
