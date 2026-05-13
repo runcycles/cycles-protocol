@@ -1,0 +1,1135 @@
+openapi: 3.1.0
+info:
+  title: Cycles Evidence Envelope
+  version: 0.1.0
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+  summary: >
+    Cross-system content-addressed evidence envelope for Cycles
+    authorization lifecycle events (decide / reserve / commit / release).
+  description: |
+    STATUS: DRAFT (v0.1) — published in `cycles-protocol/drafts/` for
+    review. Not yet normative; will move to a numbered spec file at
+    repo root (e.g. `cycles-evidence-v0.2.yaml`) once at least one
+    production implementation ships and at least one cross-system
+    consumer (notably APS, https://github.com/aeoess/agent-passport-system)
+    has integrated against the envelope shape end-to-end.
+
+    # Purpose
+
+    The Cycles runtime API (`cycles-protocol-v0.yaml`) emits
+    server-issued JSON responses for the four authorization lifecycle
+    events — `decide`, `reserve`, `commit`, `release`. Those responses
+    are sufficient for the immediate caller (an agent runtime or a
+    gateway with a live connection to the Cycles server), but they are
+    not sufficient for **cross-system, ledger-independent audit
+    consumers** who need to verify that an event happened without
+    requiring access to the Cycles server's live ledger state.
+
+    The CyclesEvidence envelope closes that gap. It wraps the same
+    lifecycle information in a JCS-canonicalized, Ed25519-signed
+    envelope keyed by a sha256 content hash, suitable for:
+
+      - Cross-system audit consumers fetching a single artifact by
+        content hash (e.g. APS `CyclesEvidenceRef.cycles_evidence_id_sha256`).
+      - Long-horizon archival (EU AI Act Article 12 retention, etc.)
+        where the original Cycles server may no longer be reachable.
+      - Replay verification from evidence alone, without re-consulting
+        the live ledger — the open question that motivated downgrading
+        `replay_class` from `full_replay` to `decision_replay` on the
+        Cycles signal-type crosswalk at
+        aeoess/agent-governance-vocabulary#92. Once this envelope is
+        normative and emitted by reference implementations,
+        `replay_class` is promotable back to `full_replay`.
+
+    # Relationship to APS
+
+    The APS-side `CyclesEvidenceRef` minimal join shape (per
+    aeoess/agent-passport-system#25, comment 4422627045) carries four
+    fields:
+
+      - `cycles_evidence_url`         — where to fetch the envelope
+      - `cycles_evidence_id_sha256`   — content-addressed id of the envelope
+      - `action_ref`                  — APS-side action anchor
+      - `delegation_ref`              — APS-side delegation anchor
+
+    This document specifies what `cycles_evidence_id_sha256` is computed
+    over (canonical bytes of this envelope with BOTH `evidence_id` AND
+    `signature` set to the empty string — see the normative algorithm
+    under `CyclesEvidence` schema description) and what
+    `cycles_evidence_url` is expected to return (a single
+    `CyclesEvidence` envelope serialized as JCS-canonical JSON).
+
+    # Out of scope (v0.1)
+
+      - Evidence retrieval HTTP API. The fetch contract for
+        `cycles_evidence_url` is documented here as expectations on the
+        response body and headers, but the URL path layout, auth
+        scheme, and replication policy are out of scope and live with
+        the Cycles server implementation.
+      - Signing-key rotation, JWKS publication, did:cycles method
+        registration. These will land alongside or after the
+        normative move to `cycles-evidence-v0.2.yaml`.
+      - Aggregated evidence (Merkle-batched roots covering many
+        lifecycle events). A v0.2+ concern; v0.1 is one envelope per
+        lifecycle event.
+
+  x-changelog:
+    url: ./changelogs/cycles-evidence-v0.1.md
+    format: keep-a-changelog
+    note: changelog file will be added when the draft is promoted to a normative spec.
+
+  contact:
+    name: Cycles maintainers
+    url: https://github.com/runcycles/cycles-protocol
+
+# This file is schema-only. It does not declare server endpoints
+# because the canonical event surface (`/v1/decide`, `/v1/reservations`,
+# etc.) is already defined in `cycles-protocol-v0.yaml`; CyclesEvidence
+# is the *evidence shape* that wraps the bodies those endpoints return,
+# not a separate endpoint family.
+
+components:
+
+  schemas:
+
+    # =====================================================================
+    # CyclesEvidence — the signed, content-addressed envelope.
+    # =====================================================================
+    CyclesEvidence:
+      type: object
+      additionalProperties: false
+      description: |
+        Signed evidence envelope for one Cycles authorization lifecycle
+        event. Identified by the sha256 hex of its JCS-canonical bytes
+        with **both `evidence_id` and `signature`** set to the empty
+        string; signed by the Cycles server's Ed25519 signing key over
+        the same bytes with `evidence_id` populated and `signature`
+        still empty. See the normative algorithm below.
+
+        # Hash derivation (v0.1, normative)
+
+        1. Construct the envelope object with all fields populated
+           **except** `evidence_id` and `signature`, both of which are
+           set to the empty string `""`.
+        2. Canonicalize per RFC 8785 (JCS). Encode the canonical form
+           as UTF-8 bytes.
+        3. Compute sha256 of those bytes. Hex-encode the digest
+           (lowercase, 64 chars).
+        4. Set `evidence_id` to that hex string.
+
+        # Signature derivation (v0.1, normative)
+
+        1. Take the envelope from the hash-derivation step with
+           `evidence_id` now populated and `signature` still `""`.
+        2. Canonicalize again per RFC 8785 (JCS). Encode as UTF-8 bytes.
+        3. Compute Ed25519 signature over those bytes using the Cycles
+           server's signing key (referenced via `signer_did`).
+        4. Hex-encode the 64-byte signature (lowercase, 128 chars).
+        5. Set `signature` to that hex string.
+
+        This is the same id-then-signature ordering used by APS
+        receipts at `src/v2/payment-rails/canonicalize.ts` and by
+        Wave 1 accountability artifacts — so a consumer that already
+        knows how to verify an APS PaymentReceipt can verify a
+        CyclesEvidence envelope with the same primitives, only the
+        canonical-bytes input differs.
+
+        # Verification
+
+        A verifier MUST:
+
+        - Re-derive `evidence_id` per the algorithm above and compare
+          byte-for-byte with the envelope's `evidence_id` field.
+          Mismatch ⇒ envelope tampered or canonicalization failure.
+        - Re-canonicalize with the now-populated `evidence_id` and
+          empty signature, and verify the Ed25519 signature against
+          the public key resolved from `signer_did`.
+        - Reject any envelope whose `artifact_type` field does not
+          match the keys present on `payload` (e.g. `artifact_type:
+          commit` REQUIRES `payload.commit` and forbids the others).
+
+      required:
+        - schema_version
+        - artifact_type
+        - server_id
+        - signer_did
+        - issued_at_ms
+        - payload
+        - evidence_id
+        - signature
+      properties:
+
+        schema_version:
+          type: string
+          const: cycles-evidence/v0.1
+          description: |
+            Schema discriminator. Pinned to the v0.1 draft; consumers
+            MUST reject envelopes whose `schema_version` they do not
+            understand. Versioned per the file at repo root that this
+            draft is promoted to.
+
+        artifact_type:
+          $ref: "#/components/schemas/ArtifactType"
+
+        server_id:
+          type: string
+          format: uri
+          description: |
+            Stable URI identifying the issuing Cycles server. SHOULD be
+            the canonical base URL of the Cycles deployment (e.g.
+            `https://cycles.example.com/v1`). Distinct from `signer_did`
+            because a single server may rotate signing keys without
+            losing identity continuity.
+          examples:
+            - "https://cycles.example.com/v1"
+
+        signer_did:
+          type: string
+          description: |
+            DID or hex public key identifying the Ed25519 signer. v0.1
+            does not pin a method; an Ed25519 hex pubkey is the
+            simplest valid form. A future spec revision will likely
+            standardize on `did:cycles:<server_id_hash>` or similar
+            once signing-key rotation and JWKS publication are in
+            scope.
+          examples:
+            - "207a067892821e25d770f1fba0c47c11ff4b813e54162ece9eb839e076231ab6"
+
+        issued_at_ms:
+          type: integer
+          format: int64
+          minimum: 0
+          description: |
+            Server-side issuance time (UTC milliseconds since epoch) at
+            which the Cycles server emitted this envelope. Distinct from
+            any application-level timestamp; the v0 runtime spec does
+            not currently expose a wire-level response `timestamp`
+            field, so this is the server's own issuance clock at the
+            moment the envelope is signed.
+
+        trace_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+          description: |
+            W3C Trace Context trace-id (32-hex lowercase) the Cycles
+            server associated with the request that produced this
+            envelope. Preserved byte-for-byte from the wire response /
+            `X-Cycles-Trace-Id` header per the Cycles correlation
+            contract (see `cycles-protocol-v0.yaml` §CORRELATION AND
+            TRACING).
+
+            Optional only for backward compatibility with pre-correlation
+            servers; a conformant Cycles server MUST populate this.
+            The single cross-system join key against Cycles audit logs,
+            event streams, and webhook deliveries — and the natural
+            join key for APS receipts that reference this envelope via
+            `CyclesEvidenceRef`.
+
+        payload:
+          $ref: "#/components/schemas/EvidencePayload"
+
+        evidence_id:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+          description: |
+            sha256 hex of the JCS-canonical envelope with this field
+            set to "" and `signature` set to "". See "Hash derivation"
+            in the schema description.
+
+            The empty-string sentinel is normative. Both `evidence_id`
+            and `signature` are PRESENT in the canonical bytes with
+            value `""`; they are NEITHER omitted from the object NOR
+            set to JSON `null`. Three distinct JCS canonical forms
+            exist for a "field whose value is not yet known":
+
+              - omit the key entirely  →  `{...}` (key absent)
+              - set value to JSON null →  `{..., "field": null, ...}`
+              - set value to empty ""  →  `{..., "field": "", ...}`
+
+            These produce three different canonical byte sequences
+            and therefore three different sha256 digests. An adapter
+            that uses omission or `null` will compute an
+            `evidence_id` that does not match the spec-compliant
+            value. Empty-string sentinel is the single correct rule;
+            both pre-hash and pre-signature canonicalization passes
+            apply it.
+
+        signature:
+          type: string
+          pattern: "^[0-9a-f]{128}$"
+          description: |
+            Ed25519 signature (hex) over the JCS-canonical envelope
+            with `evidence_id` populated and this field set to "".
+            See "Signature derivation" in the schema description.
+
+      # artifact_type ↔ payload-key pairing (NORMATIVE).
+      # The EvidencePayload `oneOf` enforces that payload has exactly
+      # one of {decide, reserve, commit, release, error}. The allOf
+      # below additionally ties that key to artifact_type: an envelope
+      # with `artifact_type: reserve` and `payload.error` is impossible
+      # on the wire and MUST be rejected. Schema-only validators (i.e.
+      # any consumer using JSON Schema without the custom verify.py)
+      # would otherwise accept these mismatches because oneOf alone
+      # only constrains which payload key is present, not which one.
+      allOf:
+        - if:
+            properties:
+              artifact_type: { const: decide }
+            required: [artifact_type]
+          then:
+            properties:
+              payload:
+                required: [decide]
+        - if:
+            properties:
+              artifact_type: { const: reserve }
+            required: [artifact_type]
+          then:
+            properties:
+              payload:
+                required: [reserve]
+        - if:
+            properties:
+              artifact_type: { const: commit }
+            required: [artifact_type]
+          then:
+            properties:
+              payload:
+                required: [commit]
+        - if:
+            properties:
+              artifact_type: { const: release }
+            required: [artifact_type]
+          then:
+            properties:
+              payload:
+                required: [release]
+        - if:
+            properties:
+              artifact_type: { const: error }
+            required: [artifact_type]
+          then:
+            properties:
+              payload:
+                required: [error]
+
+      example:
+        schema_version: cycles-evidence/v0.1
+        artifact_type: reserve
+        server_id: https://cycles.example.com/v1
+        signer_did: "207a067892821e25d770f1fba0c47c11ff4b813e54162ece9eb839e076231ab6"
+        issued_at_ms: 1810000000000
+        trace_id: "0af7651916cd43dd8448eb211c80319c"
+        payload:
+          reserve:
+            request:
+              idempotency_key: "01HZZ8N4F8FBQX5K6TGYR0M0A1"
+              subject:
+                tenant: acme
+                agent: researcher
+              action:
+                kind: model.call
+                name: gpt-4o
+              estimate:
+                unit: USD_MICROCENTS
+                amount: 2000000
+              ttl_ms: 30000
+            response:
+              decision: ALLOW
+              reservation_id: "01HZZ8N4F8FBQX5K6TGYR0M0A2"
+              reserved:
+                unit: USD_MICROCENTS
+                amount: 2000000
+              affected_scopes:
+                - tenant
+              expires_at_ms: 1810000030000
+        evidence_id: "0000000000000000000000000000000000000000000000000000000000000000"
+        signature: "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+    # =====================================================================
+    # ArtifactType — discriminator for the payload one-of.
+    # =====================================================================
+    ArtifactType:
+      type: string
+      enum:
+        - decide
+        - reserve
+        - commit
+        - release
+        - error
+      description: |
+        Cycles lifecycle event this envelope attests to. The four
+        success-path artifact types map 1:1 to the four core runtime
+        endpoints, plus an `error` artifact type that wraps any
+        4xx/5xx ErrorResponse emitted by any of those endpoints:
+
+          - `decide`  → POST /v1/decide             (stateless pre-check; 2xx)
+          - `reserve` → POST /v1/reservations          (atomic authorization; 2xx)
+          - `commit`  → POST /v1/reservations/{id}/commit   (settle at actual; 2xx)
+          - `release` → POST /v1/reservations/{id}/release  (clear without debit; 2xx)
+          - `error`   → 4xx/5xx ErrorResponse from any of the above
+
+        The `error` artifact type is normative for v0.1 because non-dry
+        reserve denials are the highest-signal evidence APS receipts
+        carry (per aeoess/agent-passport-system#25) and the canonical
+        wire shape for those denials is a 409 with
+        `error: BUDGET_EXCEEDED`, NOT a 200 with `decision: DENY` (see
+        `cycles-protocol-v0.yaml` §ReservationCreateResponse.decision
+        and §DecisionReasonCode). Without an `error` artifact slot,
+        v0.1 would have no evidence for the most important denial
+        path.
+
+        `expire` is NOT an artifact_type in v0.1: server-side TTL
+        expiry is silent on the wire and produces no Cycles
+        response — and therefore no evidence envelope. A future
+        revision MAY add a `system.expire` artifact type emitted by
+        the Cycles server's internal expiry sweep, but v0.1 is
+        scoped to caller-observable lifecycle events.
+
+    # =====================================================================
+    # EvidencePayload — one-of per artifact_type.
+    # =====================================================================
+    EvidencePayload:
+      type: object
+      description: |
+        Per-artifact payload. Exactly one of the five properties below
+        MUST be present, matching the envelope's `artifact_type`. The
+        other four MUST be absent (not present-but-null). The
+        artifact_type ↔ payload-key pairing is enforced at the
+        top-level CyclesEvidence schema via `allOf`/`if`/`then`, so
+        schema-only validators reject mismatches without needing
+        custom logic.
+
+        This is the field that hoists `reservation_id` into the
+        signed canonical bytes for `commit` and `release` artifacts
+        — the gap called out at aeoess/agent-governance-vocabulary#92
+        review round 4. In the wire response of `commit_reservation`
+        and `release_reservation`, `reservation_id` is a URL path
+        argument, not a body field; in the evidence envelope, it is
+        promoted to a payload field so audit consumers can verify
+        the directional authorization → settlement chain from
+        evidence alone.
+      oneOf:
+        - { type: object, required: [decide],  properties: { decide:  { $ref: "#/components/schemas/DecidePayload"  } }, additionalProperties: false }
+        - { type: object, required: [reserve], properties: { reserve: { $ref: "#/components/schemas/ReservePayload" } }, additionalProperties: false }
+        - { type: object, required: [commit],  properties: { commit:  { $ref: "#/components/schemas/CommitPayload"  } }, additionalProperties: false }
+        - { type: object, required: [release], properties: { release: { $ref: "#/components/schemas/ReleasePayload" } }, additionalProperties: false }
+        - { type: object, required: [error],   properties: { error:   { $ref: "#/components/schemas/ErrorPayload"   } }, additionalProperties: false }
+
+    # =====================================================================
+    # Per-artifact payload shapes.
+    # Each pairs the Cycles request and response of the corresponding
+    # endpoint, so evidence is self-contained.
+    # =====================================================================
+
+    DecidePayload:
+      type: object
+      required: [request, response]
+      additionalProperties: false
+      description: |
+        Pre-execution decision envelope. Pairs the `DecisionRequest`
+        the caller submitted with the `DecisionResponse` the server
+        returned. No reservation is created.
+      properties:
+        request:
+          description: |
+            DecisionRequest as submitted to `POST /v1/decide`.
+            Schema mirror of `cycles-protocol-v0.yaml#/components/schemas/DecisionRequest`.
+          $ref: "#/components/schemas/DecisionRequestMirror"
+        response:
+          description: |
+            DecisionResponse as returned by `POST /v1/decide`.
+            Schema mirror of `cycles-protocol-v0.yaml#/components/schemas/DecisionResponse`.
+          $ref: "#/components/schemas/DecisionResponseMirror"
+
+    ReservePayload:
+      type: object
+      required: [request, response]
+      additionalProperties: false
+      description: |
+        Reservation-creation envelope. Pairs the `ReservationCreateRequest`
+        with the `ReservationCreateResponse`.
+
+        Decision-shape constraint (NORMATIVE, mirrors
+        `cycles-protocol-v0.yaml` §ReservationCreateResponse.decision):
+
+          - `dry_run: true` reserves: `decision` MAY be ALLOW,
+            ALLOW_WITH_CAPS, or DENY. A DENY response with
+            `reason_code` populated and `reservation_id` absent is a
+            valid 2xx wire shape — both ALLOW and DENY states are
+            captured as `reserve` evidence.
+          - `dry_run: false` (or omitted, the default): `decision`
+            MUST be ALLOW or ALLOW_WITH_CAPS. Insufficient budget
+            MUST surface as an HTTP 409 with
+            `error: BUDGET_EXCEEDED`, NOT as a 200 with
+            `decision: DENY`. Those non-dry denials are captured via
+            the `error` artifact type with
+            `endpoint: POST /v1/reservations`, NOT via a `reserve`
+            artifact with decision: DENY.
+
+        Conformant evidence emitters MUST NOT produce a `reserve`
+        evidence envelope with `decision: DENY` and
+        `dry_run: false` (or `dry_run` absent). Conformant evidence
+        verifiers MAY reject such envelopes as protocol-impossible
+        wire shapes.
+
+        The `allOf` below encodes three normative rules schema-side
+        so JSON Schema validators reject the bad shapes without
+        needing custom logic:
+
+          1. Non-dry reserve with decision: DENY is impossible
+             (must surface as a 409 error via ErrorPayload).
+          2. dry_run=true: `reservation_id` and `expires_at_ms`
+             MUST be ABSENT on the response (canonical L981, L1404).
+          3. dry_run NOT true (false or absent): `reservation_id`
+             MUST be PRESENT on the response. Combined with rule 1,
+             decision is guaranteed ALLOW or ALLOW_WITH_CAPS in
+             this branch, both of which require `reservation_id`
+             per canonical L981 ("Present if decision is ALLOW or
+             ALLOW_WITH_CAPS and dry_run is false"). `expires_at_ms`
+             is NOT in the rule-3 required list because canonical
+             only requires its ABSENCE on dry_run; the canonical
+             schema's required list never includes it.
+      allOf:
+        # Existing: non-dry reserve with decision: DENY is impossible (must be 409 error).
+        - if:
+            properties:
+              response:
+                properties:
+                  decision: { const: DENY }
+                required: [decision]
+            required: [response]
+          then:
+            properties:
+              request:
+                properties:
+                  dry_run: { const: true }
+                required: [dry_run]
+            required: [request]
+        # dry_run=true: reservation_id and expires_at_ms MUST be ABSENT
+        # on the response (canonical L981, L1404).
+        - if:
+            properties:
+              request:
+                properties:
+                  dry_run: { const: true }
+                required: [dry_run]
+            required: [request]
+          then:
+            properties:
+              response:
+                allOf:
+                  - not: { required: [reservation_id] }
+                  - not: { required: [expires_at_ms] }
+            required: [response]
+        # dry_run NOT true (false or absent): reservation_id MUST be
+        # PRESENT on the response. Because the prior rule already
+        # forbids decision=DENY in this branch, decision is guaranteed
+        # ALLOW or ALLOW_WITH_CAPS — both of which require the
+        # reservation_id per canonical L981 ("Present if decision is
+        # ALLOW or ALLOW_WITH_CAPS and dry_run is false").
+        # NOTE: expires_at_ms is NOT in this required list. The
+        # canonical only normatively requires its ABSENCE on dry_run
+        # (L1404); its presence on non-dry is described but not
+        # required by the canonical schema's required list. Requiring
+        # it here would over-tighten relative to the protocol and
+        # reject envelopes the canonical accepts.
+        - if:
+            properties:
+              request:
+                not:
+                  allOf:
+                    - properties:
+                        dry_run: { const: true }
+                    - required: [dry_run]
+            required: [request]
+          then:
+            properties:
+              response:
+                required: [reservation_id]
+            required: [response]
+      properties:
+        request:
+          $ref: "#/components/schemas/ReservationCreateRequestMirror"
+        response:
+          $ref: "#/components/schemas/ReservationCreateResponseMirror"
+
+    CommitPayload:
+      type: object
+      required: [reservation_id, request, response]
+      additionalProperties: false
+      description: |
+        Reservation-commit envelope. Hoists `reservation_id` (the URL
+        path argument of `POST /v1/reservations/{reservation_id}/commit`)
+        into the signed payload so the link from this commit to its
+        prior `reserve` envelope is visible without consulting the
+        Cycles server.
+      properties:
+        reservation_id:
+          type: string
+          description: Path-argument reservation_id for the commit call.
+        request:
+          $ref: "#/components/schemas/CommitRequestMirror"
+        response:
+          $ref: "#/components/schemas/CommitResponseMirror"
+
+    ReleasePayload:
+      type: object
+      required: [reservation_id, request, response]
+      additionalProperties: false
+      description: |
+        Reservation-release envelope. Symmetric to `CommitPayload`:
+        hoists `reservation_id` (the URL path argument of
+        `POST /v1/reservations/{reservation_id}/release`) into the
+        signed payload.
+
+        APS-side handling: release evidence binds to
+        `rail.budget_reservation.release.v1` per
+        aeoess/agent-passport-system#25 comment 4433275511. (The APS
+        rail-literal namespace was renamed from `budget_authority`
+        to `budget_reservation` in the same thread, comment
+        4433715146; the three lifecycle literals are
+        `rail.budget_reservation.{permit,release,denial}.v1`.) The
+        Cycles-side envelope is unaffected by the APS namespace
+        decision — release evidence is emitted uniformly regardless
+        of which APS literal the consumer chooses to bind to.
+      properties:
+        reservation_id:
+          type: string
+        request:
+          $ref: "#/components/schemas/ReleaseRequestMirror"
+        response:
+          $ref: "#/components/schemas/ReleaseResponseMirror"
+
+    ErrorPayload:
+      type: object
+      required: [endpoint, http_status, response]
+      additionalProperties: false
+      description: |
+        Error-response evidence envelope. Wraps a 4xx/5xx
+        `ErrorResponse` body from any of the four core runtime
+        endpoints, with the originating request body and HTTP status
+        preserved for offline audit.
+
+        This is the canonical wire shape for non-dry reserve
+        denials. Per `cycles-protocol-v0.yaml`
+        §ReservationCreateResponse.decision, insufficient budget on
+        a non-dry `POST /v1/reservations` MUST be expressed via
+        HTTP 409 with `error: BUDGET_EXCEEDED`, NOT via a 200 with
+        `decision: DENY`. Other live denial codes (BUDGET_FROZEN,
+        BUDGET_CLOSED, OVERDRAFT_LIMIT_EXCEEDED, DEBT_OUTSTANDING,
+        UNIT_MISMATCH, etc.) surface the same way; the full
+        ErrorCode enum is in the canonical spec.
+
+        For pre-execution decisions (`POST /v1/decide`) and
+        dry-run reserves, denials surface as a 2xx
+        DecisionResponse / ReservationCreateResponse with
+        `decision: DENY` and `reason_code` populated — those are
+        captured via `DecidePayload` and `ReservePayload`
+        respectively, NOT via this envelope.
+
+        `request` is OPTIONAL: a Cycles server MAY redact the
+        request body from error evidence (for tenants subject to
+        request-body retention policies) but SHOULD include it for
+        full audit trail.
+
+        `reservation_id` is REQUIRED when `endpoint` is the commit
+        or release path (`POST /v1/reservations/{reservation_id}/
+        commit` or `.../release`) — the value is the URL path
+        argument that names which reservation the failed operation
+        targeted, and dropping it from the signed payload would
+        leave the authorization → settlement chain
+        unreconstructable for evidence-only readers (the same
+        rationale that drives `reservation_id` hoisting on
+        `CommitPayload` and `ReleasePayload`). For
+        `endpoint: POST /v1/decide` or `POST /v1/reservations`,
+        `reservation_id` is absent — those endpoints take no
+        reservation_id path argument. The endpoint-discriminated
+        `allOf` below enforces both rules.
+
+        Request validation: when `request` is present, the
+        endpoint-discriminated `allOf` of if/then below routes it
+        to the matching request-mirror schema. A plain `oneOf`
+        would not work because the four request mirrors share
+        identical required-field sets (`idempotency_key`, `subject`,
+        `action`, `estimate` for decide/reserve;
+        `idempotency_key` for commit/release) — a minimal reserve
+        request body would ambiguously match multiple mirrors. The
+        `endpoint` field is the only reliable discriminator.
+      properties:
+        endpoint:
+          type: string
+          enum:
+            - "POST /v1/decide"
+            - "POST /v1/reservations"
+            - "POST /v1/reservations/{reservation_id}/commit"
+            - "POST /v1/reservations/{reservation_id}/release"
+          description: |
+            Which canonical endpoint returned the error. Acts as
+            the discriminator for offline readers and constrains
+            the shape of `request` (a conformant emitter populates
+            `request` with the request-body schema matching this
+            endpoint, when present).
+        http_status:
+          type: integer
+          minimum: 400
+          maximum: 599
+          description: HTTP status code on the wire (4xx or 5xx).
+        reservation_id:
+          type: string
+          description: |
+            Path-argument `reservation_id` when `endpoint` is
+            commit or release. Hoisted into the signed payload so
+            evidence-only verifiers can recover the authorization
+            chain without reconstructing the URL. Omitted for
+            endpoints that have no `reservation_id` path argument.
+        request:
+          type: object
+          description: |
+            Request body that triggered the error. OPTIONAL.
+            When present, MUST validate against the request-mirror
+            schema of `endpoint` (enforced by the
+            endpoint-discriminated allOf at this schema level —
+            see schema description for why a plain oneOf doesn't
+            work here).
+        response:
+          $ref: "#/components/schemas/ErrorResponseMirror"
+      allOf:
+        # Endpoint-discriminated request validation. Each branch fires
+        # only when `endpoint` matches its const AND `request` is
+        # present (request is optional); the matching mirror schema is
+        # then applied to `request`. A plain oneOf doesn't work because
+        # the four request mirrors share identical required-field sets
+        # — see schema description above.
+        - if:
+            properties:
+              endpoint: { const: "POST /v1/decide" }
+            required: [endpoint, request]
+          then:
+            properties:
+              request: { $ref: "#/components/schemas/DecisionRequestMirror" }
+        - if:
+            properties:
+              endpoint: { const: "POST /v1/reservations" }
+            required: [endpoint, request]
+          then:
+            properties:
+              request: { $ref: "#/components/schemas/ReservationCreateRequestMirror" }
+        - if:
+            properties:
+              endpoint: { const: "POST /v1/reservations/{reservation_id}/commit" }
+            required: [endpoint, request]
+          then:
+            properties:
+              request: { $ref: "#/components/schemas/CommitRequestMirror" }
+        - if:
+            properties:
+              endpoint: { const: "POST /v1/reservations/{reservation_id}/release" }
+            required: [endpoint, request]
+          then:
+            properties:
+              request: { $ref: "#/components/schemas/ReleaseRequestMirror" }
+        # reservation_id linkage for commit/release endpoints (NORMATIVE).
+        # The path argument names which reservation the failed operation
+        # targeted; an error envelope missing it cannot reconstruct the
+        # authorization → settlement chain for evidence-only readers.
+        - if:
+            properties:
+              endpoint:
+                enum:
+                  - "POST /v1/reservations/{reservation_id}/commit"
+                  - "POST /v1/reservations/{reservation_id}/release"
+            required: [endpoint]
+          then:
+            required: [reservation_id]
+        # reservation_id MUST be absent for endpoints that take no
+        # reservation_id path argument (decide, reservations). A
+        # stray reservation_id on those would mislead audit consumers
+        # into trying to bind the error to a reservation that the
+        # endpoint never named.
+        - if:
+            properties:
+              endpoint:
+                enum:
+                  - "POST /v1/decide"
+                  - "POST /v1/reservations"
+            required: [endpoint]
+          then:
+            not:
+              required: [reservation_id]
+
+    # =====================================================================
+    # Schema mirrors of the Cycles runtime types.
+    # v0.1 inlines these by name rather than $ref-ing across files so
+    # `cycles-evidence-v0.1.yaml` validates standalone. When promoted
+    # to normative, these should be replaced with cross-file refs into
+    # `cycles-protocol-v0.yaml` for single-source-of-truth.
+    #
+    # MIRROR CONTRACT (v0.1, normative):
+    #   - Mirror schemas copy field names, types, required-lists,
+    #     enum values, AND structural constraints (minLength,
+    #     maxLength, minProperties, anyOf, etc.) from the canonical
+    #     spec as of the verification date below.
+    #   - `additionalProperties: false` on every mirror is normative
+    #     for evidence — extra fields would change the canonical
+    #     bytes and invalidate the signature.
+    #   - Drift from the canonical spec is a v0.1 bug. New canonical
+    #     constraints MUST be reflected here (or this file must be
+    #     re-cut against a newer canonical version) before evidence
+    #     consumers may rely on them.
+    #
+    # Field lists and constraints derived from runcycles Python SDK
+    # introspection + cycles-protocol-v0.yaml inspection on
+    # 2026-05-13 (see PR description for verification).
+    # =====================================================================
+
+    DecisionRequestMirror:
+      type: object
+      description: Mirror of `cycles-protocol-v0.yaml#/components/schemas/DecisionRequest` — the body of `POST /v1/decide`.
+      required: [idempotency_key, subject, action, estimate]
+      additionalProperties: false
+      properties:
+        idempotency_key: { type: string, minLength: 1, maxLength: 256 }
+        subject:         { $ref: "#/components/schemas/Subject" }
+        action:          { $ref: "#/components/schemas/Action" }
+        estimate:        { $ref: "#/components/schemas/Amount" }
+        metadata:        { type: object, additionalProperties: true }
+
+    DecisionResponseMirror:
+      type: object
+      description: |
+        Mirror of `cycles-protocol-v0.yaml#/components/schemas/DecisionResponse`
+        — the body of `POST /v1/decide`. The `allOf` below
+        encodes the canonical L752 rule: caps is present only when
+        decision=ALLOW_WITH_CAPS and MUST be absent otherwise.
+      required: [decision]
+      additionalProperties: false
+      properties:
+        decision:        { $ref: "#/components/schemas/Decision" }
+        caps:            { $ref: "#/components/schemas/Caps" }
+        reason_code:     { type: string, maxLength: 128 }
+        retry_after_ms:  { type: integer, format: int64, minimum: 0 }
+        affected_scopes: { type: array, items: { type: string } }
+      allOf:
+        - if:
+            properties:
+              decision: { const: ALLOW_WITH_CAPS }
+            required: [decision]
+          then:
+            required: [caps]
+          else:
+            not:
+              required: [caps]
+
+    ReservationCreateRequestMirror:
+      type: object
+      description: Mirror of `cycles-protocol-v0.yaml#/components/schemas/ReservationCreateRequest` — the body of `POST /v1/reservations`.
+      required: [idempotency_key, subject, action, estimate]
+      additionalProperties: false
+      properties:
+        idempotency_key:   { type: string, minLength: 1, maxLength: 256 }
+        subject:           { $ref: "#/components/schemas/Subject" }
+        action:            { $ref: "#/components/schemas/Action" }
+        estimate:          { $ref: "#/components/schemas/Amount" }
+        ttl_ms:            { type: integer, format: int64, minimum: 1000, maximum: 86400000 }
+        grace_period_ms:   { type: integer, format: int64, minimum: 0, maximum: 60000 }
+        overage_policy:    { type: string, enum: [REJECT, ALLOW_IF_AVAILABLE, ALLOW_WITH_OVERDRAFT] }
+        dry_run:           { type: boolean }
+        metadata:          { type: object, additionalProperties: true }
+
+    ReservationCreateResponseMirror:
+      type: object
+      description: |
+        Mirror of `cycles-protocol-v0.yaml#/components/schemas/ReservationCreateResponse`
+        — the body of `POST /v1/reservations`. The `allOf` below
+        encodes the canonical L997 caps rule: caps is present only
+        when decision=ALLOW_WITH_CAPS and MUST be absent otherwise.
+
+        The dry_run-vs-reservation_id-and-expires_at_ms rules
+        (canonical L981 and L1404) span request and response, so they
+        live at the `ReservePayload` level rather than here.
+      required: [decision, affected_scopes]
+      additionalProperties: false
+      properties:
+        decision:        { $ref: "#/components/schemas/Decision" }
+        affected_scopes: { type: array, items: { type: string } }
+        reservation_id:  { type: string }
+        reserved:        { $ref: "#/components/schemas/Amount" }
+        caps:            { $ref: "#/components/schemas/Caps" }
+        reason_code:     { type: string, maxLength: 128 }
+        retry_after_ms:  { type: integer, format: int64, minimum: 0 }
+        expires_at_ms:   { type: integer, format: int64, minimum: 0 }
+        scope_path:      { type: string }
+        balances:
+          type: array
+          items: { $ref: "#/components/schemas/Balance" }
+      allOf:
+        - if:
+            properties:
+              decision: { const: ALLOW_WITH_CAPS }
+            required: [decision]
+          then:
+            required: [caps]
+          else:
+            not:
+              required: [caps]
+
+    CommitRequestMirror:
+      type: object
+      description: Mirror of `cycles-protocol-v0.yaml#/components/schemas/CommitRequest` — the body of `POST /v1/reservations/{reservation_id}/commit`.
+      required: [idempotency_key, actual]
+      additionalProperties: false
+      properties:
+        idempotency_key: { type: string, minLength: 1, maxLength: 256 }
+        actual:          { $ref: "#/components/schemas/Amount" }
+        metrics:         { $ref: "#/components/schemas/StandardMetrics" }
+        metadata:        { type: object, additionalProperties: true }
+
+    CommitResponseMirror:
+      type: object
+      description: Mirror of `cycles-protocol-v0.yaml#/components/schemas/CommitResponse` — the body of `POST /v1/reservations/{reservation_id}/commit`.
+      required: [status, charged]
+      additionalProperties: false
+      properties:
+        status:   { type: string, enum: [COMMITTED] }
+        charged:  { $ref: "#/components/schemas/Amount" }
+        released: { $ref: "#/components/schemas/Amount" }
+        balances:
+          type: array
+          items: { $ref: "#/components/schemas/Balance" }
+
+    ReleaseRequestMirror:
+      type: object
+      description: Mirror of `cycles-protocol-v0.yaml#/components/schemas/ReleaseRequest` — the body of `POST /v1/reservations/{reservation_id}/release`.
+      required: [idempotency_key]
+      additionalProperties: false
+      properties:
+        idempotency_key: { type: string, minLength: 1, maxLength: 256 }
+        reason:          { type: string, maxLength: 256 }
+
+    ReleaseResponseMirror:
+      type: object
+      description: Mirror of `cycles-protocol-v0.yaml#/components/schemas/ReleaseResponse` — the body of `POST /v1/reservations/{reservation_id}/release`.
+      required: [status, released]
+      additionalProperties: false
+      properties:
+        status:   { type: string, enum: [RELEASED] }
+        released: { $ref: "#/components/schemas/Amount" }
+        balances:
+          type: array
+          items: { $ref: "#/components/schemas/Balance" }
+
+    ErrorResponseMirror:
+      type: object
+      description: |
+        Mirror of `cycles-protocol-v0.yaml#/components/schemas/ErrorResponse`
+        — the body of any 4xx/5xx response from the four core
+        runtime endpoints.
+      required: [error, message, request_id]
+      additionalProperties: false
+      properties:
+        error:
+          type: string
+          enum:
+            - INVALID_REQUEST
+            - UNAUTHORIZED
+            - FORBIDDEN
+            - NOT_FOUND
+            - BUDGET_EXCEEDED
+            - BUDGET_FROZEN
+            - BUDGET_CLOSED
+            - RESERVATION_EXPIRED
+            - RESERVATION_FINALIZED
+            - IDEMPOTENCY_MISMATCH
+            - UNIT_MISMATCH
+            - OVERDRAFT_LIMIT_EXCEEDED
+            - DEBT_OUTSTANDING
+            - MAX_EXTENSIONS_EXCEEDED
+            - INTERNAL_ERROR
+          description: |
+            ErrorCode value — mirror of the canonical closed
+            `ErrorCode` enum at `cycles-protocol-v0.yaml` L429-L446
+            per the MIRROR CONTRACT above. Future v0 minor versions
+            that add ErrorCode values will trigger a re-cut of this
+            mirror against the newer canonical version (which is the
+            normal mirror-drift process); evidence consumers MUST
+            NOT accept envelopes whose `error` value is outside this
+            enum until the mirror is re-cut.
+        message:
+          type: string
+        request_id:
+          type: string
+        trace_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+          description: W3C Trace Context trace-id. OPTIONAL on the wire for forward compatibility, but conformant servers MUST populate.
+        details:
+          type: object
+          additionalProperties: true
+
+    # =====================================================================
+    # Common nested types.
+    # =====================================================================
+
+    Subject:
+      type: object
+      description: |
+        Cycles `Subject` — dimension bag for hierarchical budgets.
+        Mirror of `cycles-protocol-v0.yaml#/components/schemas/Subject`
+        per the MIRROR CONTRACT above; constraints copied from the
+        canonical spec as of 2026-05-13.
+
+        At least one standard field (tenant, workspace, app,
+        workflow, agent, or toolset) MUST be provided; a Subject
+        containing only `dimensions` is invalid on the wire (the
+        canonical server returns 400 INVALID_REQUEST).
+      additionalProperties: false
+      minProperties: 1
+      anyOf:
+        - required: [tenant]
+        - required: [workspace]
+        - required: [app]
+        - required: [workflow]
+        - required: [agent]
+        - required: [toolset]
+      properties:
+        tenant:     { type: string, maxLength: 128 }
+        workspace:  { type: string, maxLength: 128 }
+        app:        { type: string, maxLength: 128 }
+        workflow:   { type: string, maxLength: 128 }
+        agent:      { type: string, maxLength: 128 }
+        toolset:    { type: string, maxLength: 128 }
+        dimensions:
+          type: object
+          description: Free-form per-deployment subject dimensions (keys lowercase, opaque string values).
+          maxProperties: 16
+          additionalProperties:
+            type: string
+            maxLength: 256
+
+    Action:
+      type: object
+      description: Cycles `Action` — the caller-declared `(kind, name)` of the gated action (e.g. `model.call` / `gpt-4o`). Constraints copied from `cycles-protocol-v0.yaml#/components/schemas/Action`.
+      required: [kind, name]
+      additionalProperties: false
+      properties:
+        kind: { type: string, maxLength: 64 }
+        name: { type: string, maxLength: 256 }
+        tags:
+          type: array
+          maxItems: 10
+          items: { type: string, maxLength: 64 }
+          description: Optional policy tags (e.g. `["prod", "customer-facing"]`).
+
+    Amount:
+      type: object
+      description: |
+        Cycles `Amount` — a `(unit, amount)` pair denominated in the
+        closed Unit enum. Non-negative; use `SignedAmount` for values
+        that can go negative (overdraft / debt remaining balances).
+      required: [unit, amount]
+      additionalProperties: false
+      properties:
+        unit:   { $ref: "#/components/schemas/Unit" }
+        amount: { type: integer, format: int64, minimum: 0 }
+
+    SignedAmount:
+      type: object
+      description: |
+        Cycles `SignedAmount` — same `(unit, amount)` shape as `Amount`
+        but with the non-negative constraint relaxed. Used for
+        `Balance.remaining` in overdraft/debt states where the
+        remaining balance is negative.
+      required: [unit, amount]
+      additionalProperties: false
+      properties:
+        unit:   { $ref: "#/components/schemas/Unit" }
+        amount: { type: integer, format: int64 }
+
+    Balance:
+      type: object
+      description: |
+        Cycles `Balance` entry. Fields verified against runcycles
+        Python SDK introspection on 2026-05-12. Responses carry
+        `balances: list[Balance] | null` — one entry per affected
+        scope. `remaining` uses `SignedAmount` because overdraft
+        and debt states produce negative remaining balances.
+      required: [scope, scope_path, remaining]
+      additionalProperties: false
+      properties:
+        scope:           { type: string }
+        scope_path:      { type: string }
+        remaining:       { $ref: "#/components/schemas/SignedAmount" }
+        reserved:        { $ref: "#/components/schemas/Amount" }
+        spent:           { $ref: "#/components/schemas/Amount" }
+        allocated:       { $ref: "#/components/schemas/Amount" }
+        debt:            { $ref: "#/components/schemas/Amount" }
+        overdraft_limit: { $ref: "#/components/schemas/Amount" }
+        is_over_limit:   { type: boolean }
+
+    Unit:
+      type: string
+      enum: [USD_MICROCENTS, TOKENS, CREDITS, RISK_POINTS]
+      description: |
+        Closed Cycles Unit enum. Sourced from
+        `cycles-protocol-v0.yaml` and verified against the runcycles
+        Python SDK on 2026-05-12.
+
+    Decision:
+      type: string
+      description: |
+        Cycles `Decision` enum — the three-way decision returned by
+        `decide` and embedded in the `reserve` response. Values are
+        UPPERCASE byte-for-byte from the wire; this matches the
+        case-fidelity rule documented at the Cycles ↔ APS receipt
+        crosswalk (decision section in `drafts/aeoess-crosswalk.yaml`).
+      enum: [ALLOW, ALLOW_WITH_CAPS, DENY]
+
+    Caps:
+      type: object
+      additionalProperties: false
+      description: |
+        Narrowed-capacity envelope for ALLOW_WITH_CAPS responses. All
+        fields optional; the canonical Cycles `Caps` schema treats
+        every field as a hint and only populates the ones that
+        actually narrow the original request.
+      properties:
+        max_tokens:           { type: integer, minimum: 0 }
+        max_steps_remaining:  { type: integer, minimum: 0 }
+        tool_allowlist:       { type: array, items: { type: string, maxLength: 256 } }
+        tool_denylist:        { type: array, items: { type: string, maxLength: 256 } }
+        cooldown_ms:          { type: integer, minimum: 0 }
+
+    StandardMetrics:
+      type: object
+      additionalProperties: false
+      description: |
+        Cycles `StandardMetrics` — optional execution metrics included
+        on commit. Mirror of
+        `cycles-protocol-v0.yaml#/components/schemas/StandardMetrics`
+        per the MIRROR CONTRACT above; constraints copied from the
+        canonical spec as of 2026-05-13.
+
+        All fields are optional; `additionalProperties: false` at the
+        top level means deployments adding custom metrics MUST put
+        them under the `custom` key (which is the only field with
+        `additionalProperties: true` — the canonical escape hatch).
+      properties:
+        tokens_input:
+          type: integer
+          minimum: 0
+        tokens_output:
+          type: integer
+          minimum: 0
+        latency_ms:
+          type: integer
+          minimum: 0
+        model_version:
+          type: string
+          maxLength: 128
+        custom:
+          type: object
+          additionalProperties: true
+          description: Arbitrary additional metrics (canonical escape hatch).
