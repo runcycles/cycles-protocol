@@ -326,14 +326,21 @@ def case_09_decide_risk_points_allow() -> dict:
 
 
 def case_10_reserve_credits_allow() -> dict:
-    # CREDITS is the implementation-defined unit per cycles-protocol-v0
-    # ("generic integer units (optional in v0 implementations)") — some
-    # deployments treat them as consumption, others as authority. This
-    # fixture exercises a reserve with CREDITS as the closed-enum unit;
-    # the receipt-level rule that consumers MUST populate unit_class
-    # explicitly when unit=CREDITS is an APS receipt concern, not a
-    # CyclesEvidence concern (the envelope carries the unit name as it
-    # appears on the wire).
+    # CREDITS is described in cycles-protocol-v0.yaml UnitEnum as a
+    # "generic integer unit (optional in v0 implementations)". This
+    # fixture exercises only the Cycles wire surface: CREDITS as a
+    # closed-enum unit name preserved byte-for-byte through the
+    # signed envelope.
+    #
+    # Whether CREDITS maps to APS unit_class=consumption,
+    # =authority, or =implementation-defined is an APS receipt
+    # concern tracked on aeoess/agent-passport-system#25, not a
+    # CyclesEvidence concern. This envelope makes no claim about
+    # APS unit_class; adapter authors writing APS receipts MUST
+    # consult the issue #25 thread (and the eventual
+    # `crosswalk/cycles.yaml` row at
+    # aeoess/agent-governance-vocabulary#92) for the authoritative
+    # APS-side mapping rule.
     return base(
         "reserve",
         1810000030000,

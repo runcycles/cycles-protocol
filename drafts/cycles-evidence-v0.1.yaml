@@ -523,6 +523,16 @@ components:
         full audit trail. `reservation_id` is OPTIONAL and only
         meaningful when `endpoint` includes the path argument
         (commit / release).
+
+        Request validation: when `request` is present, the
+        endpoint-discriminated `allOf` of if/then below routes it
+        to the matching request-mirror schema. A plain `oneOf`
+        would not work because the four request mirrors share
+        identical required-field sets (`idempotency_key`, `subject`,
+        `action`, `estimate` for decide/reserve;
+        `idempotency_key` for commit/release) — a minimal reserve
+        request body would ambiguously match multiple mirrors. The
+        `endpoint` field is the only reliable discriminator.
       properties:
         endpoint:
           type: string
@@ -551,19 +561,45 @@ components:
             chain without reconstructing the URL. Omitted for
             endpoints that have no `reservation_id` path argument.
         request:
+          type: object
           description: |
-            Request body that triggered the error, matching the
-            request-mirror schema of `endpoint`. OPTIONAL; one of
-            DecisionRequestMirror, ReservationCreateRequestMirror,
-            CommitRequestMirror, or ReleaseRequestMirror, as
-            determined by `endpoint`.
-          oneOf:
-            - $ref: "#/components/schemas/DecisionRequestMirror"
-            - $ref: "#/components/schemas/ReservationCreateRequestMirror"
-            - $ref: "#/components/schemas/CommitRequestMirror"
-            - $ref: "#/components/schemas/ReleaseRequestMirror"
+            Request body that triggered the error. OPTIONAL.
+            When present, MUST validate against the request-mirror
+            schema of `endpoint` (enforced by the
+            endpoint-discriminated allOf at this schema level —
+            see schema description for why a plain oneOf doesn't
+            work here).
         response:
           $ref: "#/components/schemas/ErrorResponseMirror"
+      allOf:
+        - if:
+            properties:
+              endpoint: { const: "POST /v1/decisions" }
+            required: [endpoint, request]
+          then:
+            properties:
+              request: { $ref: "#/components/schemas/DecisionRequestMirror" }
+        - if:
+            properties:
+              endpoint: { const: "POST /v1/reservations" }
+            required: [endpoint, request]
+          then:
+            properties:
+              request: { $ref: "#/components/schemas/ReservationCreateRequestMirror" }
+        - if:
+            properties:
+              endpoint: { const: "POST /v1/reservations/{reservation_id}/commit" }
+            required: [endpoint, request]
+          then:
+            properties:
+              request: { $ref: "#/components/schemas/CommitRequestMirror" }
+        - if:
+            properties:
+              endpoint: { const: "POST /v1/reservations/{reservation_id}/release" }
+            required: [endpoint, request]
+          then:
+            properties:
+              request: { $ref: "#/components/schemas/ReleaseRequestMirror" }
 
     # =====================================================================
     # Schema mirrors of the Cycles runtime types.
@@ -624,9 +660,9 @@ components:
         subject:           { $ref: "#/components/schemas/Subject" }
         action:            { $ref: "#/components/schemas/Action" }
         estimate:          { $ref: "#/components/schemas/Amount" }
-        ttl_ms:            { type: integer, format: int64, minimum: 0 }
-        grace_period_ms:   { type: integer, format: int64, minimum: 0 }
-        overage_policy:    { type: string }
+        ttl_ms:            { type: integer, format: int64, minimum: 1000, maximum: 86400000 }
+        grace_period_ms:   { type: integer, format: int64, minimum: 0, maximum: 60000 }
+        overage_policy:    { type: string, enum: [REJECT, ALLOW_IF_AVAILABLE, ALLOW_WITH_OVERDRAFT] }
         dry_run:           { type: boolean }
         metadata:          { type: object, additionalProperties: true }
 
@@ -666,7 +702,7 @@ components:
       required: [status, charged]
       additionalProperties: false
       properties:
-        status:   { type: string }
+        status:   { type: string, enum: [COMMITTED] }
         charged:  { $ref: "#/components/schemas/Amount" }
         released: { $ref: "#/components/schemas/Amount" }
         balances:
@@ -680,7 +716,7 @@ components:
       additionalProperties: false
       properties:
         idempotency_key: { type: string, minLength: 1, maxLength: 256 }
-        reason:          { type: string }
+        reason:          { type: string, maxLength: 256 }
 
     ReleaseResponseMirror:
       type: object
@@ -688,7 +724,7 @@ components:
       required: [status, released]
       additionalProperties: false
       properties:
-        status:   { type: string }
+        status:   { type: string, enum: [RELEASED] }
         released: { $ref: "#/components/schemas/Amount" }
         balances:
           type: array
