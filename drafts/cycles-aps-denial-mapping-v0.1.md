@@ -62,23 +62,31 @@ endpoints. In the CyclesEvidence envelope, these appear in
 `payload.error.response.error` (see `drafts/cycles-evidence-v0.1.yaml`
 `ErrorResponseMirror`).
 
-| Cycles `ErrorCode` | HTTP class | APS Tier-1 | Compression notes |
+**HTTP-status column key.** Status codes are canonical-explicit where the
+"compression notes" cite a `cycles-protocol-v0.yaml` line (e.g.
+"canonical L55"). For codes the canonical doesn't normatively pin
+(`UNAUTHORIZED`, `INTERNAL_ERROR`, `BUDGET_FROZEN`, `BUDGET_CLOSED`,
+`MAX_EXTENSIONS_EXCEEDED`), the doc uses the HTTP-standard or
+same-pattern-as-`BUDGET_EXCEEDED` inferred value — flagged "(inferred)"
+in the column.
+
+| Cycles `ErrorCode` | HTTP status | APS Tier-1 | Compression notes |
 |---|---|---|---|
-| `INVALID_REQUEST` | 4xx | `rail_error` | Malformed request — rail-side validation failure. Not a budget/scope/wallet semantic; nearest fit is `rail_error`. |
-| `UNAUTHORIZED` | 4xx | `rail_error` | Authentication failure at the Cycles rail. APS has its own auth layer above; this is the downstream rail saying "you didn't auth to me." Not `no_commerce_scope` because that's a scope/policy mismatch, not an auth failure. |
-| `FORBIDDEN` | 4xx | `no_commerce_scope` | Per canonical L1356: "subject.tenant MUST match the effective tenant derived from auth; otherwise the server MUST return 403 FORBIDDEN." The APS analog is "this delegation doesn't grant scope to this rail's tenancy." |
-| `NOT_FOUND` | 4xx | `rail_error` | Generic NOT_FOUND is rail-internal (e.g., reservation_id not on the ledger). Lossy: when the missing thing is structurally the wallet, the underlying semantic IS `wallet_revoked`, but the wire signal doesn't tell us that — defaulting to `rail_error` keeps APS receipts conservative. |
-| `BUDGET_EXCEEDED` | 409 | `spend_limit_exceeded` | The clean one. This is the canonical non-dry reserve denial path that motivates the whole integration (issue #25). |
-| `BUDGET_FROZEN` | 409 | `wallet_revoked` | Operator-set FROZEN status on a budget is semantically equivalent to a revoked wallet — the holder can no longer spend until manual reconciliation. |
-| `BUDGET_CLOSED` | 409 | `wallet_revoked` | Permanently closed budget — terminal revocation. Same Tier-1 as `BUDGET_FROZEN`; the closed-vs-frozen distinction is preserved Tier-2 in `cycles.denial_detail.code`. |
-| `RESERVATION_EXPIRED` | 409 | `time_window_violation` | Direct semantic match — TTL elapsed. Explicitly called out as "clean" by aeoess in issue #25 (comment 4422627045). |
-| `RESERVATION_FINALIZED` | 409 | `rail_error` | Attempting to commit/release an already-finalized reservation — rail-state error, not a Tier-1-mappable user-facing reason. |
-| `IDEMPOTENCY_MISMATCH` | 409 | `rail_error` | Idempotency key replay collision — rail-internal concern. |
-| `UNIT_MISMATCH` | 409 | `rail_error` | Commit `actual.unit` doesn't match reservation `reserved.unit` — rail-internal concern. |
-| `OVERDRAFT_LIMIT_EXCEEDED` | 409 | `spend_limit_exceeded` | Out of budget plus exhausted overdraft allowance — semantically still "spend limit exceeded." The overdraft-specific detail is preserved Tier-2 in `cycles.denial_detail.code`. |
-| `DEBT_OUTSTANDING` | 409 | `wallet_revoked` | Debt > 0 locks the scope from new reservations until reconciled — equivalent to a temporarily revoked wallet. Some implementations may prefer mapping this to `spend_limit_exceeded`; the `wallet_revoked` choice matches the canonical L900 framing of debt as a state-machine-level block, not a balance-level block. |
-| `MAX_EXTENSIONS_EXCEEDED` | 409 | `time_window_violation` | The reservation has been extended too many times — temporal-window concern. |
-| `INTERNAL_ERROR` | 5xx | `rail_error` | Server-side error — by definition rail-side. |
+| `INVALID_REQUEST` | 400 (canonical L614, L1782) | `rail_error` | Malformed request — rail-side validation failure. Not a budget/scope/wallet semantic; nearest fit is `rail_error`. |
+| `UNAUTHORIZED` | 401 (inferred) | `rail_error` | Authentication failure at the Cycles rail. APS has its own auth layer above; this is the downstream rail saying "you didn't auth to me." Not `no_commerce_scope` because that's a scope/policy mismatch, not an auth failure. |
+| `FORBIDDEN` | 403 (canonical L30, L1356) | `no_commerce_scope` | Per canonical L1356: "subject.tenant MUST match the effective tenant derived from auth; otherwise the server MUST return 403 FORBIDDEN." The APS analog is "this delegation doesn't grant scope to this rail's tenancy." |
+| `NOT_FOUND` | 404 (canonical L57) | `rail_error` | Generic NOT_FOUND is rail-internal (e.g., reservation_id not on the ledger). Lossy: when the missing thing is structurally the wallet, the underlying semantic IS `wallet_revoked`, but the wire signal doesn't tell us that — defaulting to `rail_error` keeps APS receipts conservative. |
+| `BUDGET_EXCEEDED` | 409 (canonical L48) | `spend_limit_exceeded` | The clean one. This is the canonical non-dry reserve denial path that motivates the whole integration (issue #25). |
+| `BUDGET_FROZEN` | 409 (inferred) | `wallet_revoked` | Operator-set FROZEN status on a budget is semantically equivalent to a revoked wallet — the holder can no longer spend until manual reconciliation. Canonical doesn't normatively pin the status for this code; 409 follows the `BUDGET_EXCEEDED` pattern. |
+| `BUDGET_CLOSED` | 409 (inferred) | `wallet_revoked` | Permanently closed budget — terminal revocation. Same Tier-1 as `BUDGET_FROZEN`; the closed-vs-frozen distinction is preserved Tier-2 in `cycles.denial_detail.code`. Same inferred-409 caveat as `BUDGET_FROZEN`. |
+| `RESERVATION_EXPIRED` | 410 (canonical L55) | `time_window_violation` | Direct semantic match — TTL elapsed. Explicitly called out as "clean" by aeoess in issue #25 (comment 4422627045). Note: canonical specifies 410 (Gone), not 409. |
+| `RESERVATION_FINALIZED` | 409 (canonical L54) | `rail_error` | Attempting to commit/release an already-finalized reservation — rail-state error, not a Tier-1-mappable user-facing reason. |
+| `IDEMPOTENCY_MISMATCH` | 409 (canonical L99) | `rail_error` | Idempotency key replay collision — rail-internal concern. |
+| `UNIT_MISMATCH` | 400 (canonical L59) | `rail_error` | Commit `actual.unit` doesn't match reservation `reserved.unit` — rail-internal concern. Note: canonical specifies 400 (request-validity error), not 409. |
+| `OVERDRAFT_LIMIT_EXCEEDED` | 409 (canonical L49-L51, L80) | `spend_limit_exceeded` | Out of budget plus exhausted overdraft allowance — semantically still "spend limit exceeded." The overdraft-specific detail is preserved Tier-2 in `cycles.denial_detail.code`. |
+| `DEBT_OUTSTANDING` | 409 (canonical L52) | `wallet_revoked` | Debt > 0 locks the scope from new reservations until reconciled — equivalent to a temporarily revoked wallet. Some implementations may prefer mapping this to `spend_limit_exceeded`; the `wallet_revoked` choice matches the canonical L900 framing of debt as a state-machine-level block, not a balance-level block. |
+| `MAX_EXTENSIONS_EXCEEDED` | 409 (inferred) | `time_window_violation` | The reservation has been extended too many times — temporal-window concern. Canonical doesn't normatively pin the status; 409 follows the reservation-state-error pattern. |
+| `INTERNAL_ERROR` | 500 (inferred) | `rail_error` | Server-side error — by definition rail-side. HTTP-standard 500. |
 
 ## Mapping table 2 — Cycles `DecisionReasonCode` → APS Tier-1
 
@@ -148,10 +156,10 @@ Per canonical L503-L505: "Clients MUST gracefully handle unknown values
 denied; treat as a terminal failure even if we don't recognize the
 specific reason')."
 
-The adapter MUST mirror this rule: any reason_code outside the 9 known
-values maps to `rail_error` (the most conservative Tier-1 mapping for
-"we got a DENY but don't recognize the specific reason"). The raw
-reason_code MUST still be preserved Tier-2 in
+The adapter MUST mirror this rule: any reason_code outside the 6 known
+v0.1.25 base values maps to `rail_error` (the most conservative Tier-1
+mapping for "we got a DENY but don't recognize the specific reason").
+The raw reason_code MUST still be preserved Tier-2 in
 `cycles.denial_detail.code` so audit consumers retain the unrecognized
 value byte-for-byte.
 
