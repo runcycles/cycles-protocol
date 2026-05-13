@@ -884,7 +884,7 @@ components:
       properties:
         idempotency_key: { type: string, minLength: 1, maxLength: 256 }
         actual:          { $ref: "#/components/schemas/Amount" }
-        metrics:         { type: object, additionalProperties: true }
+        metrics:         { $ref: "#/components/schemas/StandardMetrics" }
         metadata:        { type: object, additionalProperties: true }
 
     CommitResponseMirror:
@@ -1101,3 +1101,35 @@ components:
         tool_allowlist:       { type: array, items: { type: string, maxLength: 256 } }
         tool_denylist:        { type: array, items: { type: string, maxLength: 256 } }
         cooldown_ms:          { type: integer, minimum: 0 }
+
+    StandardMetrics:
+      type: object
+      additionalProperties: false
+      description: |
+        Cycles `StandardMetrics` — optional execution metrics included
+        on commit. Mirror of
+        `cycles-protocol-v0.yaml#/components/schemas/StandardMetrics`
+        per the MIRROR CONTRACT above; constraints copied from the
+        canonical spec as of 2026-05-13.
+
+        All fields are optional; `additionalProperties: false` at the
+        top level means deployments adding custom metrics MUST put
+        them under the `custom` key (which is the only field with
+        `additionalProperties: true` — the canonical escape hatch).
+      properties:
+        tokens_input:
+          type: integer
+          minimum: 0
+        tokens_output:
+          type: integer
+          minimum: 0
+        latency_ms:
+          type: integer
+          minimum: 0
+        model_version:
+          type: string
+          maxLength: 128
+        custom:
+          type: object
+          additionalProperties: true
+          description: Arbitrary additional metrics (canonical escape hatch).

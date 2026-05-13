@@ -403,6 +403,52 @@ def case_08_reserve_allow_no_trace_id() -> dict:
     )
 
 
+def case_13_commit_with_metrics() -> dict:
+    # Exercises StandardMetrics on CommitRequest. Closes the coverage
+    # gap that hid the round-6 finding (CommitRequestMirror.metrics
+    # was an arbitrary object instead of referencing StandardMetrics).
+    # Carries all five canonical StandardMetrics fields including the
+    # `custom` escape hatch.
+    return base(
+        "commit",
+        1810000060000,
+        "abcdef0123456789abcdef0123456789",
+        {
+            "commit": {
+                "reservation_id": "rsv_01HZZ8N4F8FBQX5K6TGYR0M0J1",
+                "request": {
+                    "idempotency_key": "01HZZ8N4F8FBQX5K6TGYR0M0J2",
+                    "actual": {"unit": "USD_MICROCENTS", "amount": 1500000},
+                    "metrics": {
+                        "tokens_input": 1500,
+                        "tokens_output": 800,
+                        "latency_ms": 2340,
+                        "model_version": "claude-sonnet-4-20250514",
+                        "custom": {
+                            "cache_hit_ratio": 0.42,
+                            "retry_count": 0,
+                        },
+                    },
+                    "metadata": {"workflow_run_id": "wf_abc123"},
+                },
+                "response": {
+                    "status": "COMMITTED",
+                    "charged": {"unit": "USD_MICROCENTS", "amount": 1500000},
+                    "balances": [
+                        {
+                            "scope": "tenant",
+                            "scope_path": "tenant=acme",
+                            "remaining": {"unit": "USD_MICROCENTS", "amount": 8500000},
+                            "reserved": {"unit": "USD_MICROCENTS", "amount": 0},
+                            "spent": {"unit": "USD_MICROCENTS", "amount": 1500000},
+                        },
+                    ],
+                },
+            },
+        },
+    )
+
+
 def case_12_decide_live_forbidden() -> dict:
     # Live 4xx error on POST /v1/decide. Exercises the corrected
     # endpoint name (canonical is /v1/decide, not /v1/decisions; the
@@ -481,6 +527,7 @@ CASES: list[tuple[str, dict]] = [
     ("10-reserve-credits-allow.json", case_10_reserve_credits_allow()),
     ("11-reserve-live-budget-exceeded.json", case_11_reserve_live_budget_exceeded()),
     ("12-decide-live-forbidden.json", case_12_decide_live_forbidden()),
+    ("13-commit-with-metrics.json", case_13_commit_with_metrics()),
 ]
 
 

@@ -1,11 +1,12 @@
 # CyclesEvidence v0.1 — reference fixtures
 
-Twelve signed, content-addressed `CyclesEvidence` envelopes covering
+Thirteen signed, content-addressed `CyclesEvidence` envelopes covering
 the five artifact types, the decision branches an audit consumer needs
 to handle (including the live-path 4xx denial introduced for the issue
-#25 integration and a 403 error on `POST /v1/decide`), and every value
-of the closed `Unit` enum. Each fixture is the JCS-canonical bytes of
-a fully populated envelope, exactly as a Cycles server would emit it.
+#25 integration, a 403 error on `POST /v1/decide`, and a commit with
+`StandardMetrics` populated), and every value of the closed `Unit` enum.
+Each fixture is the JCS-canonical bytes of a fully populated envelope,
+exactly as a Cycles server would emit it.
 
 These fixtures back the test-plan checkbox on PR
 `runcycles/cycles-protocol#90`:
@@ -33,6 +34,7 @@ cases/
   10-reserve-credits-allow.json         — ReservePayload, unit=CREDITS (implementation-defined class), Balance.allocated populated
   11-reserve-live-budget-exceeded.json  — ErrorPayload, 409 BUDGET_EXCEEDED, endpoint="POST /v1/reservations" — the canonical live-denial wire shape that issue #25's APS gateway needs to bind evidence to
   12-decide-live-forbidden.json         — ErrorPayload, 403 FORBIDDEN, endpoint="POST /v1/decide" — exercises the corrected endpoint name (canonical /v1/decide, not /v1/decisions) and a non-budget ErrorCode
+  13-commit-with-metrics.json           — CommitPayload with StandardMetrics populated (5 fields incl. `custom` escape hatch) — exercises the closed-enum StandardMetrics mirror added in round 6
 ```
 
 ## What each fixture proves
@@ -51,6 +53,7 @@ cases/
 | 10 | `CREDITS` unit (implementation-defined class per `cycles-protocol-v0` UnitEnum); optional `Balance.allocated` populated |
 | 11 | `error` artifact type — live (non-dry) 409 `BUDGET_EXCEEDED` from `POST /v1/reservations`. The canonical wire shape for the pre-execution denial path that issue #25 needs APS receipts to bind evidence to. The request body is preserved in the signed payload; `endpoint` discriminates which Mirror schema `request` follows. |
 | 12 | `error` artifact type — 403 `FORBIDDEN` from `POST /v1/decide` (canonical endpoint name, not `/v1/decisions`). Exercises the decide error path and a non-budget ErrorCode value (the round-5 fix renamed the endpoint everywhere; this fixture proves the endpoint-discriminated request validation accepts a real `DecisionRequest` body under the correct endpoint name). |
+| 13 | `commit` artifact type with `metrics` populated. Exercises the `StandardMetrics` mirror added in round 6: all five canonical fields (`tokens_input`, `tokens_output`, `latency_ms`, `model_version`, `custom`) with the `custom` escape hatch carrying deployment-specific extras. Closes the coverage gap that allowed `CommitRequestMirror.metrics` to be `additionalProperties: true` undetected. |
 
 ## Reproducing the fixtures
 
