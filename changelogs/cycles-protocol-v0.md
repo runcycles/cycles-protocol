@@ -6,6 +6,58 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25 — 2026-05-21
+
+_(revision 2026-05-21 — `from`/`to` created-time range filters on listReservations)_
+
+- Adds two optional query parameters to `listReservations`
+  (`GET /v1/reservations`):
+    * `from`: ISO 8601 date-time. Inclusive lower bound on
+      reservation `created_at_ms`. May be supplied alone (no
+      upper bound) or paired with `to`.
+    * `to`: ISO 8601 date-time. Inclusive upper bound on
+      reservation `created_at_ms`. May be supplied alone (no
+      lower bound) or paired with `from`.
+- Closes a real client-side cost: today, fetching "last 24h
+  of reservations" requires sort-by-`created_at_ms` + a
+  page-size escalation loop until the oldest item falls
+  outside the window. For high-volume agent clusters this
+  scans far more rows than the caller actually needs. With
+  `from`/`to`, the server boundaries the scan to the
+  requested window and pagination over that window remains
+  cursor-stable.
+- Both parameters bind to `created_at_ms` regardless of
+  `sort_by`. A client sorting by `expires_at_ms` while
+  filtering by `from`/`to` gets the expected behavior:
+  results in the requested window, ordered by expiry. This
+  keeps the contract predictable across sort keys (no
+  per-key filter semantics to memorize).
+- Validation:
+    * Servers MUST reject `from > to` with HTTP 400
+      INVALID_REQUEST.
+    * Either parameter alone is valid; absent parameter
+      means "no bound on that side."
+    * Malformed date-time values MUST be rejected with HTTP
+      400 INVALID_REQUEST (consistent with other ISO 8601
+      query parameters in the spec family).
+- Additive-parameter guarantee: servers that don't recognize
+  `from`/`to` MUST ignore without error and return the
+  unfiltered set. Older clients that never send them get the
+  pre-revision wire behavior byte-for-byte.
+- Naming and wire-type rationale: matches the family-wide
+  `from`/`to` + `format: date-time` convention already in
+  use on `listAuditLogs`, `listEvents`,
+  `listWebhookDeliveries`, `listTenantEvents`, and
+  `listTenantWebhookDeliveries` in the governance-admin
+  spec. Bespoke `created_after`/`created_before` names or
+  Unix-epoch wire types would split the convention for
+  clients and codegen.
+- Backward compatible: purely additive. No request or
+  response schema changes. Both ApiKeyAuth and AdminKeyAuth
+  callers see the new parameters.
+
+---
+
 ## v0.1.25 — 2026-04-18
 
 _(revision 2026-04-18 — trace_id cross-surface correlation, W3C Trace Context-compatible)_
