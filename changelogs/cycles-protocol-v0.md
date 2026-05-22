@@ -6,6 +6,101 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25 — 2026-05-22
+
+_(revision 2026-05-22 — `expires_*` / `finalized_*` time-range filters on listReservations)_
+
+- Adds four optional query parameters to `listReservations`
+  (`GET /v1/reservations`), mirroring the shape of the
+  `from`/`to` window filter shipped in revision 2026-05-21:
+    * `expires_from`: ISO 8601 date-time. Inclusive lower bound
+      on `expires_at_ms`. May be supplied alone (open upper bound)
+      or paired with `expires_to`.
+    * `expires_to`: ISO 8601 date-time. Inclusive upper bound on
+      `expires_at_ms`. May be supplied alone (open lower bound)
+      or paired with `expires_from`.
+    * `finalized_from`: ISO 8601 date-time. Inclusive lower bound
+      on `finalized_at_ms`.
+    * `finalized_to`: ISO 8601 date-time. Inclusive upper bound
+      on `finalized_at_ms`.
+- Closes the use case left out of the 2026-05-21 revision: cleanup
+  sweepers that need to locate reservations expiring (or already
+  expired/finalized) within a window. The original `from`/`to`
+  binds to `created_at_ms`, which is unhelpful for "find what's
+  expiring in the next hour" or "find all rows finalized today".
+- All three windows compose with AND semantics. A row must satisfy
+  every supplied window predicate to be returned. Each pair is
+  independently bound to its target field — `expires_*` binds to
+  `expires_at_ms` regardless of `sort_by` (just like `from`/`to`
+  binds to `created_at_ms`), and `finalized_*` likewise.
+- `finalized_at_ms` is OPTIONAL on `ReservationSummary` /
+  `ReservationDetail` and is populated ONLY on COMMITTED and
+  RELEASED rows (absent on ACTIVE and EXPIRED). Rows where the
+  field is absent MUST be excluded from results when either
+  `finalized_from` or `finalized_to` is supplied — the predicate
+  naturally fails on field-absent rows; making the exclusion
+  normative ensures all conformant servers agree on the behavior.
+  Callers who want a window over EXPIRED rows should use
+  `expires_from` / `expires_to` against `expires_at_ms`, which
+  is required on every row.
+- `finalized_at_ms` added as an OPTIONAL property to
+  `ReservationSummary`. Pre-revision the field was declared only
+  on `ReservationDetail` while `ReservationSummary` carried
+  `additionalProperties: false` — meaning servers could not
+  legally include it in list results, and the proposed filter
+  would have produced rows whose timestamps callers could not
+  see without a follow-up `getReservation` call. The summary now
+  carries the same field with the same population semantics as
+  the detail; existing clients with strict schemas remain
+  compatible because the field is OPTIONAL (absent in pre-revision
+  responses, valid under the new schema when present).
+- Validation (mirrors revision 2026-05-21):
+    * Servers MUST reject `expires_from > expires_to` and
+      `finalized_from > finalized_to` with HTTP 400
+      INVALID_REQUEST.
+    * Either side of each pair may be supplied alone.
+    * Malformed date-time values MUST be rejected with HTTP 400
+      INVALID_REQUEST.
+    * Blank-string values for any window bound MUST be treated
+      as unset (NORMATIVE; applies to all six bounds — `from`,
+      `to`, `expires_from`, `expires_to`, `finalized_from`,
+      `finalized_to`). A client sending `?expires_from=` MUST
+      be handled identically to one omitting the param. This
+      makes normative the behavior the cycles-server reference
+      implementation has shipped since v0.1.25.20 (the original
+      `from`/`to` revision) — strict implementers would
+      otherwise reasonably 400 on `""` per the `format: date-time`
+      declaration, and divergence between conformant servers on
+      this common client-side pattern (`?from=${maybeUnset}`)
+      is the kind of cryptic-400 the additive-parameter
+      guarantee is designed to avoid.
+- Additive-parameter guarantee: servers that don't recognize the
+  new parameters MUST ignore them without error and return the
+  unfiltered set. Older clients that never send them get the
+  pre-revision wire behavior byte-for-byte.
+- Cursor invalidation extends the v0.1.25.20 `FilterHasher` shape:
+  sorted-path cursors fold all six window-bound values into the
+  canonical filter hash, so reusing a sorted cursor under a
+  different `(from, to, expires_from, expires_to, finalized_from,
+  finalized_to)` tuple returns HTTP 400 INVALID_REQUEST. Legacy
+  Redis-SCAN cursors do not carry filter state and are not
+  window-validated (matching how the legacy path already treats
+  every other filter).
+- TIME-RANGE FILTERS prose block in the listReservations
+  operation description rewritten to cover all three field
+  bindings (`from`/`to` on `created_at_ms`, `expires_*` on
+  `expires_at_ms`, `finalized_*` on `finalized_at_ms`) and the
+  AND-composition rule.
+- Backward compatible: purely additive. Four new query parameters
+  on `listReservations`; one new OPTIONAL property
+  (`finalized_at_ms`) on `ReservationSummary` mirroring the same
+  field already on `ReservationDetail`. No request-body schema
+  changes. Old clients ignore the new query params and tolerate
+  the new response field (absent on pre-revision servers). Both
+  ApiKeyAuth and AdminKeyAuth callers see the new parameters.
+
+---
+
 ## v0.1.25 — 2026-05-21
 
 _(revision 2026-05-21 — `from`/`to` created-time range filters on listReservations)_

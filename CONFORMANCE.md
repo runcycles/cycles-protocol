@@ -96,7 +96,7 @@ A conformant implementation SHOULD:
 - Emit events for budget-state changes (reservation.*, budget.*, quota.*) matching the `EventType` enum. Implementations MAY sample or filter which events they emit, but emitted events MUST follow the schema.
 - Propagate `X-Cycles-Trace-Id` and W3C `traceparent` headers per `cycles-protocol-v0.yaml` §CORRELATION AND TRACING. Trace correlation is central to multi-service debugging.
 - Implement `POST /v1/decide` — marked OPTIONAL in the v0 spec, but agent frameworks need soft-landing signals for graceful degradation.
-- Implement `GET /v1/reservations` (**listReservations**) — marked OPTIONAL in v0; useful for reservation recovery (re-discover a lost `reservation_id` via `idempotency_key`), for identifying stuck `ACTIVE` reservations, and for time-window queries via the additive `from`/`to` parameters (v0.1.25, revision 2026-05-21).
+- Implement `GET /v1/reservations` (**listReservations**) — marked OPTIONAL in v0; useful for reservation recovery (re-discover a lost `reservation_id` via `idempotency_key`), for identifying stuck `ACTIVE` reservations, and for time-window queries via the additive `from`/`to` (v0.1.25, revision 2026-05-21), `expires_from`/`expires_to`, and `finalized_from`/`finalized_to` (v0.1.25, revision 2026-05-22) parameters.
 - Implement `GET /v1/reservations/{reservation_id}` (**getReservation**) — marked "optional, for debugging" in v0; valuable for support / monitoring of long-running reservations.
 - Implement `POST /v1/events` (**createEvent**) — marked OPTIONAL in v0; the post-only accounting path for cases where pre-estimation is unavailable (bills-later providers, receipt ingestion).
 

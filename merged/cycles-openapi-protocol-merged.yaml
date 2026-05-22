@@ -765,6 +765,10 @@ components:
         finalized_at_ms:
           type: integer
           format: int64
+          description: Wall-clock time at which the reservation reached a terminal state. Populated on
+            COMMITTED and RELEASED rows only; absent on ACTIVE and EXPIRED rows. The `finalized_from`
+            / `finalized_to` window filter on `listReservations` (revision 2026-05-22) operates against
+            this same field with the same population semantics.
         scope_path:
           type: string
           description: Canonical scope path (server-derived)
@@ -883,6 +887,15 @@ components:
           type: integer
           format: int64
           minimum: 0
+        finalized_at_ms:
+          type: integer
+          format: int64
+          minimum: 0
+          description: 'Wall-clock time at which the reservation reached a terminal state. Populated on
+            COMMITTED and RELEASED rows only; absent on ACTIVE and EXPIRED rows. OPTIONAL per the `additionalProperties:
+            false` invariant — older summaries sent without this field remain valid. Mirrors the same
+            field on `ReservationDetail`. Added in revision 2026-05-22 to support the `finalized_from`
+            / `finalized_to` window filter on `listReservations`.'
         scope_path:
           type: string
         affected_scopes:
@@ -2187,18 +2200,65 @@ paths:
           - Filtering on Subject.dimensions is out of scope for v0 unless explicitly implemented by the server.
 
         TIME-RANGE FILTERS (NORMATIVE, ADDITIVE):
-          - Query parameters `from` and `to` (ISO 8601 date-time strings)
-            bound the `created_at_ms` of returned reservations, inclusive
-            on both ends.
-          - The filter is fixed to `created_at_ms` regardless of `sort_by`;
-            sorting by `expires_at_ms` while filtering by `from`/`to` is
-            valid and well-defined.
-          - Either may be supplied alone (open interval) or together
-            (closed window). `from > to` MUST return 400 INVALID_REQUEST.
-          - Both are additive parameters: servers that don't recognize
-            them MUST ignore without error and return the unfiltered set.
-            This matches the family-wide `from`/`to` convention on
-            `listAuditLogs`, `listEvents`, and `listWebhookDeliveries`.
+          Three independent inclusive time-window filters are available,
+          each bound to a specific timestamp field on the reservation
+          entity. All bounds are ISO 8601 date-time strings. All are
+          additive parameters: servers that don't recognize them MUST
+          ignore without error.
+
+          - `from` / `to` (revision 2026-05-21) — bound on
+            `created_at_ms`. The original window filter; matches
+            the family-wide convention on `listAuditLogs`,
+            `listEvents`, and `listWebhookDeliveries`. Always binds
+            to `created_at_ms` regardless of `sort_by`.
+
+          - `expires_from` / `expires_to` — bound on `expires_at_ms`.
+            Primary use case: locate reservations that have expired
+            (or will expire) within a window — e.g. cleanup sweepers
+            that need to discover abandoned ACTIVE reservations. The
+            field is required on every `ReservationSummary` /
+            `ReservationDetail`, so this filter applies to every
+            row regardless of `status`.
+
+          - `finalized_from` / `finalized_to` — bound on
+            `finalized_at_ms`. The `finalized_at_ms` field is OPTIONAL
+            on `ReservationSummary` / `ReservationDetail` and is
+            populated ONLY on COMMITTED and RELEASED rows (absent on
+            ACTIVE and EXPIRED). Rows where the field is absent MUST
+            be excluded from results when either `finalized_from` or
+            `finalized_to` is supplied — the predicate naturally fails
+            on field-absent rows. Callers who want a window over
+            EXPIRED rows should use `expires_from` / `expires_to`
+            against `expires_at_ms`, which is required on every row.
+
+          Validation (applies to all three pairs):
+          - For each pair, `from > to` MUST return 400 INVALID_REQUEST
+            (e.g., `expires_from > expires_to`).
+          - Either side may be supplied alone (open interval).
+          - Blank-string values for any window bound MUST be treated
+            as unset (NORMATIVE). A client sending
+            `?expires_from=&finalized_to=` MUST be handled identically
+            to one omitting both parameters entirely. This applies to
+            all six bounds (`from`, `to`, `expires_from`, `expires_to`,
+            `finalized_from`, `finalized_to`). Servers MUST NOT 400 on
+            empty-string values despite the `format: date-time`
+            declaration. Rationale: clients commonly emit unconditional
+            query strings whose values come from possibly-unset
+            variables (e.g., `?from=${maybeUnset}&to=${maybeUnset}`),
+            and an unset variable rendering as `""` is the common
+            failure mode; rejecting these as malformed surfaces a
+            cryptic 400 that adds nothing over treating them as unset.
+          - The three pairs combine with AND semantics: a row must
+            satisfy every supplied window predicate to be returned.
+
+          Cursor invalidation: sorted-path cursors fold the supplied
+          window bounds into the canonical filter hash. Reusing a
+          sorted cursor under a different `(from, to, expires_from,
+          expires_to, finalized_from, finalized_to)` tuple returns
+          400 INVALID_REQUEST. Legacy SCAN cursors do not carry filter
+          state; callers paginating without `sort_by` must keep all
+          window bounds stable across pages, matching the legacy
+          path's treatment of every other filter.
 
         TENANCY (NORMATIVE):
           - Under ApiKeyAuth: the server MUST scope results to the effective
@@ -2274,6 +2334,44 @@ paths:
         required: false
         description: |-
           Inclusive upper bound on reservation creation time. ISO 8601 date-time. When set, the server MUST return only reservations whose `created_at_ms` is less than or equal to this timestamp. The filter ALWAYS binds to `created_at_ms`, independent of `sort_by`. May be supplied alone (no lower bound) or paired with `from`. Servers MUST reject `from > to` with HTTP 400 INVALID_REQUEST.
+          Additive parameter — servers that don't recognize it MUST ignore without error.
+        schema:
+          type: string
+          format: date-time
+      - name: expires_from
+        in: query
+        required: false
+        description: |-
+          Inclusive lower bound on reservation expiry time. ISO 8601 date-time. When set, the server MUST return only reservations whose `expires_at_ms` is greater than or equal to this timestamp. The filter ALWAYS binds to `expires_at_ms`, independent of `sort_by` and independent of the `from`/`to` window on `created_at_ms`. May be supplied alone (no upper bound) or paired with `expires_to`. Servers MUST reject `expires_from > expires_to` with HTTP 400 INVALID_REQUEST.
+          Use case: cleanup sweepers locating reservations that have expired or will expire within a window. Applies to all rows regardless of `status` since `expires_at_ms` is required.
+          Additive parameter — servers that don't recognize it MUST ignore without error.
+        schema:
+          type: string
+          format: date-time
+      - name: expires_to
+        in: query
+        required: false
+        description: |-
+          Inclusive upper bound on reservation expiry time. ISO 8601 date-time. When set, the server MUST return only reservations whose `expires_at_ms` is less than or equal to this timestamp. Same binding and open-interval rules as `expires_from`. Servers MUST reject `expires_from > expires_to` with HTTP 400 INVALID_REQUEST.
+          Additive parameter — servers that don't recognize it MUST ignore without error.
+        schema:
+          type: string
+          format: date-time
+      - name: finalized_from
+        in: query
+        required: false
+        description: |-
+          Inclusive lower bound on reservation finalization time. ISO 8601 date-time. When set, the server MUST return only reservations whose `finalized_at_ms` is greater than or equal to this timestamp. The filter ALWAYS binds to `finalized_at_ms`, independent of `sort_by`. May be supplied alone (no upper bound) or paired with `finalized_to`. Servers MUST reject `finalized_from > finalized_to` with HTTP 400 INVALID_REQUEST.
+          Behavior on rows without `finalized_at_ms` (NORMATIVE): the field is OPTIONAL on reservation responses and is populated ONLY on COMMITTED and RELEASED rows (absent on ACTIVE and EXPIRED). Rows where the field is absent MUST be excluded from results when either `finalized_from` or `finalized_to` is supplied. Callers who want a window over EXPIRED rows should use `expires_from` / `expires_to` against `expires_at_ms`.
+          Additive parameter — servers that don't recognize it MUST ignore without error.
+        schema:
+          type: string
+          format: date-time
+      - name: finalized_to
+        in: query
+        required: false
+        description: |-
+          Inclusive upper bound on reservation finalization time. ISO 8601 date-time. When set, the server MUST return only reservations whose `finalized_at_ms` is less than or equal to this timestamp. Same binding, open-interval, and ACTIVE-row-exclusion rules as `finalized_from`. Servers MUST reject `finalized_from > finalized_to` with HTTP 400 INVALID_REQUEST.
           Additive parameter — servers that don't recognize it MUST ignore without error.
         schema:
           type: string
