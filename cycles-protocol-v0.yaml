@@ -1526,6 +1526,19 @@ paths:
           - For each pair, `from > to` MUST return 400 INVALID_REQUEST
             (e.g., `expires_from > expires_to`).
           - Either side may be supplied alone (open interval).
+          - Blank-string values for any window bound MUST be treated
+            as unset (NORMATIVE). A client sending
+            `?expires_from=&finalized_to=` MUST be handled identically
+            to one omitting both parameters entirely. This applies to
+            all six bounds (`from`, `to`, `expires_from`, `expires_to`,
+            `finalized_from`, `finalized_to`). Servers MUST NOT 400 on
+            empty-string values despite the `format: date-time`
+            declaration. Rationale: clients commonly emit unconditional
+            query strings whose values come from possibly-unset
+            variables (e.g., `?from=${maybeUnset}&to=${maybeUnset}`),
+            and an unset variable rendering as `""` is the common
+            failure mode; rejecting these as malformed surfaces a
+            cryptic 400 that adds nothing over treating them as unset.
           - The three pairs combine with AND semantics: a row must
             satisfy every supplied window predicate to be returned.
 

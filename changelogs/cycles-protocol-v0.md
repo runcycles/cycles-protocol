@@ -61,6 +61,19 @@ _(revision 2026-05-22 — `expires_*` / `finalized_*` time-range filters on list
     * Either side of each pair may be supplied alone.
     * Malformed date-time values MUST be rejected with HTTP 400
       INVALID_REQUEST.
+    * Blank-string values for any window bound MUST be treated
+      as unset (NORMATIVE; applies to all six bounds — `from`,
+      `to`, `expires_from`, `expires_to`, `finalized_from`,
+      `finalized_to`). A client sending `?expires_from=` MUST
+      be handled identically to one omitting the param. This
+      makes normative the behavior the cycles-server reference
+      implementation has shipped since v0.1.25.20 (the original
+      `from`/`to` revision) — strict implementers would
+      otherwise reasonably 400 on `""` per the `format: date-time`
+      declaration, and divergence between conformant servers on
+      this common client-side pattern (`?from=${maybeUnset}`)
+      is the kind of cryptic-400 the additive-parameter
+      guarantee is designed to avoid.
 - Additive-parameter guarantee: servers that don't recognize the
   new parameters MUST ignore them without error and return the
   unfiltered set. Older clients that never send them get the
