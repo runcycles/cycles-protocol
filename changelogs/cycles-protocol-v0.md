@@ -34,12 +34,26 @@ _(revision 2026-05-22 — `expires_*` / `finalized_*` time-range filters on list
   `expires_at_ms` regardless of `sort_by` (just like `from`/`to`
   binds to `created_at_ms`), and `finalized_*` likewise.
 - `finalized_at_ms` is OPTIONAL on `ReservationSummary` /
-  `ReservationDetail`. Rows where the field is absent (typically
-  ACTIVE reservations that have not yet reached a terminal state)
-  MUST be excluded from results when either `finalized_from` or
-  `finalized_to` is supplied. The predicate naturally fails on
-  field-absent rows; this is normative so all conformant servers
-  agree on the behavior.
+  `ReservationDetail` and is populated ONLY on COMMITTED and
+  RELEASED rows (absent on ACTIVE and EXPIRED). Rows where the
+  field is absent MUST be excluded from results when either
+  `finalized_from` or `finalized_to` is supplied — the predicate
+  naturally fails on field-absent rows; making the exclusion
+  normative ensures all conformant servers agree on the behavior.
+  Callers who want a window over EXPIRED rows should use
+  `expires_from` / `expires_to` against `expires_at_ms`, which
+  is required on every row.
+- `finalized_at_ms` added as an OPTIONAL property to
+  `ReservationSummary`. Pre-revision the field was declared only
+  on `ReservationDetail` while `ReservationSummary` carried
+  `additionalProperties: false` — meaning servers could not
+  legally include it in list results, and the proposed filter
+  would have produced rows whose timestamps callers could not
+  see without a follow-up `getReservation` call. The summary now
+  carries the same field with the same population semantics as
+  the detail; existing clients with strict schemas remain
+  compatible because the field is OPTIONAL (absent in pre-revision
+  responses, valid under the new schema when present).
 - Validation (mirrors revision 2026-05-21):
     * Servers MUST reject `expires_from > expires_to` and
       `finalized_from > finalized_to` with HTTP 400
@@ -64,9 +78,13 @@ _(revision 2026-05-22 — `expires_*` / `finalized_*` time-range filters on list
   bindings (`from`/`to` on `created_at_ms`, `expires_*` on
   `expires_at_ms`, `finalized_*` on `finalized_at_ms`) and the
   AND-composition rule.
-- Backward compatible: purely additive. No request or response
-  schema changes. Both ApiKeyAuth and AdminKeyAuth callers see
-  the new parameters.
+- Backward compatible: purely additive. Four new query parameters
+  on `listReservations`; one new OPTIONAL property
+  (`finalized_at_ms`) on `ReservationSummary` mirroring the same
+  field already on `ReservationDetail`. No request-body schema
+  changes. Old clients ignore the new query params and tolerate
+  the new response field (absent on pre-revision servers). Both
+  ApiKeyAuth and AdminKeyAuth callers see the new parameters.
 
 ---
 

@@ -765,6 +765,10 @@ components:
         finalized_at_ms:
           type: integer
           format: int64
+          description: Wall-clock time at which the reservation reached a terminal state. Populated on
+            COMMITTED and RELEASED rows only; absent on ACTIVE and EXPIRED rows. The `finalized_from`
+            / `finalized_to` window filter on `listReservations` (revision 2026-05-22) operates against
+            this same field with the same population semantics.
         scope_path:
           type: string
           description: Canonical scope path (server-derived)
@@ -883,6 +887,15 @@ components:
           type: integer
           format: int64
           minimum: 0
+        finalized_at_ms:
+          type: integer
+          format: int64
+          minimum: 0
+          description: 'Wall-clock time at which the reservation reached a terminal state. Populated on
+            COMMITTED and RELEASED rows only; absent on ACTIVE and EXPIRED rows. OPTIONAL per the `additionalProperties:
+            false` invariant — older summaries sent without this field remain valid. Mirrors the same
+            field on `ReservationDetail`. Added in revision 2026-05-22 to support the `finalized_from`
+            / `finalized_to` window filter on `listReservations`.'
         scope_path:
           type: string
         affected_scopes:
@@ -2210,10 +2223,13 @@ paths:
           - `finalized_from` / `finalized_to` — bound on
             `finalized_at_ms`. The `finalized_at_ms` field is OPTIONAL
             on `ReservationSummary` / `ReservationDetail` and is
-            populated by servers when a reservation reaches a terminal
-            state (commit, release, expiry). Rows where the field is
-            absent (e.g. ACTIVE) MUST be excluded from results when
-            either `finalized_from` or `finalized_to` is supplied.
+            populated ONLY on COMMITTED and RELEASED rows (absent on
+            ACTIVE and EXPIRED). Rows where the field is absent MUST
+            be excluded from results when either `finalized_from` or
+            `finalized_to` is supplied — the predicate naturally fails
+            on field-absent rows. Callers who want a window over
+            EXPIRED rows should use `expires_from` / `expires_to`
+            against `expires_at_ms`, which is required on every row.
 
           Validation (applies to all three pairs):
           - For each pair, `from > to` MUST return 400 INVALID_REQUEST
@@ -2333,7 +2349,7 @@ paths:
         required: false
         description: |-
           Inclusive lower bound on reservation finalization time. ISO 8601 date-time. When set, the server MUST return only reservations whose `finalized_at_ms` is greater than or equal to this timestamp. The filter ALWAYS binds to `finalized_at_ms`, independent of `sort_by`. May be supplied alone (no upper bound) or paired with `finalized_to`. Servers MUST reject `finalized_from > finalized_to` with HTTP 400 INVALID_REQUEST.
-          Behavior on rows without `finalized_at_ms` (NORMATIVE): the field is OPTIONAL on reservation responses and is populated by servers when a reservation reaches a terminal state (commit, release, expiry). Rows where the field is absent (typically ACTIVE) MUST be excluded from results when either `finalized_from` or `finalized_to` is supplied.
+          Behavior on rows without `finalized_at_ms` (NORMATIVE): the field is OPTIONAL on reservation responses and is populated ONLY on COMMITTED and RELEASED rows (absent on ACTIVE and EXPIRED). Rows where the field is absent MUST be excluded from results when either `finalized_from` or `finalized_to` is supplied. Callers who want a window over EXPIRED rows should use `expires_from` / `expires_to` against `expires_at_ms`.
           Additive parameter — servers that don't recognize it MUST ignore without error.
         schema:
           type: string
