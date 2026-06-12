@@ -2055,9 +2055,11 @@ paths:
           description: The signed CyclesEvidence envelope.
           headers:
             X-Request-Id: {$ref: '#/components/headers/X-Request-Id'}
+            X-Cycles-Trace-Id: {$ref: '#/components/headers/X-Cycles-Trace-Id'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/CyclesEvidenceEnvelope'}
+        "400": {$ref: '#/components/responses/ErrorResponse'}
         "404": {$ref: '#/components/responses/ErrorResponse'}
         "500": {$ref: '#/components/responses/ErrorResponse'}
 
