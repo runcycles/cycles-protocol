@@ -16,6 +16,10 @@ _(revision 2026-06-12 — public `getEvidence` envelope retrieval endpoint)_
   content-addressed + Ed25519-signed, so any receipt holder (e.g. an APS
   gateway or auditor) can fetch and verify it offline. Servers SHOULD
   rate-limit and serve it immutably-cacheable. `404` on unknown id.
+- Records the public exception in the top-level `AUTH & TENANCY` prose (which
+  otherwise states all requests authenticate via `X-Cycles-API-Key`), and
+  defines the public-endpoint response contract: `429` (with `Retry-After` /
+  `X-RateLimit-Reset`) and a `Cache-Control` response header on `200`.
 - Adds the `CyclesEvidenceEnvelope` response schema (mirrors the required
   shape; the normative definition remains `drafts/cycles-evidence-v0.1.yaml`)
   and the `EvidenceId` path parameter.

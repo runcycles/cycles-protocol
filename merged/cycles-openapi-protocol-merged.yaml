@@ -2103,6 +2103,16 @@ components:
       schema:
         type: integer
         format: int64
+    Cache-Control:
+      description: Caching directive. For content-addressed responses (e.g. getEvidence) the server SHOULD
+        return `public, immutable` — the body never changes.
+      schema:
+        type: string
+    Retry-After:
+      description: On 429, the number of seconds a client SHOULD wait before retrying (optional in v0).
+      schema:
+        type: integer
+        format: int64
     X-Cycles-Tenant:
       description: Effective tenant identifier derived from auth context (optional in v0)
       schema:
@@ -2731,6 +2741,8 @@ paths:
               $ref: '#/components/headers/X-Request-Id'
             X-Cycles-Trace-Id:
               $ref: '#/components/headers/X-Cycles-Trace-Id'
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
@@ -2739,6 +2751,18 @@ paths:
           $ref: '#/components/responses/ErrorResponse'
         '404':
           $ref: '#/components/responses/ErrorResponse'
+        '429':
+          description: Rate limited. Public endpoints SHOULD be throttled; clients retry after the indicated
+            delay.
+          headers:
+            Retry-After:
+              $ref: '#/components/headers/Retry-After'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/X-RateLimit-Reset'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '500':
           $ref: '#/components/responses/ErrorResponse'
   /v1/balances:

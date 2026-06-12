@@ -24,7 +24,12 @@ info:
         Multi-unit atomic reservation/settlement is a v1+ concern.
 
     AUTH & TENANCY (NORMATIVE):
-      - Requests are authenticated via X-Cycles-API-Key.
+      - Requests are authenticated via X-Cycles-API-Key, EXCEPT endpoints that
+        explicitly declare `security: []`, which are PUBLIC and require no API key.
+        The only such endpoint is `GET /v1/evidence/{evidence_id}` (envelope
+        retrieval): its `evidence_id` is an unguessable content-hash capability and
+        the envelope is content-addressed and signed, so it is safe to serve
+        publicly — see that operation's description for the rationale.
       - Server determines an "effective tenant" from the API key (or other auth context).
       - Subject.tenant is a budgeting dimension and MUST be validated against the effective tenant.
         If mismatched, server MUST return 403 FORBIDDEN.
@@ -360,6 +365,19 @@ components:
         type: integer
     X-RateLimit-Reset:
       description: Unix timestamp (seconds) when rate limit resets (optional in v0)
+      schema:
+        type: integer
+        format: int64
+    Cache-Control:
+      description: >-
+        Caching directive. For content-addressed responses (e.g. getEvidence)
+        the server SHOULD return `public, immutable` — the body never changes.
+      schema:
+        type: string
+    Retry-After:
+      description: >-
+        On 429, the number of seconds a client SHOULD wait before retrying
+        (optional in v0).
       schema:
         type: integer
         format: int64
@@ -2056,11 +2074,22 @@ paths:
           headers:
             X-Request-Id: {$ref: '#/components/headers/X-Request-Id'}
             X-Cycles-Trace-Id: {$ref: '#/components/headers/X-Cycles-Trace-Id'}
+            Cache-Control: {$ref: '#/components/headers/Cache-Control'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/CyclesEvidenceEnvelope'}
         "400": {$ref: '#/components/responses/ErrorResponse'}
         "404": {$ref: '#/components/responses/ErrorResponse'}
+        "429":
+          description: >-
+            Rate limited. Public endpoints SHOULD be throttled; clients retry
+            after the indicated delay.
+          headers:
+            Retry-After: {$ref: '#/components/headers/Retry-After'}
+            X-RateLimit-Reset: {$ref: '#/components/headers/X-RateLimit-Reset'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
         "500": {$ref: '#/components/responses/ErrorResponse'}
 
   /v1/balances:
