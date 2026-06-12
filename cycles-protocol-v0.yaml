@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cycles Budget Authority API
-  version: 0.1.25
+  version: 0.1.25.1
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -498,6 +498,31 @@ components:
         signature:
           type: string
           pattern: '^[0-9a-f]{128}$'
+
+    CyclesEvidenceRef:
+      type: object
+      additionalProperties: false
+      description: >-
+        Reference to the CyclesEvidence envelope emitted for an operation. The
+        `evidence_id` is the sha256 content hash of the JCS-canonical envelope
+        and is computed SYNCHRONOUSLY at decision time, so it is returned on the
+        operation response even though the envelope is Ed25519-signed and stored
+        ASYNCHRONOUSLY. A caller (e.g. an APS gateway) binds its own signed
+        receipt to this evidence by recording `evidence_id`, then fetches the
+        envelope at `cycles_evidence_url` (see `getEvidence`) to verify it
+        offline. Because signing/storage is async, the envelope MAY be served
+        shortly after this response — consumers SHOULD treat a transient `404`
+        from `getEvidence` as not-yet-available and retry.
+      required: [evidence_id, cycles_evidence_url]
+      properties:
+        evidence_id:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: sha256 content id of the emitted envelope; resolve via getEvidence.
+        cycles_evidence_url:
+          type: string
+          format: uri
+          description: 'Absolute URL of the signed envelope: `{server_id}/v1/evidence/{evidence_id}`.'
 
     IdempotencyKey:
       type: string
@@ -1082,6 +1107,12 @@ components:
         retry_after_ms:
           type: integer
           minimum: 0
+        cycles_evidence:
+          $ref: '#/components/schemas/CyclesEvidenceRef'
+          description: >-
+            Reference to the CyclesEvidence envelope emitted for this reserve
+            (present on both ALLOW and DENY outcomes). Absent only when evidence
+            emission is disabled on the server.
 
     StandardMetrics:
       type: object

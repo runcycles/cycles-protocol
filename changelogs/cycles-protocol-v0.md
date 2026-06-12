@@ -6,6 +6,23 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.1 — 2026-06-12
+
+_(revision 2026-06-12 — surface `cycles_evidence` on the reserve response)_
+
+- Adds `CyclesEvidenceRef` (`{evidence_id, cycles_evidence_url}`) and an
+  optional `cycles_evidence` field on `ReservationCreateResponse`. The
+  `evidence_id` (sha256 content hash of the JCS-canonical envelope) is computed
+  SYNCHRONOUSLY at decision time and returned on the reserve response, even
+  though the envelope is Ed25519-signed and stored ASYNCHRONOUSLY. This closes
+  the binding loop: a caller (e.g. an APS gateway) records `evidence_id` on its
+  own signed receipt and resolves the envelope via `getEvidence` at
+  `cycles_evidence_url`. Present on both ALLOW and DENY; absent only when
+  emission is disabled. Because sign/store is async, `getEvidence` MAY return a
+  transient `404` immediately after the response — consumers SHOULD retry.
+
+---
+
 ## v0.1.25 — 2026-06-12
 
 _(revision 2026-06-12 — public `getEvidence` envelope retrieval endpoint)_
