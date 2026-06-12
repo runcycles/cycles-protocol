@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cycles Budget Authority API
-  version: 0.1.25.1
+  version: 0.1.25.2
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -513,6 +513,17 @@ components:
         offline. Because signing/storage is async, the envelope MAY be served
         shortly after this response — consumers SHOULD treat a transient `404`
         from `getEvidence` as not-yet-available and retry.
+
+
+        TRANSPORT METADATA, NOT ATTESTED: `cycles_evidence` is added to the
+        response for the caller's convenience and is NOT part of the evidence
+        the envelope attests. The `evidence_id` is computed over the operation
+        response WITHOUT this field — the envelope's `payload.<artifact>.response`
+        mirror (`drafts/cycles-evidence-v0.1.yaml`) keeps `additionalProperties:
+        false` and omits `cycles_evidence` precisely so the content hash is
+        never self-referential. Implementations MUST compute `evidence_id`
+        before stamping `cycles_evidence` onto the response, and MUST NOT
+        include `cycles_evidence` in the attested payload.
       required: [evidence_id, cycles_evidence_url]
       properties:
         evidence_id:
@@ -522,7 +533,12 @@ components:
         cycles_evidence_url:
           type: string
           format: uri
-          description: 'Absolute URL of the signed envelope: `{server_id}/v1/evidence/{evidence_id}`.'
+          description: >-
+            Absolute URL of the signed envelope, formed as
+            `{server_id}/evidence/{evidence_id}`. Note `server_id` is already the
+            canonical deployment base INCLUDING the `/v1` prefix (e.g.
+            `https://cycles.example.com/v1`), so the join adds only
+            `/evidence/{evidence_id}` — it MUST NOT re-add `/v1`.
 
     IdempotencyKey:
       type: string
