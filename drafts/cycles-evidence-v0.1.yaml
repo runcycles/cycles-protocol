@@ -850,6 +850,16 @@ components:
         The dry_run-vs-reservation_id-and-expires_at_ms rules
         (canonical L981 and L1404) span request and response, so they
         live at the `ReservePayload` level rather than here.
+
+        DELIBERATE OMISSION — `cycles_evidence`: the canonical response
+        carries an optional `cycles_evidence` ref (`evidence_id` +
+        `cycles_evidence_url`), but it is TRANSPORT METADATA and is NOT
+        attested by this envelope, so it is intentionally absent here and
+        `additionalProperties: false` FORBIDS it in the attested payload.
+        The `evidence_id` is computed over this pre-evidence-ref response;
+        including the ref would make the content hash self-referential.
+        Servers MUST compute `evidence_id` before stamping `cycles_evidence`
+        onto the wire response.
       required: [decision, affected_scopes]
       additionalProperties: false
       properties:

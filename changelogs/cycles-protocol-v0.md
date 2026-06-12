@@ -6,6 +6,23 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.2 — 2026-06-12
+
+_(revision 2026-06-12 — clarify `cycles_evidence` non-attestation + fix the url join)_
+
+- **`cycles_evidence_url` join fix**: `server_id` is already the canonical base
+  URL *including* `/v1` (e.g. `https://cycles.example.com/v1`), so the URL is
+  `{server_id}/evidence/{evidence_id}` — NOT `{server_id}/v1/evidence/...` (which
+  double-prefixed `/v1`). Documented normatively on the field.
+- **Non-attestation of `cycles_evidence`**: stated explicitly that the ref is
+  transport metadata, NOT part of the attested payload. The `evidence_id` is
+  computed over the pre-evidence-ref response; the `ReservationCreateResponseMirror`
+  in `drafts/cycles-evidence-v0.1.yaml` keeps `additionalProperties: false` and
+  omits `cycles_evidence` so the content hash is never self-referential. Servers
+  MUST compute `evidence_id` before stamping the ref onto the wire response.
+
+---
+
 ## v0.1.25.1 — 2026-06-12
 
 _(revision 2026-06-12 — surface `cycles_evidence` on the reserve response)_
