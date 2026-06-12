@@ -6,6 +6,24 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25 — 2026-06-12
+
+_(revision 2026-06-12 — public `getEvidence` envelope retrieval endpoint)_
+
+- Adds `getEvidence` (`GET /v1/evidence/{evidence_id}`): fetch a signed
+  CyclesEvidence envelope by its sha256 content id. PUBLIC (no `ApiKeyAuth`)
+  — the unguessable `evidence_id` is a capability, and the envelope is
+  content-addressed + Ed25519-signed, so any receipt holder (e.g. an APS
+  gateway or auditor) can fetch and verify it offline. Servers SHOULD
+  rate-limit and serve it immutably-cacheable. `404` on unknown id.
+- Adds the `CyclesEvidenceEnvelope` response schema (mirrors the required
+  shape; the normative definition remains `drafts/cycles-evidence-v0.1.yaml`)
+  and the `EvidenceId` path parameter.
+- Resolves the serving-surface question deferred in `cycles-evidence-v0.1`
+  (which left it "implementation-defined"): the retrieval endpoint is now
+  specced, and `cycles_evidence_url` derives by convention as
+  `{server_id}/evidence/{evidence_id}`.
+
 ## v0.1.25 — 2026-05-22
 
 _(revision 2026-05-22 — `expires_*` / `finalized_*` time-range filters on listReservations)_

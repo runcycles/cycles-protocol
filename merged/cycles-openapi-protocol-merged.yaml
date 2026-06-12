@@ -54,6 +54,8 @@ tags:
   description: Query balances for operator visibility
 - name: Events
   description: Optional post-only accounting for non-estimable actions
+- name: Evidence
+  description: Public retrieval of signed CyclesEvidence envelopes by content id
 - name: Extensions
   description: Runtime enforcement plane extensions to cycles-protocol-v0.yaml v0.1.25
 - name: ActionKinds
@@ -71,6 +73,55 @@ components:
       in: header
       name: X-Admin-API-Key
   schemas:
+    CyclesEvidenceEnvelope:
+      type: object
+      additionalProperties: true
+      description: A signed CyclesEvidence envelope returned by `getEvidence`. The NORMATIVE definition
+        — field semantics and the JCS content-hash + Ed25519 signature derivation — lives in `drafts/cycles-evidence-v0.1.yaml`;
+        this schema mirrors its required shape for the serving endpoint. The envelope is content-addressed
+        (`evidence_id` = sha256 of the JCS-canonical bytes with `evidence_id` and `signature` emptied)
+        and self-verifying, so a consumer can check it offline without trusting this server.
+      required:
+      - schema_version
+      - artifact_type
+      - server_id
+      - signer_did
+      - issued_at_ms
+      - payload
+      - evidence_id
+      - signature
+      properties:
+        schema_version:
+          type: string
+          const: cycles-evidence/v0.1
+        artifact_type:
+          type: string
+          enum:
+          - decide
+          - reserve
+          - commit
+          - release
+          - error
+        server_id:
+          type: string
+          description: Stable URI of the issuing Cycles server.
+        signer_did:
+          type: string
+          description: Ed25519 public key (v0.1 hex) the signature verifies against.
+        issued_at_ms:
+          type: integer
+          format: int64
+        trace_id:
+          type: string
+        payload:
+          type: object
+          description: One key matching artifact_type (decide/reserve/commit/release/error).
+        evidence_id:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+        signature:
+          type: string
+          pattern: ^[0-9a-f]{128}$
     IdempotencyKey:
       type: string
       minLength: 1
@@ -1980,6 +2031,14 @@ components:
         type: string
         minLength: 1
         maxLength: 128
+    EvidenceId:
+      name: evidence_id
+      in: path
+      required: true
+      description: sha256 content hash of the CyclesEvidence envelope (64 lowercase hex chars).
+      schema:
+        type: string
+        pattern: ^[0-9a-f]{64}$
     Limit:
       name: limit
       in: query
@@ -2648,6 +2707,33 @@ paths:
         '409':
           $ref: '#/components/responses/ErrorResponse'
         '410':
+          $ref: '#/components/responses/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/ErrorResponse'
+  /v1/evidence/{evidence_id}:
+    get:
+      tags:
+      - Evidence
+      operationId: getEvidence
+      x-conformance: normative
+      summary: Fetch a signed CyclesEvidence envelope by content id
+      description: |-
+        Retrieve the signed CyclesEvidence envelope identified by `evidence_id` (the sha256 content hash carried on a receipt's `cycles_evidence` reference). Returns the envelope exactly as emitted — JCS-canonicalizable and Ed25519-signed per cycles-evidence-v0.1 — so any holder can verify it offline without trusting this server.
+        AUTH (NORMATIVE): this endpoint is PUBLIC (no ApiKeyAuth). The `evidence_id` is an unguessable sha256 content hash that acts as a capability — only a party already holding the receipt (which carries the id) can fetch the envelope. Because the envelope is content-addressed and signature-verifiable, public read cannot forge or alter it. Servers SHOULD rate-limit this endpoint and SHOULD serve it with `Cache-Control: public, immutable` (the content never changes).
+      security: []
+      parameters:
+      - $ref: '#/components/parameters/EvidenceId'
+      responses:
+        '200':
+          description: The signed CyclesEvidence envelope.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CyclesEvidenceEnvelope'
+        '404':
           $ref: '#/components/responses/ErrorResponse'
         '500':
           $ref: '#/components/responses/ErrorResponse'
