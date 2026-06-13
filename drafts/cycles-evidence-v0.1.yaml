@@ -804,6 +804,11 @@ components:
         — the body of `POST /v1/decide`. The `allOf` below
         encodes the canonical L752 rule: caps is present only when
         decision=ALLOW_WITH_CAPS and MUST be absent otherwise.
+
+        DELIBERATE OMISSION — `cycles_evidence`: as with the reserve/commit/release
+        mirrors, the canonical response's optional `cycles_evidence` ref is TRANSPORT
+        METADATA, NOT attested; `additionalProperties: false` forbids it here. The
+        `evidence_id` is computed over this pre-evidence-ref response.
       required: [decision]
       additionalProperties: false
       properties:

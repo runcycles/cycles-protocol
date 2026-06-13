@@ -6,6 +6,22 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.4 — 2026-06-13
+
+_(revision 2026-06-13 — surface `cycles_evidence` on the decide response)_
+
+- Adds the optional `cycles_evidence` field (`CyclesEvidenceRef`) to
+  `DecisionResponse`, completing the lifecycle binding loop (decide / reserve /
+  commit / release). The `decide` artifact attests a pre-execution decision
+  (ALLOW / ALLOW_WITH_CAPS / DENY); it is already modelled in
+  `drafts/cycles-evidence-v0.1.yaml` (`DecidePayload` = `{request, response}`, no
+  reservation created) with golden fixtures `01-decide-allow` /
+  `09-decide-risk-points-allow`. Forbidden/validation failures on `/v1/decide`
+  remain `error`-artifact territory (e.g. fixture `12-decide-live-forbidden`).
+  Present unless emission is disabled; additive + non-breaking.
+
+---
+
 ## v0.1.25.3 — 2026-06-13
 
 _(revision 2026-06-13 — surface `cycles_evidence` on commit + release responses)_
