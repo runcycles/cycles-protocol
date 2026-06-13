@@ -6,6 +6,30 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.5 — 2026-06-13
+
+_(revision 2026-06-13 — surface `cycles_evidence` on the error response)_
+
+- Adds the optional `cycles_evidence` field (`CyclesEvidenceRef`) to
+  `ErrorResponse`, closing the last gap in the lifecycle binding loop
+  (decide / reserve / commit / release / **error**). The `error` artifact wraps
+  any 4xx/5xx `ErrorResponse` from the four core runtime endpoints and is the
+  canonical home for non-dry reserve denials — insufficient budget surfaces as
+  HTTP 409 `BUDGET_EXCEEDED`, NOT a 200 with `decision: DENY` (see
+  §ReservationCreateResponse.decision) — which the evidence draft calls the
+  highest-signal evidence an APS receipt can bind to. Surfacing the ref in-band
+  lets a denied caller bind its own signed receipt to the denial and fetch the
+  envelope via `getEvidence`. The field is `CyclesEvidenceRef`, identical in
+  shape/semantics to the four success responses; it is TRANSPORT METADATA, NOT
+  attested (the `error` artifact's `payload.error.response` mirror in
+  `drafts/cycles-evidence-v0.1.yaml` keeps `additionalProperties: false` and
+  omits it, so the content hash is never self-referential). Present when the
+  server emitted an `error` envelope for this response; absent when emission is
+  disabled or for errors raised before evidence could be emitted (e.g. request
+  validation / auth failures). Additive + non-breaking.
+
+---
+
 ## v0.1.25.4 — 2026-06-13
 
 _(revision 2026-06-13 — surface `cycles_evidence` on the decide response)_
