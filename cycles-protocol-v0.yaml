@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cycles Budget Authority API
-  version: 0.1.25.3
+  version: 0.1.25.4
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -879,6 +879,12 @@ components:
           items:
             type: string
           description: Canonical scope identifiers impacted by this decision, in canonical order.
+        cycles_evidence:
+          $ref: '#/components/schemas/CyclesEvidenceRef'
+          description: >-
+            Reference to the CyclesEvidence envelope emitted for this decision
+            (artifact_type `decide`, present on ALLOW / ALLOW_WITH_CAPS / DENY).
+            Absent only when evidence emission is disabled on the server.
 
     # ---- Reservations (core) ----
     CommitOveragePolicy:
