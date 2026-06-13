@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cycles Budget Authority API
-  version: 0.1.25.4
+  version: 0.1.25.5
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -598,6 +598,23 @@ components:
         details:
           type: object
           additionalProperties: true
+        cycles_evidence:
+          $ref: '#/components/schemas/CyclesEvidenceRef'
+          description: >-
+            Reference to the CyclesEvidence envelope emitted for this error
+            (artifact_type `error`). Present when the server emitted an `error`
+            CyclesEvidence record for this response — most importantly the
+            non-dry reserve denials that surface as HTTP 409 `BUDGET_EXCEEDED`
+            (and the other live denial codes), which are the highest-signal
+            evidence an APS receipt can bind to. A denied caller reads
+            `evidence_id` to bind its own signed receipt to this denial, then
+            fetches the envelope at `cycles_evidence_url` (see `getEvidence`).
+            Absent when evidence emission is disabled on the server, or for
+            errors raised before evidence could be emitted (e.g. request
+            validation / auth failures). TRANSPORT METADATA, NOT ATTESTED — as
+            with the success responses, `evidence_id` is computed over the
+            `ErrorResponse` body WITHOUT this field (the `error` artifact's
+            `payload.error.response` mirror omits it); see `CyclesEvidenceRef`.
 
     DecisionEnum:
       type: string

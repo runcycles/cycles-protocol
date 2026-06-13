@@ -959,6 +959,17 @@ components:
         Mirror of `cycles-protocol-v0.yaml#/components/schemas/ErrorResponse`
         — the body of any 4xx/5xx response from the four core
         runtime endpoints.
+
+        DELIBERATE OMISSION — `cycles_evidence`: as with the
+        reserve/commit/release/decision mirrors, the canonical
+        `ErrorResponse` carries an optional `cycles_evidence` ref
+        (added in `cycles-protocol-v0.yaml` v0.1.25.5 so a denied
+        caller gets the `error` envelope id in-band) but it is
+        TRANSPORT METADATA, NOT attested; `additionalProperties: false`
+        forbids it here. The `evidence_id` is computed over this
+        pre-evidence-ref response, so the content hash an `error`
+        envelope's `payload.error.response` carries is never
+        self-referential.
       required: [error, message, request_id]
       additionalProperties: false
       properties:
