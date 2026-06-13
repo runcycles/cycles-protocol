@@ -63,13 +63,14 @@ spec_family:
     isolation; SDK generators and validator pipelines need a merged artifact.
     The merge_recipes section below defines how to produce those artifacts.
   current_versions:
-    base_runtime: "0.1.25"                # trace_id cross-surface correlation (2026-04-18 revision)
+    base_runtime: "0.1.25.3"              # + cycles_evidence ref on reserve/commit/release responses (additive)
+    base_runtime_semantic_base: "0.1.25"  # frozen wire baseline — evidence revisions are additive, 0.1.25 clients stay compatible
     base_governance: "0.1.25.33"          # + webhook lifecycle EventTypes and per-row Event emission on webhook operations
     base_governance_semantic_base: "0.1.25.9"  # frozen wire baseline
     extension_runtime: "0.1.26"           # untouched — no Event/ErrorResponse redeclaration
     extension_governance: "0.1.27"        # trace_id on redeclared ErrorResponse
     action_kinds: "0.1.27"                # trace_id on redeclared ErrorResponse
-    spec_index: "0.1.27"
+    spec_index: "0.1.28"                  # runtime_base editorial → 0.1.25.3 + semantic_base 0.1.25
 
 # ---------------------------------------------------------------------------
 # CANONICAL DOCUMENTS
@@ -84,7 +85,8 @@ documents:
 
   - id: runtime_base
     file: cycles-protocol-v0.yaml
-    version: "0.1.25"
+    version: "0.1.25.3"          # editorial: + cycles_evidence on reserve/commit/release responses
+    semantic_base: "0.1.25"      # frozen wire baseline — evidence fields are additive/optional
     role: base
     conformance: normative
     title: Cycles Budget Authority API
