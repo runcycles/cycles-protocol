@@ -899,7 +899,17 @@ components:
 
     CommitResponseMirror:
       type: object
-      description: Mirror of `cycles-protocol-v0.yaml#/components/schemas/CommitResponse` — the body of `POST /v1/reservations/{reservation_id}/commit`.
+      description: |
+        Mirror of `cycles-protocol-v0.yaml#/components/schemas/CommitResponse` —
+        the body of `POST /v1/reservations/{reservation_id}/commit`.
+
+        DELIBERATE OMISSION — `cycles_evidence`: the canonical response carries an
+        optional `cycles_evidence` ref, but it is TRANSPORT METADATA and is NOT
+        attested by this envelope, so it is intentionally absent here and
+        `additionalProperties: false` FORBIDS it in the attested payload. The
+        `evidence_id` is computed over this pre-evidence-ref response; servers
+        MUST compute `evidence_id` before stamping `cycles_evidence` onto the wire
+        response (see `CyclesEvidenceRef`).
       required: [status, charged]
       additionalProperties: false
       properties:
@@ -921,7 +931,14 @@ components:
 
     ReleaseResponseMirror:
       type: object
-      description: Mirror of `cycles-protocol-v0.yaml#/components/schemas/ReleaseResponse` — the body of `POST /v1/reservations/{reservation_id}/release`.
+      description: |
+        Mirror of `cycles-protocol-v0.yaml#/components/schemas/ReleaseResponse` —
+        the body of `POST /v1/reservations/{reservation_id}/release`.
+
+        DELIBERATE OMISSION — `cycles_evidence`: as with the commit/reserve mirrors,
+        the canonical response's optional `cycles_evidence` ref is TRANSPORT
+        METADATA, NOT attested; `additionalProperties: false` forbids it here. The
+        `evidence_id` is computed over this pre-evidence-ref response.
       required: [status, released]
       additionalProperties: false
       properties:
