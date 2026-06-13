@@ -6,6 +6,21 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.3 — 2026-06-13
+
+_(revision 2026-06-13 — surface `cycles_evidence` on commit + release responses)_
+
+- Adds the optional `cycles_evidence` field (`CyclesEvidenceRef`) to
+  `CommitResponse` and `ReleaseResponse`, extending the reserve binding loop
+  (v0.1.25.1) to the rest of the budget lifecycle. The `commit` artifact attests
+  the actual spend and the `release` artifact the returned reservation — both
+  already modelled in `drafts/cycles-evidence-v0.1.yaml` (`CommitPayload` /
+  `ReleasePayload`, golden fixtures `05/06/07/13`). Present unless evidence
+  emission is disabled; same synchronous-id / async-sign semantics as reserve.
+  Additive + non-breaking per the EVOLUTION CONTRACT.
+
+---
+
 ## v0.1.25.2 — 2026-06-12
 
 _(revision 2026-06-12 — clarify `cycles_evidence` non-attestation + fix the url join)_

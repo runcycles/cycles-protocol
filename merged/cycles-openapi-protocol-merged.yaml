@@ -774,6 +774,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Balance'
+        cycles_evidence:
+          $ref: '#/components/schemas/CyclesEvidenceRef'
+          description: Reference to the CyclesEvidence envelope emitted for this commit (artifact_type
+            `commit`). Absent only when evidence emission is disabled on the server.
     ReleaseRequest:
       type: object
       required:
@@ -802,6 +806,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Balance'
+        cycles_evidence:
+          $ref: '#/components/schemas/CyclesEvidenceRef'
+          description: Reference to the CyclesEvidence envelope emitted for this release (artifact_type
+            `release`). Absent only when evidence emission is disabled on the server.
     ReservationDetail:
       type: object
       description: |
