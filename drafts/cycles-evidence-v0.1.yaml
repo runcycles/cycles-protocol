@@ -208,7 +208,7 @@ components:
 
             Form 1 alone only proves the bytes verify against the named key
             — the `binding_only` disposition (optionally with an
-            `expected_signer` pin, reported via `issuer_pin_matched`). It
+            `expected_signer` pin, reported via `signer_pin_matched`). It
             does NOT prove the key is the legitimate Cycles signer; that
             (the `authentic` disposition) requires authority resolution via
             form 2. See the disposition model on `CyclesEvidenceJwks`.
@@ -1170,7 +1170,7 @@ components:
             v0.1 pin-only posture). This is the shippable v0.1 case; on the
             signature-validity axis it corresponds to a "valid signature,
             authority not yet asserted" result. The companion
-            `issuer_pin_matched` boolean says whether THIS (Cycles)
+            `signer_pin_matched` boolean says whether THIS (Cycles)
             verifier's `expected_signer` pin was present and matched the
             envelope's `signer_did`; absent ⇒ valid-but-unpinned,
             present-and-true ⇒ pinned to the Cycles signer. NOTE — this is a
