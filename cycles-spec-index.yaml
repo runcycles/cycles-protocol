@@ -267,7 +267,7 @@ documents:
     file: drafts/cycles-evidence-v0.1.yaml
     version: "0.1"
     role: companion
-    conformance: draft
+    conformance: reference        # non-normative (per the normative|reference vocabulary); see conformance_status
     conformance_status: draft
     conformance_note: >-
       DRAFT — published under drafts/ for review, NOT yet normative. Specifies
