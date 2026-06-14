@@ -206,10 +206,12 @@ components:
                establish signer AUTHORITY (not just signature validity).
                See `CyclesEvidenceJwks`.
 
-            Form 1 alone proves the bytes verify against the named key
-            (`signature_valid`); it does not prove the key is the
-            legitimate Cycles signer — that requires either an
-            `expected_signer` pin (binding-only) or resolution via form 2.
+            Form 1 alone only proves the bytes verify against the named key
+            — the `binding_only` disposition (optionally with an
+            `expected_signer` pin, reported via `issuer_pin_matched`). It
+            does NOT prove the key is the legitimate Cycles signer; that
+            (the `authentic` disposition) requires authority resolution via
+            form 2. See the disposition model on `CyclesEvidenceJwks`.
           examples:
             - "207a067892821e25d770f1fba0c47c11ff4b813e54162ece9eb839e076231ab6"
             - "did:cycles:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08#2026-06"
@@ -1057,6 +1059,34 @@ components:
             GET {server_id}/.well-known/cycles-jwks.json
             → application/json, an RFC 7517 JWK Set of this shape.
 
+        # Path is server_id-relative, NOT RFC 8615 origin .well-known (deliberate)
+
+        The set is located by appending `/.well-known/cycles-jwks.json` to
+        the verbatim `server_id` string (collapsing only a doubled `/` at
+        the join). Because `server_id` carries a path (e.g.
+        `https://cycles.example.com/v1`), this resolves to
+        `https://cycles.example.com/v1/.well-known/cycles-jwks.json` — it is
+        API-base-relative, NOT origin-rooted in the RFC 8615 sense. This is
+        intentional: `server_id` (path included) is the cryptographic anchor
+        — it is the exact byte string the `did:cycles` hash covers (below) —
+        so deriving the JWKS location by pure string append needs no URL
+        parsing. Taking an origin instead would force every verifier to
+        agree on host case, default-port, and trailing-slash normalization
+        (the split-implementation risk called out under the hash rule), and
+        would prevent two logical Cycles servers from co-hosting under one
+        origin. Producers MUST serve the JWK Set at this API-base path.
+
+        # server_id hash input (NORMATIVE — no normalization)
+
+        `<server_id_hash>` in a `did:cycles` `signer_did`, and any check of
+        it, is `lowerhex(sha256(B))` where `B` is the EXACT UTF-8 bytes of
+        the `server_id` string as it appears in this envelope — with NO URL
+        normalization of any kind (no trailing-slash, host-case, default-port,
+        or percent-encoding canonicalization). A producer MUST emit one
+        canonical `server_id` byte-for-byte across its envelopes and its DID;
+        a verifier hashes what it received. This keeps the DID↔server_id
+        binding and the JWKS path derivation purely lexical and deterministic.
+
         # Rotation (load-bearing)
 
         The set MUST include RETIRED keys, not only the active one —
@@ -1085,6 +1115,35 @@ components:
            signing input (JCS with `evidence_id` populated, `signature`
            empty — see `CyclesEvidence`).
 
+        # Deterministic selection (NORMATIVE — no implementation discretion)
+
+        Selection must be a total function; ambiguity or a malformed set is
+        an AUTHORITY failure (`signer_authority_failed`), never silent
+        discretion, and is distinct from a network/availability failure
+        (`signer_resolution_failed`) and from a bad signature
+        (`signature_invalid`):
+
+          - `kid` MUST be unique within a JWK Set. A duplicate `kid`, or
+            (for `did:cycles`) no key matching the DID's `kid`, ⇒
+            `signer_authority_failed`.
+          - The window gate (step 2) MUST be satisfied by EXACTLY ONE
+            candidate key. Zero covering keys, or overlapping windows that
+            leave two candidates, ⇒ `signer_authority_failed`. (For a
+            single `kid` lookup, "two candidates" can only arise via
+            duplicate `kid`, already an error.)
+          - Raw-hex: exactly one window-covering JWK whose `x` decodes to
+            `K` must exist. Zero ⇒ the key is absent from the set ⇒
+            `signer_authority_failed`. Two or more ⇒ ambiguous ⇒
+            `signer_authority_failed`.
+          - A `did:cycles` whose `<server_id_hash>` ≠
+            `lowerhex(sha256(server_id))` ⇒ `signer_authority_failed`
+            (the DID does not bind to this envelope's `server_id`).
+          - A JWK with malformed/wrong-length `x`, missing `cycles_nbf_ms`,
+            or wrong `kty`/`crv` is INVALID and excluded from candidacy; if
+            its exclusion leaves no covering key, the result is
+            `signer_authority_failed`. (A wholly unparseable JWK Set body,
+            by contrast, is `signer_resolution_failed`.)
+
         # Raw-hex ↔ JWK bridge
 
         The raw-hex `signer_did` is `hex(pubkey)`; a JWK `x` is
@@ -1096,19 +1155,40 @@ components:
 
         # Verification dispositions (kept DISTINCT)
 
-        A conformant verifier reports exactly one:
+        A conformant verifier reports exactly one. The model separates the
+        TWO axes PR #45 distinguishes — signature *validity* (do the bytes
+        verify against the named key?) and signer *authority* (is that key
+        the legitimate Cycles signer for `server_id` at `issued_at_ms`?):
 
-          - `authentic` — signature valid against a key whose window
-            covers `issued_at_ms` (validity AND authority).
-          - `binding_only` — signature valid and `expected_signer` pins
-            `signer_did`, but authority was not resolved (raw-hex with no
-            JWKS lookup). The shippable v0.1 case.
-          - `signer_resolution_failed` — the DID method, the JWK Set, or
-            the `kid` could not be resolved/reached. This establishes
+          - `authentic` — signature valid AND authority established: the
+            verifying key is the one window-covering key selected
+            deterministically from `server_id`'s JWK Set. Both axes pass.
+          - `binding_only` — signature cryptographically VALID, but signer
+            authority was not established (no JWKS authority was resolved —
+            e.g. raw-hex with no set lookup, or a deployment still in the
+            v0.1 pin-only posture). This is the shippable v0.1 case and
+            subsumes PR #45's `signature_valid`. The companion
+            `issuer_pin_matched` boolean says whether an `expected_signer`
+            pin was present and matched `signer_did` (PR #45's
+            `pinned_issuer` facet); absent ⇒ valid-but-unpinned, present-and-
+            true ⇒ pinned. Authority is simply not yet asserted either way.
+          - `signer_authority_failed` — resolution SUCCEEDED (the JWK Set
+            was fetched and parsed) but the key is NOT authorized for this
+            envelope: DID↔`server_id` hash mismatch, no window-covering
+            key, the raw-hex key absent from the set, or an ambiguous /
+            duplicate-`kid` selection (see Deterministic selection above).
+            This is neither a network failure nor a forgery — the signer
+            could not be authorized. (The signature MAY itself be valid;
+            authority is what failed.)
+          - `signer_resolution_failed` — the DID method, the JWK Set
+            document, or the `kid` lookup could not be resolved/reached
+            (network, 404/transient, unparseable body). This establishes
             NOTHING about the bytes and MUST NOT be reported as
-            `signature_invalid` — a network failure is not a forgery.
+            `signature_invalid` — a network failure is not a forgery, and
+            MUST be kept distinct from `signer_authority_failed`, which
+            implies a successful fetch.
           - `signature_invalid` — the bytes do not verify against the
-            resolved key (tamper).
+            resolved/named key (tamper).
 
         # Liveness
 
