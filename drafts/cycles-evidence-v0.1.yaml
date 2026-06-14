@@ -371,6 +371,17 @@ components:
           - `release` → POST /v1/reservations/{id}/release  (clear without debit; 2xx)
           - `error`   → 4xx/5xx ErrorResponse from any of the above
 
+        DOMAIN vs EMISSION POLICY: the `error` artifact's DOMAIN is any 4xx/5xx
+        `ErrorResponse` (hence the full `ErrorResponseMirror` ErrorCode enum,
+        including FORBIDDEN/INVALID_REQUEST) — that is what a verifier must be
+        able to accept. WHICH of those a given server actually emits an envelope
+        for is that server's policy, not a requirement of this schema. The
+        reference Cycles server (`cycles-protocol-v0.yaml`) emits `error`
+        evidence only for budget/lifecycle DENIALS reached after evaluation
+        (e.g. 409 `BUDGET_EXCEEDED`, 410 `RESERVATION_EXPIRED`) and deliberately
+        omits `cycles_evidence` for pre-evaluation failures (validation, auth,
+        malformed body) — nothing was decided, so there is nothing to attest.
+
         The `error` artifact type is normative for v0.1 because non-dry
         reserve denials are the highest-signal evidence APS receipts
         carry (per aeoess/agent-passport-system#25) and the canonical

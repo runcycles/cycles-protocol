@@ -263,6 +263,42 @@ documents:
       - Platform/operator teams (required for v0.1.26 admin API support)
       - Admin tooling authors
 
+  - id: evidence_envelope
+    file: drafts/cycles-evidence-v0.1.yaml
+    version: "0.1"
+    role: companion
+    conformance: reference        # non-normative (per the normative|reference vocabulary); see conformance_status
+    conformance_status: draft
+    conformance_note: >-
+      DRAFT — published under drafts/ for review, NOT yet normative. Specifies
+      the cycles-evidence/v0.1 envelope (JCS-canonicalized, Ed25519-signed,
+      content-addressed audit artifact) that wraps the bodies the runtime
+      endpoints return. The runtime base (cycles-protocol-v0.yaml) already ships
+      the consumer-facing surface — the optional `cycles_evidence` ref on
+      decide/reserve/commit/release/error responses and the getEvidence endpoint
+      — as additive/optional (MAY). The envelope shape promotes to a numbered
+      normative spec once a production implementation ships and a cross-system
+      consumer (APS) integrates end-to-end. Signer-key authority resolution
+      (did:cycles / JWKS / rotation) is tracked separately in runcycles/cycles-protocol#103.
+    title: Cycles Evidence Envelope
+    plane: cross-system-audit
+    owns:
+      - CyclesEvidence envelope (schema_version cycles-evidence/v0.1)
+      - evidence_id content-hash recipe (RFC 8785 JCS + sha256) and Ed25519 signature derivation
+      - Per-artifact payloads (DecidePayload / ReservePayload / CommitPayload / ReleasePayload / ErrorPayload)
+      - Response mirrors (non-attestation note for the transport-only cycles_evidence ref)
+    integration_points:
+      - runtime_base: >-
+          cycles-protocol-v0.yaml carries the wire surface: CyclesEvidenceRef
+          (cycles_evidence on the five response types) and getEvidence
+          (GET /v1/evidence/{id}). The envelope draft is what those refs resolve to.
+    depends_on:
+      - runtime_base   # mirrors its request/response schemas
+    readers:
+      - Cross-system audit / receipt consumers (notably APS)
+      - Compliance + long-horizon archival tooling
+      - Cycles server + event-tier implementers (producer/signer)
+
 # ---------------------------------------------------------------------------
 # MERGE RECIPES
 # ---------------------------------------------------------------------------

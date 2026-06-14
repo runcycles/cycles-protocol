@@ -41,8 +41,12 @@ _(revision 2026-06-13 — surface `cycles_evidence` on the decide response)_
   `drafts/cycles-evidence-v0.1.yaml` (`DecidePayload` = `{request, response}`, no
   reservation created) with golden fixtures `01-decide-allow` /
   `09-decide-risk-points-allow`. Forbidden/validation failures on `/v1/decide`
-  remain `error`-artifact territory (e.g. fixture `12-decide-live-forbidden`).
-  Present unless emission is disabled; additive + non-breaking.
+  are NOT `decide` evidence — they surface as 4xx in the `error`-artifact DOMAIN
+  (the verifier-domain fixture `12-decide-live-forbidden` illustrates that shape;
+  the reference server itself omits `cycles_evidence` for such pre-evaluation
+  auth/validation failures — see the error artifact's domain-vs-emission note in
+  `drafts/cycles-evidence-v0.1.yaml`). Present unless emission is disabled;
+  additive + non-breaking.
 
 ---
 
