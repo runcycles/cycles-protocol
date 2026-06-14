@@ -37,6 +37,8 @@ See [`CONFORMANCE.md`](CONFORMANCE.md) for the authoritative MUST / SHOULD / MAY
 > - **Counter reset** — incident response endpoint for stuck per_run counters
 >
 > The suite ships as companion specs: [`cycles-protocol-v0.yaml`](cycles-protocol-v0.yaml) (runtime base), [`cycles-protocol-extensions-v0.1.26.yaml`](cycles-protocol-extensions-v0.1.26.yaml) (runtime extension), [`cycles-action-kinds-v0.1.26.yaml`](cycles-action-kinds-v0.1.26.yaml) (registry), [`cycles-governance-admin-v0.1.25.yaml`](cycles-governance-admin-v0.1.25.yaml) (admin base), and [`cycles-governance-extensions-v0.1.26.yaml`](cycles-governance-extensions-v0.1.26.yaml) (admin extension). See [`cycles-spec-index.yaml`](cycles-spec-index.yaml) for the composition manifest and merge recipes.
+>
+> **CyclesEvidence** (draft): the runtime base also defines an optional `cycles_evidence` reference (`CyclesEvidenceRef`) on the decide / reserve / commit / release / error responses plus `GET /v1/evidence/{id}` (`getEvidence`) — the consumer surface for tamper-evident, content-addressed, Ed25519-signed audit envelopes. The envelope itself is specified in the draft companion [`drafts/cycles-evidence-v0.1.yaml`](drafts/cycles-evidence-v0.1.yaml) (see [`drafts/README.md`](drafts/README.md)). Additive and optional — `0.1.25` clients that ignore it are unaffected.
 
 ---
 

@@ -125,6 +125,7 @@ A conformant implementation MAY:
 - Replace any or all of those reference portions with an alternative provisioning mechanism: OAuth/OIDC for auth, GitOps YAML for policies, internal admin console for tenants, direct DB writes for budget allocation, etc. (The reference portions only — the eight normative cross-plane operations listed under §MUST still apply.)
 - Skip `audit_log` entirely. Not required by the protocol.
 - Expose additional endpoints beyond those specified, as long as they use a non-`/v1` path prefix or a vendor-namespaced extension path (e.g., `/v1/x-runcycles/...`).
+- Emit **CyclesEvidence**: populate the optional `cycles_evidence` ref (`CyclesEvidenceRef`) on decide / reserve / commit / release / error responses and serve `GET /v1/evidence/{id}` (`getEvidence`). Both are additive and optional in `cycles-protocol-v0.yaml`; the signed envelope they reference is specified in the draft companion [`drafts/cycles-evidence-v0.1.yaml`](drafts/cycles-evidence-v0.1.yaml) (see [`drafts/README.md`](drafts/README.md)), which is **not yet part of the conformance target**. A client that ignores `cycles_evidence` is fully conformant.
 
 ---
 
