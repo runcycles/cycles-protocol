@@ -72,7 +72,7 @@ info:
         an additive v0.2 layer — see `CyclesEvidenceJwks` and the
         `did:cycles` form of `signer_did`. v0.1 verifiers ignore it and
         keep checking signature validity against a raw-hex `signer_did`
-        (with `expected_signer` pinning for issuer trust); the layer is
+        (with `expected_signer` pinning the Cycles signer for trust); the layer is
         purely additive. It moves to `cycles-evidence-v0.2.yaml` on the
         normative cut. (Runcycles tracking: cycles-protocol#103.)
       - Aggregated evidence (Merkle-batched roots covering many
