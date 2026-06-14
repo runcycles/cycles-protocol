@@ -5,7 +5,7 @@ conformance target** (see [`../CONFORMANCE.md`](../CONFORMANCE.md)) — they
 promote to a numbered spec file at the repo root once a production
 implementation ships and a cross-system consumer has integrated against them
 end-to-end. They are registered in [`../cycles-spec-index.yaml`](../cycles-spec-index.yaml)
-with `conformance: draft`.
+as `conformance: reference` (non-normative) with `conformance_status: draft`.
 
 | Draft | What it is |
 |---|---|
