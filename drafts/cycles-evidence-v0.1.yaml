@@ -1139,7 +1139,8 @@ components:
             `lowerhex(sha256(server_id))` ⇒ `signer_authority_failed`
             (the DID does not bind to this envelope's `server_id`).
           - A JWK with malformed/wrong-length `x`, missing `cycles_nbf_ms`,
-            or wrong `kty`/`crv` is INVALID and excluded from candidacy; if
+            wrong `kty`/`crv`, or a present-but-non-`EdDSA` `alg` is INVALID
+            and excluded from candidacy (absent `alg` is fine); if
             its exclusion leaves no covering key, the result is
             `signer_authority_failed`. (A wholly unparseable JWK Set body,
             by contrast, is `signer_resolution_failed`.)
@@ -1166,12 +1167,18 @@ components:
           - `binding_only` — signature cryptographically VALID, but signer
             authority was not established (no JWKS authority was resolved —
             e.g. raw-hex with no set lookup, or a deployment still in the
-            v0.1 pin-only posture). This is the shippable v0.1 case and
-            subsumes PR #45's `signature_valid`. The companion
-            `issuer_pin_matched` boolean says whether an `expected_signer`
-            pin was present and matched `signer_did` (PR #45's
-            `pinned_issuer` facet); absent ⇒ valid-but-unpinned, present-and-
-            true ⇒ pinned. Authority is simply not yet asserted either way.
+            v0.1 pin-only posture). This is the shippable v0.1 case; on the
+            signature-validity axis it corresponds to a "valid signature,
+            authority not yet asserted" result. The companion
+            `issuer_pin_matched` boolean says whether THIS (Cycles)
+            verifier's `expected_signer` pin was present and matched the
+            envelope's `signer_did`; absent ⇒ valid-but-unpinned,
+            present-and-true ⇒ pinned to the Cycles signer. NOTE — this is a
+            Cycles-side pin of the Cycles ENVELOPE signer (`signer_did`),
+            which is a DIFFERENT trust anchor from APS PR #45's
+            `pinned_issuer`: that pins the APS RECEIPT issuer (the APS
+            object's own `signer`), in the separate APS-receipt verification.
+            Analogous in spirit, distinct anchor — do not conflate them.
           - `signer_authority_failed` — resolution SUCCEEDED (the JWK Set
             was fetched and parsed) but the key is NOT authorized for this
             envelope: DID↔`server_id` hash mismatch, no window-covering
@@ -1220,6 +1227,11 @@ components:
         alg:
           type: string
           const: EdDSA
+          description: |
+            OPTIONAL (RFC 7517 §4.4). If present it MUST be `EdDSA`; a
+            present-but-different `alg` makes the JWK INVALID and the key is
+            excluded from candidacy, exactly like a wrong `kty`/`crv`. Absent
+            `alg` is fine — `kty=OKP` + `crv=Ed25519` already fix EdDSA.
         x:
           type: string
           description: |
@@ -1236,9 +1248,9 @@ components:
           format: int64
           description: Valid-from, epoch ms, INCLUSIVE.
         cycles_exp_ms:
-          type: integer
+          # OAS 3.1 / JSON Schema 2020-12 nullability (not the 3.0 `nullable`)
+          type: [integer, "null"]
           format: int64
-          nullable: true
           description: |
             Valid-until, epoch ms, EXCLUSIVE. Absent/null ⇒ the currently
             active key (open-ended).
