@@ -6,6 +6,29 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.6 — 2026-06-15
+
+_(revision 2026-06-15 — publish the signer JWK Set: `getEvidenceJwks`)_
+
+- Adds the public endpoint `GET /v1/.well-known/cycles-jwks.json`
+  (`getEvidenceJwks`, `security: []`) and the `CyclesEvidenceJwks` /
+  `CyclesEvidenceJwk` schemas — the publication half of the ADDITIVE
+  signer-key-resolution layer (cycles-evidence v0.2). It lets a consumer resolve
+  a `did:cycles` `signer_did` (or confirm a raw-hex one) to a public key and
+  establish signer AUTHORITY, not merely signature validity. The resolvable
+  `signer_did` form, the NORMATIVE validity-window key selection, the
+  deterministic-selection rules, and the verification dispositions live in
+  `drafts/cycles-evidence-v0.1.yaml` (`CyclesEvidenceJwks`); these schemas mirror
+  the required shape for the serving endpoint, exactly as `CyclesEvidenceEnvelope`
+  mirrors the envelope for `getEvidence`. Located API-base-relative
+  (`{server_id}/.well-known/cycles-jwks.json`, where `server_id` already carries
+  `/v1`), deliberately NOT origin-rooted, so key authority stays anchored to the
+  base the `did:cycles` hash commits to. PUBLIC because a JWK Set is public keys
+  only (the private signing key is never served); the set is itself the trust
+  anchor consumers resolve. OPTIONAL to publish — a server not doing signer-key
+  resolution returns 404 and consumers fall back to raw-hex `signer_did` +
+  `expected_signer` pinning. Additive + non-breaking.
+
 ## v0.1.25.5 — 2026-06-13
 
 _(revision 2026-06-13 — surface `cycles_evidence` on the error response)_
