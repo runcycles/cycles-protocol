@@ -279,7 +279,10 @@ documents:
       — as additive/optional (MAY). The envelope shape promotes to a numbered
       normative spec once a production implementation ships and a cross-system
       consumer (APS) integrates end-to-end. Signer-key authority resolution
-      (did:cycles / JWKS / rotation) is tracked separately in runcycles/cycles-protocol#103.
+      (did:cycles / JWKS / rotation) is now specified as an ADDITIVE v0.2 layer in
+      the draft (CyclesEvidenceJwks + the did:cycles signer_did form); design agreed
+      with APS on runcycles/cycles-protocol#103, moves to cycles-evidence-v0.2.yaml on
+      the normative cut.
     title: Cycles Evidence Envelope
     plane: cross-system-audit
     owns:
@@ -287,6 +290,7 @@ documents:
       - evidence_id content-hash recipe (RFC 8785 JCS + sha256) and Ed25519 signature derivation
       - Per-artifact payloads (DecidePayload / ReservePayload / CommitPayload / ReleasePayload / ErrorPayload)
       - Response mirrors (non-attestation note for the transport-only cycles_evidence ref)
+      - Signer-key resolution v0.2 (additive) — CyclesEvidenceJwks key set, did:cycles signer_did form, window-bound selection + the five verify dispositions (authentic / binding_only / signer_authority_failed / signer_resolution_failed / signature_invalid)
     integration_points:
       - runtime_base: >-
           cycles-protocol-v0.yaml carries the wire surface: CyclesEvidenceRef

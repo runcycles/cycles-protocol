@@ -68,9 +68,13 @@ info:
         response body and headers, but the URL path layout, auth
         scheme, and replication policy are out of scope and live with
         the Cycles server implementation.
-      - Signing-key rotation, JWKS publication, did:cycles method
-        registration. These will land alongside or after the
-        normative move to `cycles-evidence-v0.2.yaml`.
+      - Signing-key resolution (signature AUTHORITY) is now SPECIFIED as
+        an additive v0.2 layer — see `CyclesEvidenceJwks` and the
+        `did:cycles` form of `signer_did`. v0.1 verifiers ignore it and
+        keep checking signature validity against a raw-hex `signer_did`
+        (with `expected_signer` pinning the Cycles signer for trust); the layer is
+        purely additive. It moves to `cycles-evidence-v0.2.yaml` on the
+        normative cut. (Runcycles tracking: cycles-protocol#103.)
       - Aggregated evidence (Merkle-batched roots covering many
         lifecycle events). A v0.2+ concern; v0.1 is one envelope per
         lifecycle event.
@@ -188,14 +192,29 @@ components:
         signer_did:
           type: string
           description: |
-            DID or hex public key identifying the Ed25519 signer. v0.1
-            does not pin a method; an Ed25519 hex pubkey is the
-            simplest valid form. A future spec revision will likely
-            standardize on `did:cycles:<server_id_hash>` or similar
-            once signing-key rotation and JWKS publication are in
-            scope.
+            Identifies the Ed25519 signer. TWO forms are valid:
+
+            1. **Raw hex public key** — the 32-byte Ed25519 public key as
+               64 lowercase hex chars. Self-describing: a verifier checks
+               the `signature` against it directly with no resolution.
+               This is the simplest form and the only one v0.1 requires.
+            2. **`did:cycles:<server_id_hash>#<kid>`** (signer-key
+               resolution, v0.2) — `<server_id_hash>` = lowercase
+               `hex(sha256(server_id))`, binding the DID to this
+               envelope's `server_id`; the `#<kid>` fragment names the
+               key within the server's JWK Set. A verifier resolves it to
+               establish signer AUTHORITY (not just signature validity).
+               See `CyclesEvidenceJwks`.
+
+            Form 1 alone only proves the bytes verify against the named key
+            — the `binding_only` disposition (optionally with an
+            `expected_signer` pin, reported via `signer_pin_matched`). It
+            does NOT prove the key is the legitimate Cycles signer; that
+            (the `authentic` disposition) requires authority resolution via
+            form 2. See the disposition model on `CyclesEvidenceJwks`.
           examples:
             - "207a067892821e25d770f1fba0c47c11ff4b813e54162ece9eb839e076231ab6"
+            - "did:cycles:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08#2026-06"
 
         issued_at_ms:
           type: integer
@@ -1022,6 +1041,248 @@ components:
         details:
           type: object
           additionalProperties: true
+
+    # =====================================================================
+    # Signer-key resolution (v0.2, additive). Establishes signature
+    # AUTHORITY: that the key in `signer_did` is the legitimate Cycles
+    # signer for `server_id` at `issued_at_ms`, not an attacker key inside
+    # a self-consistent envelope. v0.1 verifiers ignore this layer.
+    # =====================================================================
+    CyclesEvidenceJwks:
+      type: object
+      additionalProperties: true   # RFC 7517 §5: a JWK Set MAY carry extra top-level members; unknown ones are ignored (matches CyclesEvidenceJwk)
+      description: |
+        The signer's key set, published at a `server_id`-relative
+        well-known path so a verifier can resolve a `did:cycles`
+        `signer_did` to a public key and establish AUTHORITY:
+
+            GET {server_id}/.well-known/cycles-jwks.json
+            → application/json, an RFC 7517 JWK Set of this shape.
+
+        # Path is server_id-relative (append-after-path), deliberately NOT origin-rooted
+
+        The set is located by appending `/.well-known/cycles-jwks.json` to
+        the verbatim `server_id` string (collapsing only a doubled `/` at
+        the join). Because `server_id` carries a path (e.g.
+        `https://cycles.example.com/v1`), this resolves to
+        `https://cycles.example.com/v1/.well-known/cycles-jwks.json` — it is
+        API-base-relative, NOT origin-rooted (not the RFC 8615 sense), and
+        this is deliberate, for two reasons:
+
+        1. **Authority scope (decisive).** The `did:cycles` hash covers
+           `server_id` *with its path*, so the identity is anchored to that
+           exact base. Resolving keys at the origin root would let whatever
+           principal owns the host root answer for a signer whose DID only
+           ever committed to `{host}/v1` — on a path-multi-tenant host that
+           broader authority can be a *different* principal. Keeping the JWK
+           Set under the same base holds key authority and identity anchor in
+           one scope and designs out that cross-tenant confusion.
+        2. **Determinism.** Appending a fixed suffix to the verbatim
+           `server_id` bytes needs no URL parsing — no host-case,
+           default-port, trailing-slash, or percent-encoding step where two
+           verifiers could drift (the split risk under the hash rule). It is
+           the same lexical rule the `did:cycles` hash input runs on, so an
+           implementer holding both applies one convention.
+
+        Producers MUST serve the JWK Set at this API-base path.
+
+        Positioning vs RFC 8414 (so this is not mistaken for an oversight):
+        OAuth Authorization Server Metadata handles a path-bearing issuer by
+        INSERTING `.well-known` between host and path (host-rooted); OIDC's
+        earlier append-after-path form is the known interop wart. This spec
+        takes append-after-path ON PURPOSE — host-rooted insertion cannot
+        preserve either property above, because it necessarily splits the
+        metadata authority away from the path the DID commits to. The literal
+        `.well-known` segment is retained for its conventional "this is
+        metadata, do not route it as an API resource" signal.
+
+        # server_id hash input (NORMATIVE — no normalization)
+
+        `<server_id_hash>` in a `did:cycles` `signer_did`, and any check of
+        it, is `lowerhex(sha256(B))` where `B` is the EXACT UTF-8 bytes of
+        the `server_id` string as it appears in this envelope — with NO URL
+        normalization of any kind (no trailing-slash, host-case, default-port,
+        or percent-encoding canonicalization). A producer MUST emit one
+        canonical `server_id` byte-for-byte across its envelopes and its DID;
+        a verifier hashes what it received. This keeps the DID↔server_id
+        binding and the JWKS path derivation purely lexical and deterministic.
+
+        # Rotation (load-bearing)
+
+        The set MUST include RETIRED keys, not only the active one —
+        `server_id` is deliberately distinct from any key so a server can
+        rotate without losing identity continuity, and an envelope signed
+        before a rotation must still verify. That is the entire purpose of
+        the per-key validity window.
+
+        # Key selection (NORMATIVE — never "the current key")
+
+        Given an envelope's `server_id`, `signer_did`, `issued_at_ms`:
+
+        1. Resolve the candidate public key `K`:
+           - `signer_did` = `did:cycles:<h>#<kid>`: require
+             `h == lowerhex(sha256(server_id))` (DID↔server_id binding);
+             fetch this JWK Set; take the key whose `kid` matches;
+             `K = base64url-decode(jwk.x)`.
+           - `signer_did` = raw 64-hex: `K` = those 32 bytes (the v0.1
+             path, unchanged). Authority (step 2) becomes "a JWK whose `x`
+             decodes to `K` exists in this set".
+        2. WINDOW GATE: the JWK is valid for this envelope iff
+           `cycles_nbf_ms <= issued_at_ms` AND (`cycles_exp_ms` is
+           absent/null OR `issued_at_ms < cycles_exp_ms`). A verifier MUST
+           NOT select by recency / `status`.
+        3. Verify the Ed25519 `signature` against `K` over the v0.1
+           signing input (JCS with `evidence_id` populated, `signature`
+           empty — see `CyclesEvidence`).
+
+        # Deterministic selection (NORMATIVE — no implementation discretion)
+
+        Selection must be a total function; ambiguity or a malformed set is
+        an AUTHORITY failure (`signer_authority_failed`), never silent
+        discretion, and is distinct from a network/availability failure
+        (`signer_resolution_failed`) and from a bad signature
+        (`signature_invalid`):
+
+          - `kid` MUST be unique within a JWK Set. A duplicate `kid`, or
+            (for `did:cycles`) no key matching the DID's `kid`, ⇒
+            `signer_authority_failed`.
+          - The window gate (step 2) MUST be satisfied by EXACTLY ONE
+            candidate key. Zero covering keys, or overlapping windows that
+            leave two candidates, ⇒ `signer_authority_failed`. (For a
+            single `kid` lookup, "two candidates" can only arise via
+            duplicate `kid`, already an error.)
+          - Raw-hex: exactly one window-covering JWK whose `x` decodes to
+            `K` must exist. Zero ⇒ the key is absent from the set ⇒
+            `signer_authority_failed`. Two or more ⇒ ambiguous ⇒
+            `signer_authority_failed`.
+          - A `did:cycles` whose `<server_id_hash>` ≠
+            `lowerhex(sha256(server_id))` ⇒ `signer_authority_failed`
+            (the DID does not bind to this envelope's `server_id`).
+          - A JWK with malformed/wrong-length `x`, missing `cycles_nbf_ms`,
+            wrong `kty`/`crv`, or a present-but-non-`EdDSA` `alg` is INVALID
+            and excluded from candidacy (absent `alg` is fine); if
+            its exclusion leaves no covering key, the result is
+            `signer_authority_failed`. (A wholly unparseable JWK Set body,
+            by contrast, is `signer_resolution_failed`.)
+
+        # Raw-hex ↔ JWK bridge
+
+        The raw-hex `signer_did` is `hex(pubkey)`; a JWK `x` is
+        `base64url(pubkey)` — the same 32 bytes. So a raw-hex envelope's
+        authority check is purely "a window-covering JWK with the same key
+        bytes exists in `server_id`'s set" — no `kid` needed. This keeps
+        the v0.1 raw-hex path working byte-for-byte while letting an
+        unpinned verifier still establish authority once the set exists.
+
+        # Verification dispositions (kept DISTINCT)
+
+        A conformant verifier reports exactly one. The model separates the
+        TWO axes PR #45 distinguishes — signature *validity* (do the bytes
+        verify against the named key?) and signer *authority* (is that key
+        the legitimate Cycles signer for `server_id` at `issued_at_ms`?):
+
+          - `authentic` — signature valid AND authority established: the
+            verifying key is the one window-covering key selected
+            deterministically from `server_id`'s JWK Set. Both axes pass.
+          - `binding_only` — signature cryptographically VALID, but signer
+            authority was not established (no JWKS authority was resolved —
+            e.g. raw-hex with no set lookup, or a deployment still in the
+            v0.1 pin-only posture). This is the shippable v0.1 case; on the
+            signature-validity axis it corresponds to a "valid signature,
+            authority not yet asserted" result. The companion
+            `signer_pin_matched` boolean says whether THIS (Cycles)
+            verifier's `expected_signer` pin was present and matched the
+            envelope's `signer_did`; absent ⇒ valid-but-unpinned,
+            present-and-true ⇒ pinned to the Cycles signer. NOTE — this is a
+            Cycles-side pin of the Cycles ENVELOPE signer (`signer_did`),
+            which is a DIFFERENT trust anchor from APS PR #45's
+            `pinned_issuer`: that pins the APS RECEIPT issuer (the APS
+            object's own `signer`), in the separate APS-receipt verification.
+            Analogous in spirit, distinct anchor — do not conflate them.
+          - `signer_authority_failed` — resolution SUCCEEDED (the JWK Set
+            was fetched and parsed) but the key is NOT authorized for this
+            envelope: DID↔`server_id` hash mismatch, no window-covering
+            key, the raw-hex key absent from the set, or an ambiguous /
+            duplicate-`kid` selection (see Deterministic selection above).
+            This is neither a network failure nor a forgery — the signer
+            could not be authorized. (The signature MAY itself be valid;
+            authority is what failed.)
+          - `signer_resolution_failed` — the DID method could not be
+            resolved or the JWK Set document could not be retrieved or
+            parsed (network, 404/transient, unparseable body). This is about
+            obtaining the set, NOT searching it: once a set is fetched and
+            parsed, a missing/duplicate `kid` or no window-covering key is
+            `signer_authority_failed`, not this. Establishes NOTHING about
+            the bytes; MUST NOT be reported as `signature_invalid` (a network
+            failure is not a forgery), and MUST be kept distinct from
+            `signer_authority_failed`, which implies a successful fetch.
+          - `signature_invalid` — the bytes do not verify against the
+            resolved/named key (tamper).
+
+        # Liveness
+
+        Resolution needs `server_id` reachable. For server-gone archival,
+        the consumer is expected to have captured the JWK (or the envelope
+        + its key) at receipt time; guaranteeing server liveness is out of
+        scope.
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          items:
+            $ref: "#/components/schemas/CyclesEvidenceJwk"
+
+    CyclesEvidenceJwk:
+      type: object
+      additionalProperties: true   # RFC 7517 permits unknown members; verifiers ignore them
+      description: |
+        One Ed25519 signing key with a Cycles validity window. RFC 7517 /
+        RFC 8037 (OKP/Ed25519) JWK, plus three `cycles_*` members.
+      required: [kty, crv, x, kid, cycles_nbf_ms]
+      properties:
+        kty:
+          type: string
+          const: OKP
+        crv:
+          type: string
+          const: Ed25519
+        alg:
+          type: string
+          const: EdDSA
+          description: |
+            OPTIONAL (RFC 7517 §4.4). If present it MUST be `EdDSA`; a
+            present-but-different `alg` makes the JWK INVALID and the key is
+            excluded from candidacy, exactly like a wrong `kty`/`crv`. Absent
+            `alg` is fine — `kty=OKP` + `crv=Ed25519` already fix EdDSA.
+        x:
+          type: string
+          description: |
+            base64url (unpadded, RFC 7515 §2) of the RAW 32-byte Ed25519
+            public key. Equals `base64url(hex-decode(signer_did))` for a
+            raw-hex `signer_did`.
+        kid:
+          type: string
+          description: |
+            Stable key id. Equals the `#<kid>` fragment of a `did:cycles`
+            `signer_did`.
+        cycles_nbf_ms:
+          type: integer
+          format: int64
+          description: Valid-from, epoch ms, INCLUSIVE.
+        cycles_exp_ms:
+          # OAS 3.1 / JSON Schema 2020-12 nullability (not the 3.0 `nullable`)
+          type: [integer, "null"]
+          format: int64
+          description: |
+            Valid-until, epoch ms, EXCLUSIVE. Absent/null ⇒ the currently
+            active key (open-ended).
+        status:
+          type: string
+          enum: [active, retired]
+          description: |
+            Advisory only. Key selection is by validity WINDOW, never by
+            `status` — a retired key still verifies envelopes issued while
+            it was valid.
 
     # =====================================================================
     # Common nested types.
