@@ -1059,22 +1059,42 @@ components:
             GET {server_id}/.well-known/cycles-jwks.json
             → application/json, an RFC 7517 JWK Set of this shape.
 
-        # Path is server_id-relative, NOT RFC 8615 origin .well-known (deliberate)
+        # Path is server_id-relative (append-after-path), deliberately NOT origin-rooted
 
         The set is located by appending `/.well-known/cycles-jwks.json` to
         the verbatim `server_id` string (collapsing only a doubled `/` at
         the join). Because `server_id` carries a path (e.g.
         `https://cycles.example.com/v1`), this resolves to
         `https://cycles.example.com/v1/.well-known/cycles-jwks.json` — it is
-        API-base-relative, NOT origin-rooted in the RFC 8615 sense. This is
-        intentional: `server_id` (path included) is the cryptographic anchor
-        — it is the exact byte string the `did:cycles` hash covers (below) —
-        so deriving the JWKS location by pure string append needs no URL
-        parsing. Taking an origin instead would force every verifier to
-        agree on host case, default-port, and trailing-slash normalization
-        (the split-implementation risk called out under the hash rule), and
-        would prevent two logical Cycles servers from co-hosting under one
-        origin. Producers MUST serve the JWK Set at this API-base path.
+        API-base-relative, NOT origin-rooted (not the RFC 8615 sense), and
+        this is deliberate, for two reasons:
+
+        1. **Authority scope (decisive).** The `did:cycles` hash covers
+           `server_id` *with its path*, so the identity is anchored to that
+           exact base. Resolving keys at the origin root would let whatever
+           principal owns the host root answer for a signer whose DID only
+           ever committed to `{host}/v1` — on a path-multi-tenant host that
+           broader authority can be a *different* principal. Keeping the JWK
+           Set under the same base holds key authority and identity anchor in
+           one scope and designs out that cross-tenant confusion.
+        2. **Determinism.** Appending a fixed suffix to the verbatim
+           `server_id` bytes needs no URL parsing — no host-case,
+           default-port, trailing-slash, or percent-encoding step where two
+           verifiers could drift (the split risk under the hash rule). It is
+           the same lexical rule the `did:cycles` hash input runs on, so an
+           implementer holding both applies one convention.
+
+        Producers MUST serve the JWK Set at this API-base path.
+
+        Positioning vs RFC 8414 (so this is not mistaken for an oversight):
+        OAuth Authorization Server Metadata handles a path-bearing issuer by
+        INSERTING `.well-known` between host and path (host-rooted); OIDC's
+        earlier append-after-path form is the known interop wart. This spec
+        takes append-after-path ON PURPOSE — host-rooted insertion cannot
+        preserve either property above, because it necessarily splits the
+        metadata authority away from the path the DID commits to. The literal
+        `.well-known` segment is retained for its conventional "this is
+        metadata, do not route it as an API resource" signal.
 
         # server_id hash input (NORMATIVE — no normalization)
 
