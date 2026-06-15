@@ -1050,7 +1050,7 @@ components:
     # =====================================================================
     CyclesEvidenceJwks:
       type: object
-      additionalProperties: false
+      additionalProperties: true   # RFC 7517 §5: a JWK Set MAY carry extra top-level members; unknown ones are ignored (matches CyclesEvidenceJwk)
       description: |
         The signer's key set, published at a `server_id`-relative
         well-known path so a verifier can resolve a `did:cycles`
@@ -1207,13 +1207,15 @@ components:
             This is neither a network failure nor a forgery — the signer
             could not be authorized. (The signature MAY itself be valid;
             authority is what failed.)
-          - `signer_resolution_failed` — the DID method, the JWK Set
-            document, or the `kid` lookup could not be resolved/reached
-            (network, 404/transient, unparseable body). This establishes
-            NOTHING about the bytes and MUST NOT be reported as
-            `signature_invalid` — a network failure is not a forgery, and
-            MUST be kept distinct from `signer_authority_failed`, which
-            implies a successful fetch.
+          - `signer_resolution_failed` — the DID method could not be
+            resolved or the JWK Set document could not be retrieved or
+            parsed (network, 404/transient, unparseable body). This is about
+            obtaining the set, NOT searching it: once a set is fetched and
+            parsed, a missing/duplicate `kid` or no window-covering key is
+            `signer_authority_failed`, not this. Establishes NOTHING about
+            the bytes; MUST NOT be reported as `signature_invalid` (a network
+            failure is not a forgery), and MUST be kept distinct from
+            `signer_authority_failed`, which implies a successful fetch.
           - `signature_invalid` — the bytes do not verify against the
             resolved/named key (tamper).
 
