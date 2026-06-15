@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cycles Budget Authority API
-  version: 0.1.25.5
+  version: 0.1.25.6
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -26,10 +26,12 @@ info:
     AUTH & TENANCY (NORMATIVE):
       - Requests are authenticated via X-Cycles-API-Key, EXCEPT endpoints that
         explicitly declare `security: []`, which are PUBLIC and require no API key.
-        The only such endpoint is `GET /v1/evidence/{evidence_id}` (envelope
-        retrieval): its `evidence_id` is an unguessable content-hash capability and
-        the envelope is content-addressed and signed, so it is safe to serve
-        publicly — see that operation's description for the rationale.
+        Two such endpoints exist, both in the CyclesEvidence surface:
+        `GET /v1/evidence/{evidence_id}` (envelope retrieval — its `evidence_id`
+        is an unguessable content-hash capability and the envelope is
+        content-addressed and signed) and `GET /v1/.well-known/cycles-jwks.json`
+        (the signer's public JWK Set — public keys only, the standard posture for
+        a verification key set). See each operation's description for the rationale.
       - Server determines an "effective tenant" from the API key (or other auth context).
       - Subject.tenant is a budgeting dimension and MUST be validated against the effective tenant.
         If mismatched, server MUST return 403 FORBIDDEN.
@@ -498,6 +500,70 @@ components:
         signature:
           type: string
           pattern: '^[0-9a-f]{128}$'
+
+    CyclesEvidenceJwks:
+      type: object
+      additionalProperties: true
+      description: >-
+        The issuing server's signer key set, returned by `getEvidenceJwks`. An
+        RFC 7517 JWK Set (extra top-level members allowed and ignored). The
+        NORMATIVE resolution algorithm — `did:cycles` binding, the
+        validity-window key selection (pick the key whose
+        `[cycles_nbf_ms, cycles_exp_ms)` covers the envelope's `issued_at_ms`,
+        never "the current key"), the deterministic-selection rules, and the
+        verification dispositions — lives in `drafts/cycles-evidence-v0.1.yaml`;
+        this schema mirrors its required shape for the serving endpoint.
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          items: {$ref: '#/components/schemas/CyclesEvidenceJwk'}
+
+    CyclesEvidenceJwk:
+      type: object
+      additionalProperties: true
+      description: >-
+        One Ed25519 signing key with a Cycles validity window. RFC 7517 /
+        RFC 8037 (OKP/Ed25519) JWK plus the `cycles_*` members. A retired key
+        MUST remain in the set so envelopes signed before a rotation still
+        verify. See `drafts/cycles-evidence-v0.1.yaml` for full semantics.
+      required: [kty, crv, x, kid, cycles_nbf_ms]
+      properties:
+        kty:
+          type: string
+          const: OKP
+        crv:
+          type: string
+          const: Ed25519
+        alg:
+          type: string
+          const: EdDSA
+          description: >-
+            Optional (RFC 7517 §4.4); if present MUST be `EdDSA`. A
+            present-but-different `alg` makes the JWK invalid (excluded).
+        x:
+          type: string
+          description: >-
+            base64url (unpadded) of the raw 32-byte Ed25519 public key. Equals
+            `base64url(hex-decode(signer_did))` for a raw-hex `signer_did`.
+        kid:
+          type: string
+          description: >-
+            Stable key id; equals the `#<kid>` fragment of a `did:cycles`
+            `signer_did`.
+        cycles_nbf_ms:
+          type: integer
+          format: int64
+          description: Valid-from, epoch ms, INCLUSIVE.
+        cycles_exp_ms:
+          type: [integer, "null"]
+          format: int64
+          description: Valid-until, epoch ms, EXCLUSIVE. Absent/null ⇒ active (open-ended).
+        status:
+          type: string
+          enum: [active, retired]
+          description: >-
+            Advisory only. Selection is by validity WINDOW, never by `status`.
 
     CyclesEvidenceRef:
       type: object
@@ -2162,6 +2228,72 @@ paths:
               schema: {$ref: '#/components/schemas/CyclesEvidenceEnvelope'}
         "400": {$ref: '#/components/responses/ErrorResponse'}
         "404": {$ref: '#/components/responses/ErrorResponse'}
+        "429":
+          description: >-
+            Rate limited. Public endpoints SHOULD be throttled; clients retry
+            after the indicated delay.
+          headers:
+            Retry-After: {$ref: '#/components/headers/Retry-After'}
+            X-RateLimit-Reset: {$ref: '#/components/headers/X-RateLimit-Reset'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+        "500": {$ref: '#/components/responses/ErrorResponse'}
+
+  /v1/.well-known/cycles-jwks.json:
+    get:
+      tags: [Evidence]
+      operationId: getEvidenceJwks
+      x-conformance: normative
+      summary: Fetch the signer's CyclesEvidence JWK Set (signer-key resolution)
+      description: >-
+        Return the issuing server's Ed25519 verification keys as a JWK Set, so a
+        consumer can resolve a `did:cycles` `signer_did` (or confirm a raw-hex
+        one) to a public key and establish signer AUTHORITY — not merely
+        signature validity. This is the publication half of the ADDITIVE
+        signer-key-resolution layer (cycles-evidence v0.2); the resolvable
+        `signer_did` form, the NORMATIVE key-selection + validity-window rules,
+        and the verification dispositions live in `drafts/cycles-evidence-v0.1.yaml`
+        (`CyclesEvidenceJwks`).
+
+        Located API-base-relative: the spec path is
+        `{server_id}/.well-known/cycles-jwks.json`, and `server_id` already
+        includes `/v1` (e.g. `https://cycles.example.com/v1`), so it resolves to
+        `…/v1/.well-known/cycles-jwks.json` — deliberately NOT origin-rooted, so
+        key authority stays anchored to the exact base the `did:cycles` hash
+        commits to. The literal `.well-known` segment marks this as metadata, not
+        a routed API resource.
+
+        OPTIONAL TO PUBLISH: a server that does not participate in signer-key
+        resolution need not serve this (it returns 404, and consumers fall back
+        to raw-hex `signer_did` + `expected_signer` pinning — the `binding_only`
+        posture). A server that DOES publish MUST serve it at this path with this
+        shape and the selection/window semantics in the draft.
+
+        AUTH (NORMATIVE): PUBLIC (no ApiKeyAuth). A JWK Set is public keys only —
+        the standard posture for a verification key set — and is itself the trust
+        anchor consumers resolve, so it must be reachable without credentials.
+        The private signing key is NEVER served by this or any endpoint. Servers
+        SHOULD rate-limit and SHOULD serve with a short `Cache-Control: public`
+        max-age (the set changes only on key rotation), NOT `immutable`.
+      security: []
+      responses:
+        "200":
+          description: The signer's JWK Set.
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/X-Request-Id'}
+            X-Cycles-Trace-Id: {$ref: '#/components/headers/X-Cycles-Trace-Id'}
+            Cache-Control: {$ref: '#/components/headers/Cache-Control'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CyclesEvidenceJwks'}
+        "404":
+          description: >-
+            This server does not publish a JWK Set (signer-key resolution not
+            enabled, or the evidence signing identity is unconfigured).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
         "429":
           description: >-
             Rate limited. Public endpoints SHOULD be throttled; clients retry

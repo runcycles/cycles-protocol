@@ -294,8 +294,10 @@ documents:
     integration_points:
       - runtime_base: >-
           cycles-protocol-v0.yaml carries the wire surface: CyclesEvidenceRef
-          (cycles_evidence on the five response types) and getEvidence
-          (GET /v1/evidence/{id}). The envelope draft is what those refs resolve to.
+          (cycles_evidence on the five response types), getEvidence
+          (GET /v1/evidence/{id}), and getEvidenceJwks
+          (GET /v1/.well-known/cycles-jwks.json — the v0.2 signer JWK Set, public,
+          optional to publish). The envelope draft is what those refs resolve to.
     depends_on:
       - runtime_base   # mirrors its request/response schemas
     readers:
