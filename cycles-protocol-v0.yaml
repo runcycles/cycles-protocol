@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cycles Budget Authority API
-  version: 0.1.25.6
+  version: 0.1.25.7
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -1390,6 +1390,18 @@ components:
         metadata:
           type: object
           additionalProperties: true
+          description: >-
+            Metadata supplied at RESERVE time (on the create-reservation
+            request), if any. For metadata attached at COMMIT time see
+            `committed_metadata`.
+        committed_metadata:
+          type: object
+          additionalProperties: true
+          description: >-
+            Metadata supplied on the COMMIT request (`CommitRequest.metadata`),
+            preserved on the reservation record. Present on COMMITTED rows whose
+            commit carried metadata; absent otherwise. Distinct from `metadata`,
+            which is captured at reserve time.
 
     BalanceResponse:
       type: object

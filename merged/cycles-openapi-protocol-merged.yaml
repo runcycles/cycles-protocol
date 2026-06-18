@@ -945,6 +945,14 @@ components:
         metadata:
           type: object
           additionalProperties: true
+          description: Metadata supplied at RESERVE time (on the create-reservation request), if any.
+            For metadata attached at COMMIT time see `committed_metadata`.
+        committed_metadata:
+          type: object
+          additionalProperties: true
+          description: Metadata supplied on the COMMIT request (`CommitRequest.metadata`), preserved on
+            the reservation record. Present on COMMITTED rows whose commit carried metadata; absent otherwise.
+            Distinct from `metadata`, which is captured at reserve time.
     BalanceResponse:
       type: object
       required:

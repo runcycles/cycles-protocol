@@ -6,6 +6,21 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.7 — 2026-06-18
+
+_(revision 2026-06-18 — expose commit-time metadata on `getReservation`)_
+
+- Adds the optional `committed_metadata` field to `ReservationDetail` (the
+  `GET /v1/reservations/{reservation_id}` response). It carries the metadata
+  supplied on the COMMIT request (`CommitRequest.metadata`), preserved on the
+  reservation record and surfaced on read — previously a server could accept and
+  store commit metadata but had no field to return it, so it was effectively
+  write-only (runcycles/cycles-server#197). Also clarifies the existing
+  `metadata` field as RESERVE-time metadata, distinct from `committed_metadata`.
+  Additive + non-breaking: an optional property on an existing response schema;
+  clients that don't read it are unaffected, and servers that don't populate it
+  simply omit it.
+
 ## v0.1.25.6 — 2026-06-15
 
 _(revision 2026-06-15 — publish the signer JWK Set: `getEvidenceJwks`)_
