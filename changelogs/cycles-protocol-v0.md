@@ -6,6 +6,32 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.8 — 2026-06-19
+
+_(revision 2026-06-19 — surface `committed` + opt-in metadata on `listReservations`)_
+
+- Adds `committed`, `metadata`, and `committed_metadata` to
+  `ReservationSummary` (the `GET /v1/reservations` list rows), closing the
+  inconsistency where these fields surfaced on the single-row
+  `ReservationDetail` but were dropped from list responses
+  (runcycles/cycles-server#201, follow-up to #197).
+- `committed` (the COMMIT charge, a small scalar) is returned
+  UNCONDITIONALLY on COMMITTED list rows — on the same footing as
+  `finalized_at_ms`.
+- `metadata` (RESERVE-time) and `committed_metadata` (COMMIT-time) are
+  arbitrary-size, possibly-PII maps, so they are OMITTED FROM LIST ROWS BY
+  DEFAULT and projected only when the caller opts in via a new
+  `include` query parameter (`?include=metadata,committed_metadata`).
+- Adds the `include` query parameter to `listReservations`: a
+  comma-separated field-projection list. Unrecognized/empty tokens are
+  ignored without error; it is PROJECTION-ONLY and MUST NOT participate in
+  cursor / filter-hash binding (changing `include` mid-pagination does not
+  invalidate a cursor), distinguishing it from the window filters.
+- Additive + non-breaking: optional properties on an existing response
+  schema and an additive, ignore-if-unrecognized query parameter. Clients
+  that don't read the new fields, and servers that don't populate them or
+  honor `include`, are unaffected.
+
 ## v0.1.25.7 — 2026-06-18
 
 _(revision 2026-06-18 — expose commit-time metadata on `getReservation`)_

@@ -1075,6 +1075,31 @@ components:
           type: array
           items:
             type: string
+        committed:
+          $ref: '#/components/schemas/Amount'
+          description: 'The amount charged at COMMIT, mirrored from `ReservationDetail.committed`. Present
+            on COMMITTED rows only; absent on ACTIVE, EXPIRED, and RELEASED rows. Returned UNCONDITIONALLY
+            on list rows (no `include` opt-in required) — it is a small scalar core to a reservation listing,
+            on the same footing as `finalized_at_ms`. OPTIONAL per the `additionalProperties: false` invariant
+            — older summaries sent without this field remain valid. Added in revision 2026-06-19.'
+        metadata:
+          type: object
+          additionalProperties: true
+          description: RESERVE-time metadata (see `ReservationDetail.metadata`). On `listReservations`
+            responses this is OMITTED BY DEFAULT and populated ONLY when the caller opts in with `include=metadata`
+            — the map is arbitrary-size and may carry application PII, so it is not projected onto every
+            list row unconditionally. Always present (when the reservation carried reserve-time metadata)
+            on the single-row `ReservationDetail`. OPTIONAL; absent when not requested or when there was
+            no reserve-time metadata. Added in revision 2026-06-19.
+        committed_metadata:
+          type: object
+          additionalProperties: true
+          description: COMMIT-time metadata (see `ReservationDetail.committed_metadata`). On `listReservations`
+            responses this is OMITTED BY DEFAULT and populated ONLY when the caller opts in with `include=committed_metadata`
+            — same payload-size / PII rationale as `metadata`. Always present (on COMMITTED rows whose
+            commit carried metadata) on the single-row `ReservationDetail`. OPTIONAL; absent when not
+            requested, on non-COMMITTED rows, or when the commit carried no metadata. Added in revision
+            2026-06-19.
     ReservationListResponse:
       type: object
       additionalProperties: false
@@ -2594,6 +2619,44 @@ paths:
         description: Sort direction. Default descending.
         schema:
           $ref: '#/components/schemas/SortDirection'
+      - name: include
+        in: query
+        required: false
+        description: |-
+          FIELD PROJECTION (NORMATIVE, ADDITIVE). Comma-separated list of OPTIONAL heavy fields to project onto each `ReservationSummary` in the response. By default the list projection omits the arbitrary-size, possibly-PII metadata maps to keep list payloads lean; a caller that needs them (e.g. an aggregate audit / export view) opts in explicitly. Added in revision 2026-06-19.
+          Recognized tokens:
+            - `metadata` — populate `ReservationSummary.metadata`
+              (RESERVE-time metadata) on rows that carry it.
+            - `committed_metadata` — populate
+              `ReservationSummary.committed_metadata` (COMMIT-time
+              metadata) on COMMITTED rows whose commit carried metadata.
+
+          Semantics (NORMATIVE):
+            - Unrecognized tokens MUST be ignored without error
+              (forward/backward compatible — a client MAY request a
+              field a given server version does not know, and an
+              additive-parameter-unaware server simply never populates
+              these maps).
+            - Tokens are comma-separated; surrounding whitespace and
+              empty tokens (e.g. a trailing comma, or `include=`) MUST
+              be ignored, never 400.
+            - PROJECTION-ONLY: `include` selects which fields are
+              serialized; it does NOT affect which rows match, their
+              ordering, or pagination. It therefore MUST NOT participate
+              in cursor / canonical-filter-hash binding — a cursor
+              minted under one `include` value remains valid when the
+              next page is fetched under a different (or absent)
+              `include`, and changing `include` mid-pagination MUST NOT
+              return 400. (Contrast the window filters above, which DO
+              bind the cursor.)
+            - `committed` is NOT gated by `include`; it is always
+              projected (see `ReservationSummary.committed`).
+        style: form
+        explode: false
+        schema:
+          type: array
+          items:
+            type: string
       - $ref: '#/components/parameters/Limit'
       - $ref: '#/components/parameters/Cursor'
       responses:
