@@ -2651,12 +2651,12 @@ paths:
               bind the cursor.)
             - `committed` is NOT gated by `include`; it is always
               projected (see `ReservationSummary.committed`).
+        style: form
+        explode: false
         schema:
           type: array
           items:
             type: string
-          style: form
-          explode: false
       - $ref: '#/components/parameters/Limit'
       - $ref: '#/components/parameters/Cursor'
       responses:
