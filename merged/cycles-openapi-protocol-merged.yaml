@@ -207,6 +207,26 @@ components:
             Note `server_id` is already the canonical deployment base INCLUDING the `/v1` prefix (e.g.
             `https://cycles.example.com/v1`), so the join adds only `/evidence/{evidence_id}` — it MUST
             NOT re-add `/v1`.
+    ReservationEvidence:
+      type: object
+      additionalProperties: false
+      description: 'Map of artifact type to the CyclesEvidence reference emitted for that operation on
+        a reservation. Lets a consumer jump from a reservation straight to its signed envelope(s) via
+        `getEvidence` without having captured the `evidence_id` off the original reserve / commit / release
+        response. Keys are the reservation-applicable artifact types: a reservation has at most a `reserve`
+        entry plus one terminal entry (`commit` XOR `release`). TRANSPORT METADATA, NOT ATTESTED (see
+        `CyclesEvidenceRef`) — each entry is recorded after its artifact''s `evidence_id` was computed
+        and is not part of any attested payload.'
+      properties:
+        reserve:
+          $ref: '#/components/schemas/CyclesEvidenceRef'
+          description: Evidence emitted for the reserve operation, if any.
+        commit:
+          $ref: '#/components/schemas/CyclesEvidenceRef'
+          description: Evidence emitted for the commit operation (COMMITTED reservations).
+        release:
+          $ref: '#/components/schemas/CyclesEvidenceRef'
+          description: Evidence emitted for the release operation (RELEASED reservations).
     IdempotencyKey:
       type: string
       minLength: 1
@@ -953,6 +973,13 @@ components:
           description: Metadata supplied on the COMMIT request (`CommitRequest.metadata`), preserved on
             the reservation record. Present on COMMITTED rows whose commit carried metadata; absent otherwise.
             Distinct from `metadata`, which is captured at reserve time.
+        evidence:
+          $ref: '#/components/schemas/ReservationEvidence'
+          description: CyclesEvidence references for this reservation's operations (reserve / commit /
+            release), keyed by artifact type, so a consumer can resolve the signed envelope(s) via `getEvidence`
+            without having captured the `evidence_id` off the original response. Present when the reservation
+            has recorded evidence; absent when evidence emission is disabled on the server or the reservation
+            predates evidence support. Added in revision 2026-06-22.
     BalanceResponse:
       type: object
       required:
@@ -1100,6 +1127,14 @@ components:
             commit carried metadata) on the single-row `ReservationDetail`. OPTIONAL; absent when not
             requested, on non-COMMITTED rows, or when the commit carried no metadata. Added in revision
             2026-06-19.
+        evidence:
+          $ref: '#/components/schemas/ReservationEvidence'
+          description: CyclesEvidence references for the operations performed on this reservation (reserve
+            / commit / release), keyed by artifact type. On `listReservations` this is OMITTED BY DEFAULT
+            and populated ONLY when the caller opts in with `include=evidence`. Always present (when the
+            reservation has recorded evidence) on the single-row `ReservationDetail`. OPTIONAL; absent
+            when not requested, when evidence emission is disabled, or for reservations that predate evidence
+            support. Added in revision 2026-06-22.
     ReservationListResponse:
       type: object
       additionalProperties: false
@@ -2630,6 +2665,10 @@ paths:
             - `committed_metadata` — populate
               `ReservationSummary.committed_metadata` (COMMIT-time
               metadata) on COMMITTED rows whose commit carried metadata.
+            - `evidence` — populate `ReservationSummary.evidence` (the
+              CyclesEvidence references emitted for this reservation's
+              reserve / commit / release operations) on rows that have
+              recorded evidence. Added in revision 2026-06-22.
 
           Semantics (NORMATIVE):
             - Unrecognized tokens MUST be ignored without error

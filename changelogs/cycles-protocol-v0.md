@@ -6,6 +6,32 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.9 — 2026-06-22
+
+_(revision 2026-06-22 — link reservations to their evidence envelopes)_
+
+- Adds the optional `evidence` field to `ReservationSummary` and
+  `ReservationDetail`: a `ReservationEvidence` map keyed by artifact type
+  (`reserve` / `commit` / `release`) whose values are `CyclesEvidenceRef`s.
+  Lets a consumer jump from a reservation straight to its signed envelope(s)
+  via `getEvidence` without having captured the `evidence_id` off the original
+  reserve/commit/release response (runcycles/cycles-dashboard follow-up).
+- Adds the `ReservationEvidence` component schema.
+- Adds the `evidence` token to the `listReservations` `include` projection.
+  Like `metadata` / `committed_metadata` it is OMITTED FROM LIST ROWS BY
+  DEFAULT and projected only when the caller opts in (`?include=evidence`);
+  it is PROJECTION-ONLY and MUST NOT participate in cursor / filter-hash
+  binding. On the single-row `ReservationDetail` it is always present (when
+  the reservation has recorded evidence).
+- `evidence` is TRANSPORT METADATA, NOT ATTESTED (see `CyclesEvidenceRef`):
+  each entry is recorded after its artifact's `evidence_id` was computed.
+  Absent when evidence emission is disabled or for reservations that predate
+  evidence support.
+- Additive + non-breaking: an optional property on existing response schemas
+  and an additive, ignore-if-unrecognized projection token. Clients that don't
+  read it, and servers that don't populate it or honor `include=evidence`, are
+  unaffected.
+
 ## v0.1.25.8 — 2026-06-19
 
 _(revision 2026-06-19 — surface `committed` + opt-in metadata on `listReservations`)_
