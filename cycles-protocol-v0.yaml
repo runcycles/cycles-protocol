@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cycles Budget Authority API
-  version: 0.1.25.9
+  version: 0.1.25.10
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -459,7 +459,7 @@ components:
         A signed CyclesEvidence envelope returned by `getEvidence`. The
         NORMATIVE definition — field semantics and the JCS content-hash +
         Ed25519 signature derivation — lives in
-        `drafts/cycles-evidence-v0.1.yaml`; this schema mirrors its required
+        `cycles-evidence-v0.2.yaml`; this schema mirrors its required
         shape for the serving endpoint. The envelope is content-addressed
         (`evidence_id` = sha256 of the JCS-canonical bytes with `evidence_id`
         and `signature` emptied) and self-verifying, so a consumer can check
@@ -511,7 +511,7 @@ components:
         validity-window key selection (pick the key whose
         `[cycles_nbf_ms, cycles_exp_ms)` covers the envelope's `issued_at_ms`,
         never "the current key"), the deterministic-selection rules, and the
-        verification dispositions — lives in `drafts/cycles-evidence-v0.1.yaml`;
+        verification dispositions — lives in `cycles-evidence-v0.2.yaml`;
         this schema mirrors its required shape for the serving endpoint.
       required: [keys]
       properties:
@@ -526,7 +526,7 @@ components:
         One Ed25519 signing key with a Cycles validity window. RFC 7517 /
         RFC 8037 (OKP/Ed25519) JWK plus the `cycles_*` members. A retired key
         MUST remain in the set so envelopes signed before a rotation still
-        verify. See `drafts/cycles-evidence-v0.1.yaml` for full semantics.
+        verify. See `cycles-evidence-v0.2.yaml` for full semantics.
       required: [kty, crv, x, kid, cycles_nbf_ms]
       properties:
         kty:
@@ -585,7 +585,7 @@ components:
         response for the caller's convenience and is NOT part of the evidence
         the envelope attests. The `evidence_id` is computed over the operation
         response WITHOUT this field — the envelope's `payload.<artifact>.response`
-        mirror (`drafts/cycles-evidence-v0.1.yaml`) keeps `additionalProperties:
+        mirror (`cycles-evidence-v0.2.yaml`) keeps `additionalProperties:
         false` and omits `cycles_evidence` precisely so the content hash is
         never self-referential. Implementations MUST compute `evidence_id`
         before stamping `cycles_evidence` onto the response, and MUST NOT
@@ -2347,7 +2347,7 @@ paths:
         Retrieve the signed CyclesEvidence envelope identified by `evidence_id`
         (the sha256 content hash carried on a receipt's `cycles_evidence`
         reference). Returns the envelope exactly as emitted — JCS-canonicalizable
-        and Ed25519-signed per cycles-evidence-v0.1 — so any holder can verify it
+        and Ed25519-signed per cycles-evidence-v0.2 — so any holder can verify it
         offline without trusting this server.
 
         AUTH (NORMATIVE): this endpoint is PUBLIC (no ApiKeyAuth). The
@@ -2397,7 +2397,7 @@ paths:
         signature validity. This is the publication half of the ADDITIVE
         signer-key-resolution layer (cycles-evidence v0.2); the resolvable
         `signer_did` form, the NORMATIVE key-selection + validity-window rules,
-        and the verification dispositions live in `drafts/cycles-evidence-v0.1.yaml`
+        and the verification dispositions live in `cycles-evidence-v0.2.yaml`
         (`CyclesEvidenceJwks`).
 
         Located API-base-relative: the spec path is
@@ -2412,7 +2412,7 @@ paths:
         resolution need not serve this (it returns 404, and consumers fall back
         to raw-hex `signer_did` + `expected_signer` pinning — the `binding_only`
         posture). A server that DOES publish MUST serve it at this path with this
-        shape and the selection/window semantics in the draft.
+        shape and the selection/window semantics in `cycles-evidence-v0.2.yaml`.
 
         AUTH (NORMATIVE): PUBLIC (no ApiKeyAuth). A JWK Set is public keys only —
         the standard posture for a verification key set — and is itself the trust

@@ -6,6 +6,19 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.10 — 2026-06-24
+
+_(revision 2026-06-24 — re-point CyclesEvidence cross-references to the promoted normative spec)_
+
+- Editorial only: updates the in-spec references to the CyclesEvidence
+  envelope draft from `drafts/cycles-evidence-v0.1.yaml` to the promoted
+  normative spec `cycles-evidence-v0.2.yaml` (on `CyclesEvidenceRef`,
+  `getEvidence`, `getEvidenceJwks`, and the response-mirror notes). The
+  envelope wire shape and the `cycles_evidence` surface are unchanged; the
+  `schema_version` discriminator the runtime references stays
+  `cycles-evidence/v0.1`. No schema, field, or wire change — semantic_base
+  remains 0.1.25.
+
 ## v0.1.25.9 — 2026-06-22
 
 _(revision 2026-06-22 — link reservations to their evidence envelopes)_

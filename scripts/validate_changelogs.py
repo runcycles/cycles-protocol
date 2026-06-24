@@ -32,6 +32,7 @@ SOURCE_SPECS = [
     "cycles-action-kinds-v0.1.26.yaml",
     "cycles-protocol-extensions-v0.1.26.yaml",
     "cycles-governance-extensions-v0.1.26.yaml",
+    "cycles-evidence-v0.2.yaml",
 ]
 
 VERSION_HEADING_RE = re.compile(r"^##\s+v(?P<version>[\d.]+)(?:\s|$)")

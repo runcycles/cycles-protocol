@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cycles Evidence Envelope
-  version: 0.1.0
+  version: 0.2.0
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -9,12 +9,19 @@ info:
     Cross-system content-addressed evidence envelope for Cycles
     authorization lifecycle events (decide / reserve / commit / release).
   description: |
-    STATUS: DRAFT (v0.1) — published in `cycles-protocol/drafts/` for
-    review. Not yet normative; will move to a numbered spec file at
-    repo root (e.g. `cycles-evidence-v0.2.yaml`) once at least one
-    production implementation ships and at least one cross-system
-    consumer (notably APS, https://github.com/aeoess/agent-passport-system)
-    has integrated against the envelope shape end-to-end.
+    STATUS: NORMATIVE (v0.2). This is the numbered spec at repo root that
+    the former `drafts/cycles-evidence-v0.1.yaml` is promoted to. Promotion
+    gate: a production implementation ships (the Cycles server emits
+    CyclesEvidence envelopes and serves the signer JWK Set) AND a cross-system
+    consumer integrates against the envelope shape — including signer-key
+    authority resolution — end to end. That consumer integration is APS's
+    (https://github.com/aeoess/agent-passport-system) verify-path wiring in
+    aeoess/agent-passport-system#47; this normative cut lands on that merge.
+    The v0.2 revision is editorial relative to v0.1: it makes the
+    signer-key resolution layer (the `did:cycles` `signer_did` form and
+    `CyclesEvidenceJwks`) normative. The envelope WIRE shape is unchanged and
+    the `schema_version` discriminator stays `cycles-evidence/v0.1` — v0.1
+    envelopes remain valid byte-for-byte.
 
     # Purpose
 
@@ -61,28 +68,32 @@ info:
     `cycles_evidence_url` is expected to return (a single
     `CyclesEvidence` envelope serialized as JCS-canonical JSON).
 
-    # Out of scope (v0.1)
+    # In scope (v0.2): signer-key authority resolution
+
+      Signing-key resolution (signature AUTHORITY) is NORMATIVE as of v0.2
+      — see `CyclesEvidenceJwks` and the `did:cycles` form of `signer_did`.
+      It is ADDITIVE to the v0.1 envelope wire shape: a verifier that does
+      no resolution still checks signature validity against a raw-hex
+      `signer_did` (with `expected_signer` pinning the Cycles signer for
+      trust), yielding the `binding_only` disposition; resolving the
+      `did:cycles` form (or the raw-hex ↔ JWK bridge) against the server's
+      JWK Set is what establishes `authentic`. v0.1 envelopes remain valid
+      byte-for-byte. (Runcycles tracking: cycles-protocol#103.)
+
+    # Out of scope (v0.2)
 
       - Evidence retrieval HTTP API. The fetch contract for
         `cycles_evidence_url` is documented here as expectations on the
         response body and headers, but the URL path layout, auth
         scheme, and replication policy are out of scope and live with
         the Cycles server implementation.
-      - Signing-key resolution (signature AUTHORITY) is now SPECIFIED as
-        an additive v0.2 layer — see `CyclesEvidenceJwks` and the
-        `did:cycles` form of `signer_did`. v0.1 verifiers ignore it and
-        keep checking signature validity against a raw-hex `signer_did`
-        (with `expected_signer` pinning the Cycles signer for trust); the layer is
-        purely additive. It moves to `cycles-evidence-v0.2.yaml` on the
-        normative cut. (Runcycles tracking: cycles-protocol#103.)
       - Aggregated evidence (Merkle-batched roots covering many
-        lifecycle events). A v0.2+ concern; v0.1 is one envelope per
+        lifecycle events). A later concern; v0.2 is one envelope per
         lifecycle event.
 
   x-changelog:
-    url: ./changelogs/cycles-evidence-v0.1.md
+    url: ./changelogs/cycles-evidence-v0.2.md
     format: keep-a-changelog
-    note: changelog file will be added when the draft is promoted to a normative spec.
 
   contact:
     name: Cycles maintainers
@@ -169,10 +180,14 @@ components:
           type: string
           const: cycles-evidence/v0.1
           description: |
-            Schema discriminator. Pinned to the v0.1 draft; consumers
-            MUST reject envelopes whose `schema_version` they do not
-            understand. Versioned per the file at repo root that this
-            draft is promoted to.
+            Envelope WIRE discriminator — frozen at `cycles-evidence/v0.1`.
+            Consumers MUST reject envelopes whose `schema_version` they do
+            not understand. This value tracks the envelope's wire contract,
+            NOT this document's editorial revision: the v0.2 spec adds the
+            normative signer-key resolution layer additively, without
+            changing the envelope shape, so v0.1 envelopes stay valid
+            byte-for-byte and the discriminator does not bump. It changes
+            only on a breaking change to the envelope wire shape.
 
         artifact_type:
           $ref: "#/components/schemas/ArtifactType"
@@ -792,12 +807,13 @@ components:
 
     # =====================================================================
     # Schema mirrors of the Cycles runtime types.
-    # v0.1 inlines these by name rather than $ref-ing across files so
-    # `cycles-evidence-v0.1.yaml` validates standalone. When promoted
-    # to normative, these should be replaced with cross-file refs into
-    # `cycles-protocol-v0.yaml` for single-source-of-truth.
+    # This spec inlines these by name rather than $ref-ing across files so
+    # `cycles-evidence-v0.2.yaml` validates standalone — a property kept
+    # ON PURPOSE through the normative cut (a cross-system audit consumer
+    # can validate an envelope without resolving `cycles-protocol-v0.yaml`).
+    # The MIRROR CONTRACT below is what keeps the inline copies honest.
     #
-    # MIRROR CONTRACT (v0.1, normative):
+    # MIRROR CONTRACT (normative):
     #   - Mirror schemas copy field names, types, required-lists,
     #     enum values, AND structural constraints (minLength,
     #     maxLength, minProperties, anyOf, etc.) from the canonical
@@ -1043,10 +1059,12 @@ components:
           additionalProperties: true
 
     # =====================================================================
-    # Signer-key resolution (v0.2, additive). Establishes signature
-    # AUTHORITY: that the key in `signer_did` is the legitimate Cycles
-    # signer for `server_id` at `issued_at_ms`, not an attacker key inside
-    # a self-consistent envelope. v0.1 verifiers ignore this layer.
+    # Signer-key resolution (NORMATIVE as of v0.2; additive to the v0.1
+    # envelope wire shape). Establishes signature AUTHORITY: that the key in
+    # `signer_did` is the legitimate Cycles signer for `server_id` at
+    # `issued_at_ms`, not an attacker key inside a self-consistent envelope.
+    # A verifier that does no resolution still verifies signature validity
+    # (the `binding_only` disposition) against an unchanged v0.1 envelope.
     # =====================================================================
     CyclesEvidenceJwks:
       type: object
@@ -1084,7 +1102,16 @@ components:
            the same lexical rule the `did:cycles` hash input runs on, so an
            implementer holding both applies one convention.
 
-        Producers MUST serve the JWK Set at this API-base path.
+        Publication is OPTIONAL, but conditionally REQUIRED: a producer that
+        emits the `did:cycles` `signer_did` form MUST serve a JWK Set (that form
+        is unresolvable — and can never reach `authentic` — without one), and a
+        producer that participates in signer-key authority resolution MUST do so
+        too. A producer that emits only raw-hex `signer_did` and does not
+        participate in resolution need not serve it (consumers fall back to
+        raw-hex `signer_did` + `expected_signer` pinning — the `binding_only`
+        posture). WHENEVER a JWK Set is served it MUST be at this exact API-base
+        path with this shape. (Mirrors the OPTIONAL-TO-PUBLISH contract on
+        `getEvidenceJwks` in `cycles-protocol-v0.yaml`.)
 
         Positioning vs RFC 8414 (so this is not mistaken for an oversight):
         OAuth Authorization Server Metadata handles a path-bearing issuer by

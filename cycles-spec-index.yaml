@@ -63,14 +63,15 @@ spec_family:
     isolation; SDK generators and validator pipelines need a merged artifact.
     The merge_recipes section below defines how to produce those artifacts.
   current_versions:
-    base_runtime: "0.1.25.9"              # + ReservationEvidence + include=evidence on listReservations (link reservations to their evidence)
+    base_runtime: "0.1.25.10"             # re-point evidence cross-refs to the promoted normative cycles-evidence-v0.2.yaml
     base_runtime_semantic_base: "0.1.25"  # frozen wire baseline — evidence revisions are additive, 0.1.25 clients stay compatible
     base_governance: "0.1.25.34"          # + webhook EventCategory enum value (closes the v0.1.25.33 same-release enum gap)
     base_governance_semantic_base: "0.1.25.9"  # frozen wire baseline
     extension_runtime: "0.1.26"           # untouched — no Event/ErrorResponse redeclaration
     extension_governance: "0.1.27"        # trace_id on redeclared ErrorResponse
     action_kinds: "0.1.27"                # trace_id on redeclared ErrorResponse
-    spec_index: "0.1.31"                  # runtime_base editorial → 0.1.25.9 (ReservationEvidence + include=evidence)
+    evidence_envelope: "0.2.0"            # normative cut: drafts/cycles-evidence-v0.1.yaml → cycles-evidence-v0.2.yaml (signer-key resolution now normative)
+    spec_index: "0.1.32"                  # evidence_envelope normative cut (0.1 draft → 0.2 normative) + runtime_base editorial → 0.1.25.10
 
 # ---------------------------------------------------------------------------
 # CANONICAL DOCUMENTS
@@ -85,7 +86,7 @@ documents:
 
   - id: runtime_base
     file: cycles-protocol-v0.yaml
-    version: "0.1.25.9"          # editorial: + ReservationEvidence + include=evidence (link reservations to their evidence)
+    version: "0.1.25.10"         # editorial: re-point evidence cross-refs to the promoted normative cycles-evidence-v0.2.yaml
     semantic_base: "0.1.25"      # frozen wire baseline — evidence fields are additive/optional
     role: base
     conformance: normative
@@ -264,40 +265,41 @@ documents:
       - Admin tooling authors
 
   - id: evidence_envelope
-    file: drafts/cycles-evidence-v0.1.yaml
-    version: "0.1"
+    file: cycles-evidence-v0.2.yaml
+    version: "0.2.0"
     role: companion
-    conformance: reference        # non-normative (per the normative|reference vocabulary); see conformance_status
-    conformance_status: draft
+    conformance: normative
+    conformance_status: active
     conformance_note: >-
-      DRAFT — published under drafts/ for review, NOT yet normative. Specifies
-      the cycles-evidence/v0.1 envelope (JCS-canonicalized, Ed25519-signed,
+      NORMATIVE (v0.2). Promoted from drafts/cycles-evidence-v0.1.yaml once a
+      production implementation shipped (the Cycles server emits CyclesEvidence
+      envelopes and serves the signer JWK Set) and a cross-system consumer (APS)
+      integrated end-to-end including signer-key authority resolution. Specifies
+      the CyclesEvidence envelope (JCS-canonicalized, Ed25519-signed,
       content-addressed audit artifact) that wraps the bodies the runtime
-      endpoints return. The runtime base (cycles-protocol-v0.yaml) already ships
-      the consumer-facing surface — the optional `cycles_evidence` ref on
-      decide/reserve/commit/release/error responses and the getEvidence endpoint
-      — as additive/optional (MAY). The envelope shape promotes to a numbered
-      normative spec once a production implementation ships and a cross-system
-      consumer (APS) integrates end-to-end. Signer-key authority resolution
-      (did:cycles / JWKS / rotation) is now specified as an ADDITIVE v0.2 layer in
-      the draft (CyclesEvidenceJwks + the did:cycles signer_did form); design agreed
-      with APS on runcycles/cycles-protocol#103, moves to cycles-evidence-v0.2.yaml on
-      the normative cut.
+      endpoints return. The runtime base (cycles-protocol-v0.yaml) ships the
+      consumer-facing surface — the optional `cycles_evidence` ref on
+      decide/reserve/commit/release/error responses, getEvidence, and
+      getEvidenceJwks — as additive/optional (MAY). v0.2 makes signer-key
+      authority resolution (did:cycles / JWKS / rotation) NORMATIVE; it is
+      additive to the envelope wire shape, whose `schema_version` discriminator
+      stays `cycles-evidence/v0.1` (v0.1 envelopes remain valid byte-for-byte).
+      Design agreed with APS on runcycles/cycles-protocol#103 / #112.
     title: Cycles Evidence Envelope
     plane: cross-system-audit
     owns:
-      - CyclesEvidence envelope (schema_version cycles-evidence/v0.1)
+      - CyclesEvidence envelope (schema_version cycles-evidence/v0.1 — wire discriminator frozen)
       - evidence_id content-hash recipe (RFC 8785 JCS + sha256) and Ed25519 signature derivation
       - Per-artifact payloads (DecidePayload / ReservePayload / CommitPayload / ReleasePayload / ErrorPayload)
       - Response mirrors (non-attestation note for the transport-only cycles_evidence ref)
-      - Signer-key resolution v0.2 (additive) — CyclesEvidenceJwks key set, did:cycles signer_did form, window-bound selection + the five verify dispositions (authentic / binding_only / signer_authority_failed / signer_resolution_failed / signature_invalid)
+      - Signer-key resolution (NORMATIVE v0.2, additive to the wire shape) — CyclesEvidenceJwks key set, did:cycles signer_did form, window-bound selection + the five verify dispositions (authentic / binding_only / signer_authority_failed / signer_resolution_failed / signature_invalid)
     integration_points:
       - runtime_base: >-
           cycles-protocol-v0.yaml carries the wire surface: CyclesEvidenceRef
           (cycles_evidence on the five response types), getEvidence
           (GET /v1/evidence/{id}), and getEvidenceJwks
           (GET /v1/.well-known/cycles-jwks.json — the v0.2 signer JWK Set, public,
-          optional to publish). The envelope draft is what those refs resolve to.
+          optional to publish). The envelope spec is what those refs resolve to.
     depends_on:
       - runtime_base   # mirrors its request/response schemas
     readers:
