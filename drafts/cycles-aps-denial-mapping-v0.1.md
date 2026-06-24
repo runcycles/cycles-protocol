@@ -1,6 +1,6 @@
 # Cycles → APS Tier-1 denial reason mapping (v0.1 draft)
 
-**Status:** DRAFT. Sister artifact to `drafts/cycles-evidence-v0.1.yaml`.
+**Status:** DRAFT. Sister artifact to `cycles-evidence-v0.2.yaml`.
 
 **Purpose:** Specifies the contract for `mapCyclesDenialToFoundation()` —
 the function the APS-side Cycles adapter at
@@ -64,7 +64,7 @@ closed taxonomy is enforced on three axes in `aeoess/agent-passport-system`:
 
 Surfaces on 4xx/5xx HTTP responses from any of the four Cycles runtime
 endpoints. In the CyclesEvidence envelope, these appear in
-`payload.error.response.error` (see `drafts/cycles-evidence-v0.1.yaml`
+`payload.error.response.error` (see `cycles-evidence-v0.2.yaml`
 `ErrorResponseMirror`).
 
 **HTTP-status column key.** Status codes are canonical-explicit where the
@@ -131,7 +131,7 @@ doc deliberately excludes the extension from both mapping tables and
 from the reference implementation to keep the contract honest about
 what real envelopes will carry.
 
-The sister `drafts/cycles-evidence-v0.1.yaml` `ErrorResponseMirror.error`
+The sister `cycles-evidence-v0.2.yaml` `ErrorResponseMirror.error`
 enum is correspondingly fixed to the 15 v0.1.25 base values, and the
 response mirrors have `additionalProperties: false` (no `deny_detail`
 field). Both reflect the same v0.1.25-only scope.

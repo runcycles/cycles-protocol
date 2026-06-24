@@ -6,7 +6,8 @@ SOURCE_SPECS := \
 	cycles-governance-admin-v0.1.25.yaml \
 	cycles-action-kinds-v0.1.26.yaml \
 	cycles-protocol-extensions-v0.1.26.yaml \
-	cycles-governance-extensions-v0.1.26.yaml
+	cycles-governance-extensions-v0.1.26.yaml \
+	cycles-evidence-v0.2.yaml
 
 PROTOCOL_MERGED := merged/cycles-openapi-protocol-merged.yaml
 ADMIN_MERGED := merged/cycles-openapi-admin-merged.yaml
