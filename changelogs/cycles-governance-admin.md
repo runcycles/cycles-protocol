@@ -29,12 +29,27 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
   documents `reservation.released_via_tenant_cascade` as a
   ledger-level aggregate (reservation objects live on the runtime
   plane).
+- Adds the `EventDataTenantCascade` payload schema — one shared shape
+  for all four cascade kinds (object identity via exactly one of
+  `ledger_id` / `subscription_id` / `key_id`, the `prior_status` →
+  `new_status` transition, `released_amount` on the reservation
+  aggregate, and the `cascade_reason` provenance tag) — so cascade
+  Events have a per-type payload definition like every other
+  EventType, per CONFORMANCE.md's payload-conformance requirement.
+  Rule 1 references it. Matches the payload the reference admin
+  server has emitted since implementing the cascade; the
+  reservation aggregate in particular fits no pre-existing
+  reservation payload schema, hence the dedicated definition.
+- Fixes stale document-revision self-references: the `info.summary`
+  headline and the SPEC FAMILY CONTEXT block now both state document
+  revision 0.1.25.35 (the headline still said 0.1.25.34 after the
+  bump; SPEC FAMILY CONTEXT had been stuck at 0.1.25.31).
 
   **Compatibility:** Additive, non-breaking — clients MUST already
   ignore unrecognized EventType values per the schema's
-  EXTENSIBILITY rule. No schema shapes, operations, or status codes
-  change. Surfaced by the 2026-07-03 cycles-server-admin
-  spec-conformance audit.
+  EXTENSIBILITY rule. The new payload schema documents an existing
+  wire shape; no operations or status codes change. Surfaced by the
+  2026-07-03 cycles-server-admin spec-conformance audit.
 
 ## v0.1.25.34 — 2026-04-23
 

@@ -6,7 +6,7 @@ info:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Stable governance base — document revision 0.1.25.34; semantic base
+    Stable governance base — document revision 0.1.25.35; semantic base
     frozen at 0.1.25.9. This file is self-sufficient for the current
     v0.1.25 conformance target (runcycles' reference servers implement
     this today — adds a normative tenant-close cascade contract at
@@ -158,10 +158,13 @@ info:
         above are declared in the EventType enum for exactly this
         purpose, so cascade Events validate against Event.event_type
         and are dispatchable to webhook subscribers like any other
-        lifecycle event. `reservation.released_via_tenant_cascade`
+        lifecycle event. Their `Event.data` payload conforms to the
+        EventDataTenantCascade schema (one shared payload shape for
+        all four kinds). `reservation.released_via_tenant_cascade`
         is a ledger-level aggregate (one Event per budget whose
-        `reserved > 0` at close time), since reservation objects
-        live on the runtime plane.
+        `reserved > 0` at close time, carrying the drained amount as
+        `released_amount`), since reservation objects live on the
+        runtime plane.
 
         Idempotency: re-issuing close on an already-CLOSED tenant
         is a no-op at the tenant level. Under Mode A, no child
@@ -223,7 +226,7 @@ info:
       spec family. The current conformance target is v0.1.25 — this file
       alone (plus cycles-protocol-v0.yaml) is sufficient for the active
       target, and runcycles' reference servers implement that baseline
-      today. Document revision 0.1.25.31; semantic base frozen at 0.1.25.9
+      today. Document revision 0.1.25.35; semantic base frozen at 0.1.25.9
       (see cycles-spec-index.yaml for the versioning model).
 
       The upcoming v0.1.26 target adds new capabilities (action quotas,
@@ -2251,6 +2254,79 @@ components:
           type: object
           additionalProperties: true
           description: Component-specific diagnostic data
+
+    EventDataTenantCascade:
+      type: object
+      description: >-
+        Payload for the four `*_via_tenant_cascade` events emitted by the
+        tenant-close cascade (CASCADE SEMANTICS Rule 1):
+        budget.closed_via_tenant_cascade,
+        reservation.released_via_tenant_cascade,
+        webhook.disabled_via_tenant_cascade,
+        api_key.revoked_via_tenant_cascade. One shared shape for all four —
+        each event identifies the owned object it transitioned (exactly one
+        of `ledger_id` / `subscription_id` / `key_id` is present, matching
+        the event's category), the status transition, and the cascade
+        provenance. reservation.released_via_tenant_cascade is a
+        LEDGER-LEVEL AGGREGATE: reservation objects live on the runtime
+        plane, so the admin plane emits one event per closed budget whose
+        `reserved > 0` at close time, carrying the drained amount as
+        `released_amount` — it identifies the budget via `ledger_id`, not
+        an individual reservation.
+      properties:
+        ledger_id:
+          type: string
+          description: >-
+            Budget ledger acted on. Present on
+            budget.closed_via_tenant_cascade and
+            reservation.released_via_tenant_cascade.
+        subscription_id:
+          type: string
+          description: >-
+            Webhook subscription acted on. Present on
+            webhook.disabled_via_tenant_cascade.
+        key_id:
+          type: string
+          description: >-
+            API key acted on (never the raw key value). Present on
+            api_key.revoked_via_tenant_cascade.
+        name:
+          type: string
+          description: >-
+            Display name of the webhook subscription or API key, when set.
+        scope:
+          type: string
+          description: >-
+            Canonical scope of the affected budget. Present on the two
+            budget-identified kinds.
+        unit:
+          $ref: '#/components/schemas/UnitEnum'
+        prior_status:
+          type: string
+          description: >-
+            Owned object's status before the cascade transition
+            (e.g., ACTIVE, FROZEN, PAUSED).
+        new_status:
+          type: string
+          description: >-
+            Terminal (or effectively-terminal) status after the cascade:
+            CLOSED for budgets, DISABLED for webhook subscriptions,
+            REVOKED for API keys. Absent on
+            reservation.released_via_tenant_cascade (the aggregate has no
+            object status of its own).
+        released_amount:
+          type: integer
+          format: int64
+          description: >-
+            Only on reservation.released_via_tenant_cascade: the aggregate
+            reserved amount (in `unit`) drained back to `remaining` when
+            the budget closed.
+        cascade_reason:
+          type: string
+          description: >-
+            Cascade provenance tag. Always "tenant_closed" for Rule 1
+            events; future cascade sources may introduce new values, which
+            consumers MUST tolerate.
 
     # --- Webhook schemas ---
 
