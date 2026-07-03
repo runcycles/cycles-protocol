@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.34
+  version: 0.1.25.35
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -22,7 +22,10 @@ info:
     revision 0.1.25.34 closes a same-release enum gap by adding
     `webhook` to the EventCategory enum so that Event responses
     carrying the new webhook.* EventTypes validate against the spec's
-    Event.category field)
+    Event.category field; document revision 0.1.25.35 adds the four
+    `*_via_tenant_cascade` EventTypes to the EventType enum so Event
+    responses emitted by the tenant-close cascade validate against
+    Event.event_type)
     and also serves as the base for the upcoming v0.1.26
     spec family. Covers tenant management, authentication, and runtime
     enforcement. NOTE: This file alone is NOT sufficient for the
@@ -148,6 +151,17 @@ info:
           * `webhook.disabled_via_tenant_cascade`
           * `api_key.revoked_via_tenant_cascade`
           * `reservation.released_via_tenant_cascade`
+
+        Servers SHOULD additionally emit one Event (the Pillar 4
+        event-stream record) per mutated owned object using the
+        SAME dotted kind as its `event_type` — the four values
+        above are declared in the EventType enum for exactly this
+        purpose, so cascade Events validate against Event.event_type
+        and are dispatchable to webhook subscribers like any other
+        lifecycle event. `reservation.released_via_tenant_cascade`
+        is a ledger-level aggregate (one Event per budget whose
+        `reserved > 0` at close time), since reservation objects
+        live on the runtime plane.
 
         Idempotency: re-issuing close on an already-CLOSED tenant
         is a no-op at the tenant level. Under Mode A, no child
@@ -1603,6 +1617,7 @@ components:
         - budget.frozen                 # Budget status → FROZEN
         - budget.unfrozen               # Budget status → ACTIVE from FROZEN
         - budget.closed                 # Budget status → CLOSED (irreversible)
+        - budget.closed_via_tenant_cascade   # Budget closed by the tenant-close cascade (Rule 1)
 
         # --- Budget runtime events (threshold and anomaly) ---
         - budget.threshold_crossed      # Utilization crossed a configured threshold (e.g., 80%, 95%)
@@ -1618,6 +1633,7 @@ components:
         - reservation.expired           # Reservation TTL expired without commit or release
         - reservation.expiry_rate_spike # Expiry rate exceeded threshold over rolling window
         - reservation.commit_overage    # Committed actual > estimated amount
+        - reservation.released_via_tenant_cascade  # Outstanding reserved released by the tenant-close cascade (Rule 1; ledger-level aggregate)
 
         # --- Tenant lifecycle events ---
         - tenant.created                # New tenant registered
@@ -1634,10 +1650,12 @@ components:
         - webhook.resumed               # Subscription status PAUSED → ACTIVE (operator action)
         - webhook.disabled              # Subscription status → DISABLED (auto, after failure threshold)
         - webhook.deleted               # Subscription record removed
+        - webhook.disabled_via_tenant_cascade  # Subscription disabled by the tenant-close cascade (Rule 1)
 
         # --- API key events ---
         - api_key.created               # New API key provisioned
         - api_key.revoked               # Key revoked (manual or automated)
+        - api_key.revoked_via_tenant_cascade   # Key revoked by the tenant-close cascade (Rule 1)
         - api_key.expired               # Key reached expiry date
         - api_key.permissions_changed   # Key permissions modified
         - api_key.auth_failed           # Authentication attempt with invalid or revoked key

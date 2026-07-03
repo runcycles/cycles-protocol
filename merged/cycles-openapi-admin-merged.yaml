@@ -1253,6 +1253,7 @@ components:
       - budget.frozen
       - budget.unfrozen
       - budget.closed
+      - budget.closed_via_tenant_cascade
       - budget.threshold_crossed
       - budget.exhausted
       - budget.over_limit_entered
@@ -1264,6 +1265,7 @@ components:
       - reservation.expired
       - reservation.expiry_rate_spike
       - reservation.commit_overage
+      - reservation.released_via_tenant_cascade
       - tenant.created
       - tenant.updated
       - tenant.suspended
@@ -1276,8 +1278,10 @@ components:
       - webhook.resumed
       - webhook.disabled
       - webhook.deleted
+      - webhook.disabled_via_tenant_cascade
       - api_key.created
       - api_key.revoked
+      - api_key.revoked_via_tenant_cascade
       - api_key.expired
       - api_key.permissions_changed
       - api_key.auth_failed

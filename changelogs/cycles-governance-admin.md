@@ -6,6 +6,36 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.35 — 2026-07-03
+
+- Adds the four `*_via_tenant_cascade` values to the `EventType` enum:
+  `budget.closed_via_tenant_cascade`,
+  `reservation.released_via_tenant_cascade`,
+  `webhook.disabled_via_tenant_cascade`,
+  `api_key.revoked_via_tenant_cascade`. Closes the second same-release
+  enum gap from the cascade work: the tenant-close cascade section
+  (document revision 0.1.25.29+) RESERVED these strings as audit
+  `event_kind` values, and reference admin servers have emitted them
+  as event-stream `Event.event_type` values since implementing the
+  cascade — but the closed `EventType` enum never gained them, so a
+  `GET /v1/admin/events` (or `/v1/events`) response containing a
+  cascade Event failed contract validation. Exactly the defect class
+  v0.1.25.34 fixed for `EventCategory`/`webhook`. The EventCategory
+  description already referenced `webhook.disabled_via_tenant_cascade`
+  as an EventType; the enum now agrees.
+- The CASCADE SEMANTICS Rule 1 block now states that servers SHOULD
+  emit one Event per mutated owned object using the same dotted kind
+  as `event_type` (in addition to the MUST-emit audit entries), and
+  documents `reservation.released_via_tenant_cascade` as a
+  ledger-level aggregate (reservation objects live on the runtime
+  plane).
+
+  **Compatibility:** Additive, non-breaking — clients MUST already
+  ignore unrecognized EventType values per the schema's
+  EXTENSIBILITY rule. No schema shapes, operations, or status codes
+  change. Surfaced by the 2026-07-03 cycles-server-admin
+  spec-conformance audit.
+
 ## v0.1.25.34 — 2026-04-23
 
 - Adds `webhook` to the `EventCategory` enum. Closes a same-release
