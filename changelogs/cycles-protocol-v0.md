@@ -6,6 +6,32 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.11 — 2026-07-03
+
+_(revision 2026-07-03 — resolve two long-standing ambiguities: getReservation EXPIRED semantics and Subject standard-field charset)_
+
+- **getReservation EXPIRY (NORMATIVE clarification).** The ERROR SEMANTICS 410
+  rule previously enumerated only the mutation endpoints
+  (commit/release/extend), while the GET operation declared a 410 response
+  without saying when it fires — implementations had flip-flopped between
+  `200 status=EXPIRED` and `410`. Now explicit: `GET /v1/reservations/{id}`
+  MUST return 410 RESERVATION_EXPIRED for a reservation whose status is
+  EXPIRED (404 only for never-existed); EXPIRED rows remain visible as normal
+  200 rows on `listReservations`. Codifies the reference implementation's
+  settled behavior (cycles-server AUDIT Issue 10). The 410 response now
+  carries its own description + headers instead of the bare ErrorResponse ref.
+- **Subject CHARSET (NORMATIVE clarification).** Standard subject fields
+  carried only `maxLength: 128`, leaving unstated whether servers may reject
+  characters that collide with the canonical scope encoding (":" and "/" are
+  structural delimiters). Now explicit: values SHOULD match
+  `^[a-zA-Z0-9_.-]+$`; servers MAY reject out-of-pattern values with 400
+  INVALID_REQUEST (the reference implementation does); portable clients
+  SHOULD stay within the pattern. Deliberately prose (MAY/SHOULD), not a
+  schema `pattern:` constraint — tightening the schema would be a breaking
+  wire change for permissive servers under the evolution contract.
+- No schema, field, or wire change — description text and one response-object
+  expansion only; semantic_base remains 0.1.25.
+
 ## v0.1.25.10 — 2026-06-24
 
 _(revision 2026-06-24 — re-point CyclesEvidence cross-references to the promoted normative spec)_
