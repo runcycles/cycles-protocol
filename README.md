@@ -335,7 +335,7 @@ Use `/decide` for soft-landing checks before reserving. A subsequent `/reservati
 
 ## Subject Hierarchy
 
-Every request targets a **Subject** — a dimension bag describing where in the hierarchy the budget applies. At least one standard field (tenant, workspace, app, workflow, agent, or toolset) must be provided. A Subject containing only `dimensions` is invalid (`400 INVALID_REQUEST`).
+Every request targets a **Subject** — a dimension bag describing where in the hierarchy the budget applies. At least one standard field (tenant, workspace, app, workflow, agent, or toolset) must be provided. A Subject containing only `dimensions` is invalid (`400 INVALID_REQUEST`). Portable clients should keep standard-field values within `^[a-zA-Z0-9_.-]+$`; servers may reject out-of-pattern values with `400 INVALID_REQUEST` because `:` and `/` are structural delimiters in canonical scope identifiers.
 
 ```
 tenant → workspace → app → workflow → agent → toolset
@@ -557,7 +557,7 @@ List endpoints (`GET /v1/reservations`, `GET /v1/balances`) support cursor-based
 | 409 | `OVERDRAFT_LIMIT_EXCEEDED` | Debt would exceed limit, or scope is over-limit |
 | 409 | `DEBT_OUTSTANDING` | Debt > 0 blocks new reservations |
 | 409 | `MAX_EXTENSIONS_EXCEEDED` | Tenant `max_reservation_extensions` limit reached |
-| 410 | `RESERVATION_EXPIRED` | Commit/release: beyond `expires_at_ms + grace_period_ms`. Extend: beyond `expires_at_ms` (no grace period). |
+| 410 | `RESERVATION_EXPIRED` | Commit/release: beyond `expires_at_ms + grace_period_ms`. Extend: beyond `expires_at_ms` (no grace period). `getReservation`: reservation exists with `status=EXPIRED`. |
 | 429 | *(rate limiting)* | Server-side throttling (optional in v0). Not used for budget exhaustion. |
 | 500 | `INTERNAL_ERROR` | Server error |
 
