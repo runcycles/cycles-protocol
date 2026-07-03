@@ -63,7 +63,7 @@ spec_family:
     isolation; SDK generators and validator pipelines need a merged artifact.
     The merge_recipes section below defines how to produce those artifacts.
   current_versions:
-    base_runtime: "0.1.25.10"             # re-point evidence cross-refs to the promoted normative cycles-evidence-v0.2.yaml
+    base_runtime: "0.1.25.11"             # clarify getReservation EXPIRED→410 + Subject standard-field charset posture
     base_runtime_semantic_base: "0.1.25"  # frozen wire baseline — evidence revisions are additive, 0.1.25 clients stay compatible
     base_governance: "0.1.25.34"          # + webhook EventCategory enum value (closes the v0.1.25.33 same-release enum gap)
     base_governance_semantic_base: "0.1.25.9"  # frozen wire baseline
@@ -71,7 +71,7 @@ spec_family:
     extension_governance: "0.1.27"        # trace_id on redeclared ErrorResponse
     action_kinds: "0.1.27"                # trace_id on redeclared ErrorResponse
     evidence_envelope: "0.2.0"            # normative cut: drafts/cycles-evidence-v0.1.yaml → cycles-evidence-v0.2.yaml (signer-key resolution now normative)
-    spec_index: "0.1.32"                  # evidence_envelope normative cut (0.1 draft → 0.2 normative) + runtime_base editorial → 0.1.25.10
+    spec_index: "0.1.33"                  # runtime_base clarifications → 0.1.25.11 (getReservation EXPIRY + Subject charset)
 
 # ---------------------------------------------------------------------------
 # CANONICAL DOCUMENTS
@@ -86,7 +86,7 @@ documents:
 
   - id: runtime_base
     file: cycles-protocol-v0.yaml
-    version: "0.1.25.10"         # editorial: re-point evidence cross-refs to the promoted normative cycles-evidence-v0.2.yaml
+    version: "0.1.25.11"         # clarify getReservation EXPIRED→410 + Subject standard-field charset posture
     semantic_base: "0.1.25"      # frozen wire baseline — evidence fields are additive/optional
     role: base
     conformance: normative

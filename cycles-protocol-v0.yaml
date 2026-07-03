@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cycles Budget Authority API
-  version: 0.1.25.10
+  version: 0.1.25.11
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -60,7 +60,10 @@ info:
         (when debt > 0 and new reservation is attempted).
       - Finalized reservations MUST return HTTP 409 with error=RESERVATION_FINALIZED.
       - Expired reservations MUST return HTTP 410 with error=RESERVATION_EXPIRED.
-        (commit/release: beyond expires_at_ms + grace_period_ms; extend: beyond expires_at_ms).
+        (commit/release: beyond expires_at_ms + grace_period_ms; extend: beyond expires_at_ms;
+        getReservation: any reservation whose status is EXPIRED — see that operation's
+        EXPIRY note. Clarified in revision 2026-07-03; previously the parenthetical
+        enumerated only the mutation endpoints, leaving the GET case ambiguous.)
       - Reservations that never existed MUST return HTTP 404 with error=NOT_FOUND.
       - HTTP 429 is reserved for server-side throttling/rate limiting (optional in v0), not deterministic budget exhaustion.
       - Unit mismatch MUST return HTTP 400 with error=UNIT_MISMATCH in any of these cases:
@@ -839,6 +842,16 @@ components:
         Dimension bag for hierarchical budgets. At least one standard field (tenant, workspace, app, workflow, agent, or toolset) MUST be provided.
         A subject containing only `dimensions` is invalid; server MUST return 400 INVALID_REQUEST. 
         Hierarchy: tenant → workspace → app → workflow → agent → toolset.
+
+        CHARSET (NORMATIVE, revision 2026-07-03):
+        - Standard-field values (tenant/workspace/app/workflow/agent/toolset)
+          SHOULD match ^[a-zA-Z0-9_.-]+$. Canonical scope identifiers and scope
+          paths use ":" and "/" as structural delimiters, so delimiter,
+          whitespace, and control characters have no stable canonical encoding.
+        - Servers MAY reject standard-field values outside this pattern with
+          400 INVALID_REQUEST (the reference implementation does). Clients
+          MUST NOT rely on out-of-pattern values being accepted, and portable
+          clients SHOULD restrict themselves to the pattern above.
 
         EXTENSIBILITY (v0):
         - dimensions is an optional, user-defined map for alternative taxonomies
@@ -2146,6 +2159,16 @@ paths:
       description: >-
         Retrieve current status and details of a reservation by ID. Useful for debugging and monitoring long-running operations.
 
+        EXPIRY (NORMATIVE, revision 2026-07-03):
+          - If the reservation exists but its status is EXPIRED, the server MUST
+            return 410 with error=RESERVATION_EXPIRED (this operation's declared
+            410 response). A reservation that never existed returns 404 NOT_FOUND.
+          - EXPIRED reservations remain discoverable via listReservations, which
+            returns them as normal 200 rows with status=EXPIRED — the 410 applies
+            only to this single-resource GET. This codifies the reference
+            implementation's settled behavior; the pre-revision text enumerated
+            only commit/release/extend in the 410 rule, leaving GET ambiguous.
+
         TENANCY (NORMATIVE):
           - Under ApiKeyAuth: if the reservation exists but is owned by a
             different effective tenant, the server MUST return 403 FORBIDDEN.
@@ -2171,7 +2194,19 @@ paths:
         "401": {$ref: '#/components/responses/ErrorResponse'}
         "403": {$ref: '#/components/responses/ErrorResponse'}
         "404": {$ref: '#/components/responses/ErrorResponse'}
-        "410": {$ref: '#/components/responses/ErrorResponse'}
+        "410":
+          description: >-
+            RESERVATION_EXPIRED — the reservation exists but its status is
+            EXPIRED. See the EXPIRY note in this operation's description
+            (revision 2026-07-03); EXPIRED rows remain visible via
+            listReservations.
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/X-Request-Id'}
+            X-Cycles-Trace-Id: {$ref: '#/components/headers/X-Cycles-Trace-Id'}
+            X-Cycles-Tenant: {$ref: '#/components/headers/X-Cycles-Tenant'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
         "500": {$ref: '#/components/responses/ErrorResponse'}
 
   /v1/reservations/{reservation_id}/commit:
