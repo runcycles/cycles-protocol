@@ -1340,11 +1340,17 @@ components:
               enum:
               - admin
               - api_key
+              - admin_on_behalf_of
               - system
               - scheduler
               description: 'admin: Triggered by admin API key api_key: Triggered by tenant API key (runtime
-                operation) system: Triggered by internal process (e.g., expiry sweep, anomaly detector)
-                scheduler: Triggered by scheduled task'
+                operation) admin_on_behalf_of: Triggered by an admin API key exercising a tenant-scoped
+                dual-auth operation on the tenant''s behalf (e.g. createBudget / createPolicy / tenant-webhook
+                mutations under AdminKeyAuth). Mirrors the audit-log actor_type of the same name; reference
+                servers have emitted this on such events since the dual-auth surface landed — added to
+                the enum in revision 2026-07-04 (same additive-enum-gap class as EventCategory "webhook"
+                and the cascade EventTypes). system: Triggered by internal process (e.g., expiry sweep,
+                anomaly detector) scheduler: Triggered by scheduled task'
             key_id:
               type: string
               description: API key ID that triggered the event (if applicable)

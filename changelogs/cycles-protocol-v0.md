@@ -6,6 +6,26 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.12 — 2026-07-04
+
+_(revision 2026-07-04 — clarify webhook per-tenant ordering under retries + actor.type prose parity)_
+
+- **WEBHOOK EVENT GUIDANCE ordering (clarification).** The delivery-protocol
+  bullet promised "events for the same tenant are dispatched in order"
+  without addressing retries — but any per-delivery retry-with-backoff
+  scheme (which the same section mandates) necessarily re-queues a failed
+  delivery behind later events. Now explicit: the ordering guarantee covers
+  FIRST delivery attempts only; retried deliveries MAY arrive after later
+  same-tenant events; consumers MUST NOT assume strict arrival ordering
+  across retry boundaries and should reconstruct order from the envelope
+  `timestamp` / `correlation_id`, not arrival order. Codifies what every
+  conformant implementation (including the reference dispatcher) already
+  does; surfaced as a spec ambiguity by the 2026-07-03 events-server audit.
+- **Standard event payload actor prose**: actor.type value list now includes
+  `admin_on_behalf_of`, mirroring the governance spec's Event.actor.type
+  enum (added there in v0.1.25.36).
+- Prose-only; no schema, field, or wire change — semantic_base remains 0.1.25.
+
 ## v0.1.25.11 — 2026-07-03
 
 _(revision 2026-07-03 — resolve two long-standing ambiguities: getReservation EXPIRED semantics and Subject standard-field charset)_

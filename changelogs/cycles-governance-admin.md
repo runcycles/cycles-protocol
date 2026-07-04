@@ -6,6 +6,22 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.36 — 2026-07-04
+
+- Adds `admin_on_behalf_of` to the `Event.actor.type` enum. Third instance
+  of the additive-enum-gap class (after `EventCategory`/`webhook` in
+  v0.1.25.34 and the cascade EventTypes in v0.1.25.35): reference admin
+  servers emit `actor.type: "admin_on_behalf_of"` on events produced by
+  admin-key dual-auth operations (createBudget / createPolicy /
+  tenant-webhook mutations under AdminKeyAuth) — mirroring the audit-log
+  `actor_type` of the same name — but the closed actor enum never gained
+  the value, so those Event responses failed contract validation.
+  Surfaced by the 2026-07-04 fleet audit follow-up.
+
+  **Compatibility:** Additive, non-breaking — clients MUST ignore
+  unrecognized enum values per the spec's EXTENSIBILITY rule. No schema
+  shapes, operations, or status codes change.
+
 ## v0.1.25.35 — 2026-07-03
 
 - Adds the four `*_via_tenant_cascade` values to the `EventType` enum:

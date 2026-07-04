@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.35
+  version: 0.1.25.36
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Stable governance base — document revision 0.1.25.35; semantic base
+    Stable governance base — document revision 0.1.25.36; semantic base
     frozen at 0.1.25.9. This file is self-sufficient for the current
     v0.1.25 conformance target (runcycles' reference servers implement
     this today — adds a normative tenant-close cascade contract at
@@ -25,7 +25,9 @@ info:
     Event.category field; document revision 0.1.25.35 adds the four
     `*_via_tenant_cascade` EventTypes to the EventType enum so Event
     responses emitted by the tenant-close cascade validate against
-    Event.event_type)
+    Event.event_type; document revision 0.1.25.36 adds
+    `admin_on_behalf_of` to the Event.actor.type enum so events emitted
+    by admin-key dual-auth operations validate)
     and also serves as the base for the upcoming v0.1.26
     spec family. Covers tenant management, authentication, and runtime
     enforcement. NOTE: This file alone is NOT sufficient for the
@@ -226,7 +228,7 @@ info:
       spec family. The current conformance target is v0.1.25 — this file
       alone (plus cycles-protocol-v0.yaml) is sufficient for the active
       target, and runcycles' reference servers implement that baseline
-      today. Document revision 0.1.25.35; semantic base frozen at 0.1.25.9
+      today. Document revision 0.1.25.36; semantic base frozen at 0.1.25.9
       (see cycles-spec-index.yaml for the versioning model).
 
       The upcoming v0.1.26 target adds new capabilities (action quotas,
@@ -1719,10 +1721,18 @@ components:
           properties:
             type:
               type: string
-              enum: [admin, api_key, system, scheduler]
+              enum: [admin, api_key, admin_on_behalf_of, system, scheduler]
               description: >-
                 admin: Triggered by admin API key
                 api_key: Triggered by tenant API key (runtime operation)
+                admin_on_behalf_of: Triggered by an admin API key exercising a
+                tenant-scoped dual-auth operation on the tenant's behalf (e.g.
+                createBudget / createPolicy / tenant-webhook mutations under
+                AdminKeyAuth). Mirrors the audit-log actor_type of the same
+                name; reference servers have emitted this on such events since
+                the dual-auth surface landed — added to the enum in revision
+                2026-07-04 (same additive-enum-gap class as EventCategory
+                "webhook" and the cascade EventTypes).
                 system: Triggered by internal process (e.g., expiry sweep, anomaly detector)
                 scheduler: Triggered by scheduled task
             key_id:

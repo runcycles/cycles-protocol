@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cycles Budget Authority API
-  version: 0.1.25.11
+  version: 0.1.25.12
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -243,7 +243,11 @@ info:
         * timestamp (string, date-time, required) — ISO 8601 UTC
         * tenant_id (string, required) — Tenant context. System events use "__system__".
         * scope (string, optional) — Full scope path affected (e.g., "tenant:acme/agent:bot")
-        * actor (object, optional) — Who caused the event: { type: admin|api_key|system|scheduler, key_id?, source_ip? }
+        * actor (object, optional) — Who caused the event:
+          { type: admin|api_key|admin_on_behalf_of|system|scheduler, key_id?, source_ip? }
+          (admin_on_behalf_of: admin key exercising a tenant-scoped dual-auth
+          operation; added in revision 2026-07-04, mirroring the governance
+          spec's Event.actor.type enum)
         * source (string, required) — Service that emitted: "cycles-server", "cycles-admin", "expiry-sweeper"
         * data (object, optional) — Event-specific payload (varies by event_type)
         * correlation_id (string, optional) — Links related events for chain reconstruction
@@ -260,7 +264,16 @@ info:
       Webhook delivery protocol:
         * Delivery method: HTTP POST to subscriber's URL with JSON event payload as body
         * Delivery semantics: At-least-once. Consumers MUST deduplicate using event_id.
-        * Ordering: Events for the same tenant are dispatched in order. Cross-tenant ordering NOT guaranteed.
+        * Ordering: Events for the same tenant are INITIALLY DISPATCHED in
+          order; cross-tenant ordering NOT guaranteed. Clarified in revision
+          2026-07-04: the ordering guarantee applies to first delivery
+          attempts only. A failed delivery re-enters the queue after its
+          retry backoff, so retried deliveries MAY arrive after later events
+          for the same tenant — an unavoidable consequence of combining
+          per-delivery retry with non-blocking dispatch. Consumers MUST NOT
+          assume strict arrival ordering across retry boundaries; reconstruct
+          order from the event envelope's `timestamp` (and `correlation_id`
+          chains) rather than arrival order.
         * Non-blocking: Webhook delivery MUST NOT block the operation that produced the event.
 
       Required HTTP headers on webhook delivery:
