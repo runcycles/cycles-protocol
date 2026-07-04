@@ -66,6 +66,8 @@ info:
         enumerated only the mutation endpoints, leaving the GET case ambiguous.)
       - Reservations that never existed MUST return HTTP 404 with error=NOT_FOUND.
       - HTTP 429 is reserved for server-side throttling/rate limiting (optional in v0), not deterministic budget exhaustion.
+        429 responses carry error=LIMIT_EXCEEDED (added to the ErrorCode enum in revision 2026-07-04, mirroring the
+        governance spec's code of the same name) plus the Retry-After and X-RateLimit-Reset headers.
       - Unit mismatch MUST return HTTP 400 with error=UNIT_MISMATCH in any of these cases:
           (a) reserve — estimate.unit does not match any budget stored for the derived scopes,
               but at least one of those scopes has a budget in a different unit;
@@ -668,6 +670,7 @@ components:
         - OVERDRAFT_LIMIT_EXCEEDED
         - DEBT_OUTSTANDING
         - MAX_EXTENSIONS_EXCEEDED
+        - LIMIT_EXCEEDED
         - INTERNAL_ERROR
 
     ErrorResponse:

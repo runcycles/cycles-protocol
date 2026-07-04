@@ -24,7 +24,14 @@ _(revision 2026-07-04 — clarify webhook per-tenant ordering under retries + ac
 - **Standard event payload actor prose**: actor.type value list now includes
   `admin_on_behalf_of`, mirroring the governance spec's Event.actor.type
   enum (added there in v0.1.25.36).
-- Prose-only; no schema, field, or wire change — semantic_base remains 0.1.25.
+- **`LIMIT_EXCEEDED` added to the ErrorCode enum** for HTTP 429 throttling
+  responses (the SHOULD-level rate limiting on the public getEvidence /
+  getEvidenceJwks endpoints). The runtime enum previously had no
+  throttling code, so a conformant 429 ErrorResponse body was impossible
+  to construct; mirrors the governance spec's code of the same name (used
+  there for its 429s since v0.1.25.23). ERROR SEMANTICS now states the
+  429 → LIMIT_EXCEEDED binding.
+- Additive only (one enum value; otherwise prose) — semantic_base remains 0.1.25.
 
 ## v0.1.25.11 — 2026-07-03
 
