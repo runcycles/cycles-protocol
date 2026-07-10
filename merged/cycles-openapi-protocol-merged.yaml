@@ -1362,9 +1362,12 @@ components:
           any reason string including v0.1.26 extension values. v0.1.26
           servers populate it as follows:
 
-          - For base v0.1.25 denials (BUDGET_EXCEEDED, BUDGET_FROZEN,
+          - For base-spec denials (BUDGET_EXCEEDED, BUDGET_FROZEN,
             BUDGET_CLOSED, BUDGET_NOT_FOUND, OVERDRAFT_LIMIT_EXCEEDED,
-            DEBT_OUTSTANDING):
+            DEBT_OUTSTANDING, and TENANT_CLOSED — the last added to the base
+            known values in runtime revision 0.1.25.13; it appears on fresh
+            (non-replay) dry_run / decide evaluations for a closed owning
+            tenant):
               * Populate DecisionResponse.reason_code with the matching value.
               * Populate deny_detail.reason_code with the same value (mirror).
 

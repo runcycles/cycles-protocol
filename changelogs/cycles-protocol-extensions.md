@@ -30,6 +30,16 @@ _(revision 2026-07-10 — ErrorCodeExtension base-list refresh against runtime 0
   values. Same alignment maintenance as the 2026-04-11 BUDGET_NOT_FOUND
   addition; reason codes remain an OPEN string, so this is
   documentation-only.
+- **REASON CODE POPULATION base-denials list re-aligned** (the normative
+  population rule on DecisionResponseExtension, which
+  ReservationCreateResponseExtension incorporates by reference): the
+  base-spec denial list now includes `TENANT_CLOSED`, so a closed-tenant
+  DENY on a fresh dry_run / decide evaluation mirrors
+  `reason_code=TENANT_CLOSED` into `deny_detail.reason_code` like every
+  other base denial — the list previously contradicted the DenyDetail
+  known-values alignment above. The RESERVATION EVALUATION ORDER intro
+  now also notes that base-spec admission gates (notably the
+  closed-tenant guard) run before STEP 1.
 
 ## v0.1.26 — 2026-04-11
 

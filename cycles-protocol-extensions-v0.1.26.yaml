@@ -170,8 +170,13 @@ info:
 
     RESERVATION EVALUATION ORDER (NORMATIVE):
       Policies evaluated in priority order (highest first). Only the
-      highest-priority matching policy's rules apply. The full evaluation
-      order within the reservation path is:
+      highest-priority matching policy's rules apply. Base-spec admission
+      gates run BEFORE this order — notably the closed-tenant guard (runtime
+      revision 0.1.25.13): a CLOSED owning tenant yields 409 TENANT_CLOSED on
+      the persisting surface, or decision=DENY with reason_code=TENANT_CLOSED
+      on fresh (non-replay) dry_run / decide evaluations, before any policy
+      rule below is consulted (see cycles-protocol-v0.yaml ERROR SEMANTICS).
+      The full evaluation order within the reservation path is:
 
       STEP 1 — ACTION KIND ACCESS CONTROL (allow/deny lists):
         For the highest-priority matching policy:
@@ -439,9 +444,12 @@ components:
           any reason string including v0.1.26 extension values. v0.1.26
           servers populate it as follows:
 
-          - For base v0.1.25 denials (BUDGET_EXCEEDED, BUDGET_FROZEN,
+          - For base-spec denials (BUDGET_EXCEEDED, BUDGET_FROZEN,
             BUDGET_CLOSED, BUDGET_NOT_FOUND, OVERDRAFT_LIMIT_EXCEEDED,
-            DEBT_OUTSTANDING):
+            DEBT_OUTSTANDING, and TENANT_CLOSED — the last added to the base
+            known values in runtime revision 0.1.25.13; it appears on fresh
+            (non-replay) dry_run / decide evaluations for a closed owning
+            tenant):
               * Populate DecisionResponse.reason_code with the matching value.
               * Populate deny_detail.reason_code with the same value (mirror).
 

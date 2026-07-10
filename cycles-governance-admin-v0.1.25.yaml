@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.36
+  version: 0.1.25.37
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -2011,7 +2011,10 @@ components:
             Denial reason code. Open string to permit extensions.
             Known values (v0.1.25):
               BUDGET_EXCEEDED, OVERDRAFT_LIMIT_EXCEEDED, DEBT_OUTSTANDING,
-              BUDGET_FROZEN, BUDGET_CLOSED.
+              BUDGET_FROZEN, BUDGET_CLOSED, TENANT_CLOSED (the last mirrors
+              the runtime plane's closed-tenant guard — runtime revision
+              0.1.25.13 — for denials whose owning tenant is CLOSED; added
+              to this list in revision 0.1.25.37).
             Additional known values from v0.1.26 extensions:
               ACTION_QUOTA_EXCEEDED, ACTION_KIND_DENIED,
               ACTION_KIND_NOT_ALLOWED.
