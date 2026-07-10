@@ -71,9 +71,11 @@ info:
         mutation observed AFTER the CLOSED flip MUST NOT succeed even in the window before
         keys are revoked; this binding closes that race on the runtime plane.
         Non-persisting evaluations: POST /v1/reservations with dry_run=true and POST /v1/decide
-        MUST NOT produce HTTP 409 TENANT_CLOSED for a closed owning tenant. The evaluation MUST
-        instead reflect the closed tenant as-if-live: decision=DENY with
-        reason_code=TENANT_CLOSED. Rationale: dry-run and /decide outcomes are attestations of
+        MUST NOT produce HTTP 409 TENANT_CLOSED for a closed owning tenant. A fresh (non-replay)
+        evaluation MUST instead reflect the closed tenant as-if-live: decision=DENY with
+        reason_code=TENANT_CLOSED. (Same-key replays of pre-close evaluations return the
+        original stored response per the IDEMPOTENCY section — replay precedence applies here
+        exactly as on the persisting surface.) Rationale: dry-run and /decide outcomes are attestations of
         what live execution would do (and MAY be captured as signed evidence per
         cycles-evidence-v0.2.yaml); an evaluation that ignores a durable CLOSED flip would
         attest ALLOW for a request whose live execution MUST fail.
@@ -1784,8 +1786,10 @@ paths:
 
         CLOSED TENANT (NORMATIVE):
         - If the owning tenant's status is CLOSED (deployments with a governance plane),
-          server MUST return decision=DENY with reason_code=TENANT_CLOSED, reflecting
-          as-if-live the 409 TENANT_CLOSED the persisting mutation surface returns.
+          a fresh (non-replay) evaluation MUST return decision=DENY with
+          reason_code=TENANT_CLOSED, reflecting as-if-live the 409 TENANT_CLOSED the
+          persisting mutation surface returns (same-key replays of pre-close decisions
+          follow the IDEMPOTENCY rule above and the replayed-decision caveat below).
           Server MUST NOT return 409 for this condition on /decide. A tenant record whose
           status cannot be determined (malformed record) MUST fail closed with 500
           INTERNAL_ERROR — see the closed-tenant binding in ERROR SEMANTICS.
@@ -1836,9 +1840,10 @@ paths:
         - If decision=ALLOW_WITH_CAPS, caps MUST be present; otherwise caps MUST be absent.
         - If decision=DENY, reason_code SHOULD be populated; it is the primary diagnostic signal for why the dry_run was denied.
         - If the owning tenant's status is CLOSED (deployments with a governance plane),
-          dry_run MUST NOT return 409 TENANT_CLOSED; it MUST return decision=DENY with
-          reason_code=TENANT_CLOSED, reflecting as-if-live the 409 the persisting create
-          returns. A tenant record whose status cannot be determined (malformed record)
+          dry_run MUST NOT return 409 TENANT_CLOSED; a fresh (non-replay) evaluation MUST
+          return decision=DENY with reason_code=TENANT_CLOSED, reflecting as-if-live the
+          409 the persisting create returns (same-key replays of pre-close evaluations
+          follow the IDEMPOTENCY rule below). A tenant record whose status cannot be determined (malformed record)
           MUST fail closed with 500 INTERNAL_ERROR even on dry_run — see the closed-tenant
           binding in ERROR SEMANTICS.
         - balances MAY be populated (recommended for operator visibility), but MUST reflect a non-mutating evaluation.

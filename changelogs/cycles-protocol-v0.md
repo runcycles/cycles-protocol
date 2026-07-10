@@ -52,9 +52,12 @@ _(revision 2026-07-10 — TENANT_CLOSED on the runtime ErrorCode enum + closed-t
   fail. Guard evaluation on both surfaces: a malformed tenant record
   (status undeterminable) fails closed with 500 INTERNAL_ERROR — the
   server cannot attest against corrupt governance state; an absent
-  tenant record is unguarded. The createReservation DRY-RUN RESPONSE
-  RULES and the /decide operation description carry matching local
-  blocks.
+  tenant record is unguarded. The DENY MUST applies to fresh
+  (non-replay) evaluations; same-key replays of pre-close evaluations
+  return the original stored response per the IDEMPOTENCY rules — replay
+  precedence applies on the non-persisting surface exactly as on the
+  persisting one. The createReservation DRY-RUN RESPONSE RULES and the
+  /decide operation description carry matching local blocks.
 - Additive only (one enum value; otherwise prose) — semantic_base remains 0.1.25.
 
 ## v0.1.25.12 — 2026-07-04

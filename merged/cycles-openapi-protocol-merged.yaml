@@ -2345,8 +2345,10 @@ paths:
         TENANCY (NORMATIVE):  - subject.tenant MUST match the effective tenant derived from auth; otherwise the server MUST return 403 FORBIDDEN.
         DEBT/OVERDRAFT STATE (NORMATIVE): - If the subject scope has debt > 0 or is_over_limit=true, server SHOULD return decision=DENY with reason_code=DEBT_OUTSTANDING or reason_code=OVERDRAFT_LIMIT_EXCEEDED respectively. Server MUST NOT return 409 for these conditions on /decide.
         CLOSED TENANT (NORMATIVE): - If the owning tenant's status is CLOSED (deployments with a governance plane),
-          server MUST return decision=DENY with reason_code=TENANT_CLOSED, reflecting
-          as-if-live the 409 TENANT_CLOSED the persisting mutation surface returns.
+          a fresh (non-replay) evaluation MUST return decision=DENY with
+          reason_code=TENANT_CLOSED, reflecting as-if-live the 409 TENANT_CLOSED the
+          persisting mutation surface returns (same-key replays of pre-close decisions
+          follow the IDEMPOTENCY rule above and the replayed-decision caveat below).
           Server MUST NOT return 409 for this condition on /decide. A tenant record whose
           status cannot be determined (malformed record) MUST fail closed with 500
           INTERNAL_ERROR — see the closed-tenant binding in ERROR SEMANTICS.
@@ -2405,9 +2407,10 @@ paths:
         \ be present; otherwise caps MUST be absent. - If decision=DENY, reason_code SHOULD be populated;\
         \ it is the primary diagnostic signal for why the dry_run was denied. - If the owning tenant's\
         \ status is CLOSED (deployments with a governance plane),\n  dry_run MUST NOT return 409 TENANT_CLOSED;\
-        \ it MUST return decision=DENY with\n  reason_code=TENANT_CLOSED, reflecting as-if-live the 409\
-        \ the persisting create\n  returns. A tenant record whose status cannot be determined (malformed\
-        \ record)\n  MUST fail closed with 500 INTERNAL_ERROR even on dry_run — see the closed-tenant\n\
+        \ a fresh (non-replay) evaluation MUST\n  return decision=DENY with reason_code=TENANT_CLOSED,\
+        \ reflecting as-if-live the\n  409 the persisting create returns (same-key replays of pre-close\
+        \ evaluations\n  follow the IDEMPOTENCY rule below). A tenant record whose status cannot be determined\
+        \ (malformed record)\n  MUST fail closed with 500 INTERNAL_ERROR even on dry_run — see the closed-tenant\n\
         \  binding in ERROR SEMANTICS.\n- balances MAY be populated (recommended for operator visibility),\
         \ but MUST reflect a non-mutating evaluation.\nOVER-LIMIT BLOCKING (NORMATIVE): - If ANY affected\
         \ scope has debt > overdraft_limit (is_over_limit=true), the reservation MUST be rejected \n \
