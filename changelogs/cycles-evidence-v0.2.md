@@ -6,6 +6,25 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.2.1 — 2026-07-10
+
+_(revision 2026-07-10 — ErrorResponseMirror re-cut against canonical ErrorCode 0.1.25.13)_
+
+- **`ErrorResponseMirror.error` enum re-cut** against the canonical
+  `ErrorCode` enum in `cycles-protocol-v0.yaml` revision 0.1.25.13, per the
+  MIRROR CONTRACT ("New canonical constraints MUST be reflected here ...
+  before evidence consumers may rely on them"). Adds `LIMIT_EXCEEDED`
+  (canonical since runtime revision 0.1.25.12 — the mirror had drifted) and
+  `TENANT_CLOSED` (canonical as of runtime revision 0.1.25.13, the
+  closed-tenant 409 mutation guard binding). Until this re-cut, an `error`
+  envelope wrapping a 429 LIMIT_EXCEEDED or 409 TENANT_CLOSED ErrorResponse
+  could not validate against the mirror.
+- Envelope WIRE shape unchanged; `schema_version` stays
+  `cycles-evidence/v0.1`. Existing envelopes remain valid byte-for-byte —
+  the enum widening is additive to the validation surface only. Also drops
+  the stale canonical line-number pointer (L429-L446) from the mirror
+  description in favor of citing the canonical revision.
+
 ## v0.2.0 — 2026-06-24
 
 _(normative cut — promote the CyclesEvidence envelope from `drafts/` to a numbered spec at repo root)_

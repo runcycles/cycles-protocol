@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cycles Evidence Envelope
-  version: 0.2.0
+  version: 0.2.1
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -1036,11 +1036,16 @@ components:
             - OVERDRAFT_LIMIT_EXCEEDED
             - DEBT_OUTSTANDING
             - MAX_EXTENSIONS_EXCEEDED
+            - LIMIT_EXCEEDED
+            - TENANT_CLOSED
             - INTERNAL_ERROR
           description: |
             ErrorCode value — mirror of the canonical closed
-            `ErrorCode` enum at `cycles-protocol-v0.yaml` L429-L446
-            per the MIRROR CONTRACT above. Future v0 minor versions
+            `ErrorCode` enum in `cycles-protocol-v0.yaml`
+            per the MIRROR CONTRACT above. Re-cut 2026-07-10 against
+            canonical revision 0.1.25.13, adding LIMIT_EXCEEDED
+            (canonical revision 0.1.25.12) and TENANT_CLOSED
+            (canonical revision 0.1.25.13). Future v0 minor versions
             that add ErrorCode values will trigger a re-cut of this
             mirror against the newer canonical version (which is the
             normal mirror-drift process); evidence consumers MUST

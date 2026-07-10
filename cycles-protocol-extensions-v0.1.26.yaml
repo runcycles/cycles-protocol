@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cycles Protocol Extensions — Runtime Enforcement Plane
-  version: 0.1.26
+  version: 0.1.27
   x-conformance: normative
   license:
     name: Apache 2.0
@@ -519,8 +519,11 @@ components:
       description: >-
         Extended ErrorCode enum. Adds ACTION_QUOTA_EXCEEDED,
         ACTION_KIND_NOT_ALLOWED, and ACTION_KIND_DENIED.
-        All v0.1.25 codes unchanged.
-        Implementations MUST add these three codes to the ErrorCode enum.
+        All base codes unchanged; the base list below is reproduced from
+        cycles-protocol-v0.yaml as of runtime revision 0.1.25.13 (includes
+        LIMIT_EXCEEDED, added there in 0.1.25.12, and TENANT_CLOSED, added
+        there in 0.1.25.13). Implementations MUST add the three v0.1.26
+        codes to the ErrorCode enum.
       enum:
         - INVALID_REQUEST
         - UNAUTHORIZED
@@ -536,6 +539,8 @@ components:
         - OVERDRAFT_LIMIT_EXCEEDED
         - DEBT_OUTSTANDING
         - MAX_EXTENSIONS_EXCEEDED
+        - LIMIT_EXCEEDED
+        - TENANT_CLOSED
         - INTERNAL_ERROR
         # NEW in v0.1.26:
         - ACTION_QUOTA_EXCEEDED

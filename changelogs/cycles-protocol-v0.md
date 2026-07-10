@@ -24,13 +24,20 @@ _(revision 2026-07-10 — TENANT_CLOSED on the runtime ErrorCode enum + closed-t
   as 401 UNAUTHORIZED — but governance Mode B invariant (a) requires that a
   mutation observed after the flip MUST NOT succeed even in the window
   before keys are revoked; this binding closes that race on the runtime
-  plane. Applies only where tenant records are available to the runtime
-  plane (MUST when the owning tenant's status is observable); servers
-  deployed WITHOUT a governance plane have no tenant records and therefore
-  no tenant status to observe — the rule is not applicable to them.
-  Non-mutating reservation reads (GET /v1/reservations,
-  GET /v1/reservations/{id}) are never rejected with TENANT_CLOSED
-  (mirrors Rule 2's read-access rule).
+  plane. Precedence: for non-replay mutations, TENANT_CLOSED takes
+  precedence over the reservation-state errors (RESERVATION_FINALIZED,
+  RESERVATION_EXPIRED) per Rule 2's "regardless of that child's own
+  current status"; idempotent same-key replays of pre-close mutations
+  retain replay precedence and return the original stored response
+  (consistent with Rule 2 invariant (b)). Applicability: a deployment
+  that operates a governance plane MUST enforce the guard — by making
+  CLOSED status observable to the runtime plane, or via an equivalent
+  centralized post-flip mutation guard; the requirement is behavioral,
+  not architectural. Only deployments with no governance tenant records
+  at all are exempt. Non-mutating reservation reads (GET
+  /v1/reservations, GET /v1/reservations/{id}) are never rejected with
+  TENANT_CLOSED (mirrors Rule 2's read-access rule). The extendReservation
+  operation's local ERROR SEMANTICS list gains the matching bullet.
 - Additive only (one enum value; otherwise prose) — semantic_base remains 0.1.25.
 
 ## v0.1.25.12 — 2026-07-04

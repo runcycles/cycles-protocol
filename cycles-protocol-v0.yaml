@@ -69,11 +69,23 @@ info:
         plane as 401 UNAUTHORIZED — but Mode B invariant (a) of that cascade requires that a
         mutation observed AFTER the CLOSED flip MUST NOT succeed even in the window before
         keys are revoked; this binding closes that race on the runtime plane.
-        Cross-plane applicability: the guard applies only where tenant records are available
-        to the runtime plane. Where the runtime can observe the owning tenant's status, the
-        409 TENANT_CLOSED rejection is a MUST; servers deployed WITHOUT a governance plane
-        have no tenant records and therefore no tenant status to observe — the rule is not
-        applicable to them.
+        Precedence: for non-replay mutations on a closed tenant's reservations,
+        TENANT_CLOSED takes precedence over the reservation-state errors
+        (RESERVATION_FINALIZED, RESERVATION_EXPIRED) — Rule 2 rejects "regardless of
+        that child's own current status". Idempotent replays are the exception: a
+        same-key replay of a mutation that succeeded BEFORE the close retains replay
+        precedence and MUST return the original stored response payload per the
+        IDEMPOTENCY section (consistent with Rule 2's invariant (b) — the cascade is
+        idempotent and does not rewrite already-finalized outcomes).
+        Cross-plane applicability: a deployment that operates a governance plane (tenant
+        records exist) MUST enforce this guard — either by making the owning tenant's
+        CLOSED status observable to the runtime plane, or by enforcing an equivalent
+        post-flip mutation guard at a central enforcement point in front of these
+        operations. The requirement is behavioral (the 409 TENANT_CLOSED rejection),
+        not architectural: choosing not to wire tenant status through to the runtime
+        plane does NOT exempt a deployment. Only deployments with NO governance plane
+        at all (no tenant records exist anywhere in the deployment) have no tenant
+        status to enforce — the rule is not applicable to them.
         Non-mutating reservation reads (GET /v1/reservations, GET /v1/reservations/{id})
         MUST NOT be rejected with TENANT_CLOSED: they remain available (subject to normal
         auth) on reservations of a CLOSED tenant for post-close audit, mirroring Rule 2's
@@ -2378,6 +2390,10 @@ paths:
         - If the reservation exists but is owned by a different effective tenant, the server MUST return 403 FORBIDDEN.
 
         ERROR SEMANTICS (NORMATIVE):
+        - If the owning tenant's status is CLOSED (deployments with a governance plane),
+          server MUST return 409 with error=TENANT_CLOSED, taking precedence over the
+          reservation-state errors below for non-replay requests — see the closed-tenant
+          binding in this document's top-level ERROR SEMANTICS.
         - If the reservation is COMMITTED or RELEASED, server MUST return 409 with error=RESERVATION_FINALIZED.
         - If the reservation is expired (server time > expires_at_ms), server MUST return 410 with error=RESERVATION_EXPIRED.
         - If the reservation never existed, server MUST return 404 with error=NOT_FOUND.

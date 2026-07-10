@@ -67,11 +67,11 @@ spec_family:
     base_runtime_semantic_base: "0.1.25"  # frozen wire baseline — evidence revisions are additive, 0.1.25 clients stay compatible
     base_governance: "0.1.25.36"          # + admin_on_behalf_of on Event.actor.type enum (dual-auth emit gap)
     base_governance_semantic_base: "0.1.25.9"  # frozen wire baseline
-    extension_runtime: "0.1.26"           # untouched — no Event/ErrorResponse redeclaration
+    extension_runtime: "0.1.27"           # ErrorCodeExtension base-list refresh (+ LIMIT_EXCEEDED, TENANT_CLOSED) against runtime 0.1.25.13
     extension_governance: "0.1.27"        # trace_id on redeclared ErrorResponse
     action_kinds: "0.1.27"                # trace_id on redeclared ErrorResponse
-    evidence_envelope: "0.2.0"            # normative cut: drafts/cycles-evidence-v0.1.yaml → cycles-evidence-v0.2.yaml (signer-key resolution now normative)
-    spec_index: "0.1.36"                  # runtime_base TENANT_CLOSED binding → 0.1.25.13
+    evidence_envelope: "0.2.1"            # ErrorResponseMirror re-cut against canonical ErrorCode 0.1.25.13 (+ LIMIT_EXCEEDED, TENANT_CLOSED)
+    spec_index: "0.1.36"                  # TENANT_CLOSED sweep: runtime_base → 0.1.25.13, extension_runtime → 0.1.27, evidence → 0.2.1
 
 # ---------------------------------------------------------------------------
 # CANONICAL DOCUMENTS
@@ -184,7 +184,7 @@ documents:
 
   - id: runtime_extension
     file: cycles-protocol-extensions-v0.1.26.yaml
-    version: "0.1.26"
+    version: "0.1.27"          # ErrorCodeExtension base-list refresh against runtime 0.1.25.13
     role: extension
     extends: runtime_base
     conformance: normative
@@ -266,7 +266,7 @@ documents:
 
   - id: evidence_envelope
     file: cycles-evidence-v0.2.yaml
-    version: "0.2.0"
+    version: "0.2.1"           # ErrorResponseMirror re-cut against canonical ErrorCode 0.1.25.13
     role: companion
     conformance: normative
     conformance_status: active
