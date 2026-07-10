@@ -23,6 +23,13 @@ _(revision 2026-07-10 — ErrorCodeExtension base-list refresh against runtime 0
   codes as before; this revision only corrects the reproduced base list
   (OpenAPI cannot express additive enum extension, so the full enum is
   restated and must track the base).
+- **`DenyDetail.reason_code` known-values list re-aligned** with the base
+  DecisionReasonCode documented values: adds `TENANT_CLOSED` (added to the
+  base known values in runtime revision 0.1.25.13 for closed-tenant
+  dry_run / decide denials); the base list is now described as seven
+  values. Same alignment maintenance as the 2026-04-11 BUDGET_NOT_FOUND
+  addition; reason codes remain an OPEN string, so this is
+  documentation-only.
 
 ## v0.1.26 — 2026-04-11
 

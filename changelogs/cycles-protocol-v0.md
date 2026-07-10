@@ -38,6 +38,23 @@ _(revision 2026-07-10 — TENANT_CLOSED on the runtime ErrorCode enum + closed-t
   /v1/reservations, GET /v1/reservations/{id}) are never rejected with
   TENANT_CLOSED (mirrors Rule 2's read-access rule). The extendReservation
   operation's local ERROR SEMANTICS list gains the matching bullet.
+- **Dry-run / decide closed-tenant rule (NORMATIVE).** The 409 binding is
+  scoped to the PERSISTING mutation surface (create with `dry_run` absent
+  or false, commit, release, extend). Non-persisting evaluations — `POST
+  /v1/reservations` with `dry_run=true` and `POST /v1/decide` — MUST NOT
+  return 409 TENANT_CLOSED; they MUST reflect the closed tenant
+  as-if-live with decision=DENY and reason_code=TENANT_CLOSED
+  (TENANT_CLOSED added to DecisionReasonCode's documented known values).
+  Rationale: dry-run/decide outcomes are attestations of what live
+  execution would do and MAY be captured as signed evidence
+  (cycles-evidence-v0.2.yaml); an evaluation that ignores a durable
+  CLOSED flip would attest ALLOW for a request whose live execution MUST
+  fail. Guard evaluation on both surfaces: a malformed tenant record
+  (status undeterminable) fails closed with 500 INTERNAL_ERROR — the
+  server cannot attest against corrupt governance state; an absent
+  tenant record is unguarded. The createReservation DRY-RUN RESPONSE
+  RULES and the /decide operation description carry matching local
+  blocks.
 - Additive only (one enum value; otherwise prose) — semantic_base remains 0.1.25.
 
 ## v0.1.25.12 — 2026-07-04

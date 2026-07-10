@@ -3933,11 +3933,11 @@ components:
           description: |-
             Known values:
               BUDGET_EXCEEDED, BUDGET_FROZEN, BUDGET_CLOSED, BUDGET_NOT_FOUND,
-              OVERDRAFT_LIMIT_EXCEEDED, DEBT_OUTSTANDING,
+              OVERDRAFT_LIMIT_EXCEEDED, DEBT_OUTSTANDING, TENANT_CLOSED,
               ACTION_QUOTA_EXCEEDED, ACTION_KIND_NOT_ALLOWED, ACTION_KIND_DENIED,
               TENANT_SUSPENDED, POLICY_VIOLATION.
 
-            The first six are the v0.1.25 base-spec known values documented on the DecisionReasonCode schema in cycles-protocol-v0.yaml (an OPEN string with documented known values — not a closed enum, so extensions can add new reason codes without base spec changes). v0.1.26 adds ACTION_QUOTA_EXCEEDED, ACTION_KIND_NOT_ALLOWED, and ACTION_KIND_DENIED to the known values for this field. TENANT_SUSPENDED and POLICY_VIOLATION are additional governance-context reasons that MAY appear on DenyDetail but are not listed on the base DecisionReasonCode known values.
+            The first seven are the base-spec known values documented on the DecisionReasonCode schema in cycles-protocol-v0.yaml (an OPEN string with documented known values — not a closed enum, so extensions can add new reason codes without base spec changes; TENANT_CLOSED was added there in base revision 0.1.25.13 for closed-tenant dry_run / decide denials). v0.1.26 adds ACTION_QUOTA_EXCEEDED, ACTION_KIND_NOT_ALLOWED, and ACTION_KIND_DENIED to the known values for this field. TENANT_SUSPENDED and POLICY_VIOLATION are additional governance-context reasons that MAY appear on DenyDetail but are not listed on the base DecisionReasonCode known values.
             Consumers MUST gracefully handle unrecognized values (e.g., log and display as-is) — future extensions may add more.
         quota_violation:
           $ref: '#/components/schemas/ActionQuotaViolation'

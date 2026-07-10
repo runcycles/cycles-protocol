@@ -58,9 +58,10 @@ info:
         2. During reservation: when the scope is in over-limit state (debt > overdraft_limit due to prior concurrent commits)
       - Outstanding debt blocking reservation MUST return HTTP 409 with error=DEBT_OUTSTANDING
         (when debt > 0 and new reservation is attempted).
-      - Closed owning tenant MUST return HTTP 409 with error=TENANT_CLOSED on the reservation
-        mutation surface — reservation create (POST /v1/reservations), commit, release, and
-        extend — when the owning tenant's status is CLOSED and the CLOSED flip is durable
+      - Closed owning tenant MUST return HTTP 409 with error=TENANT_CLOSED on the persisting
+        reservation mutation surface — reservation create (POST /v1/reservations with dry_run
+        absent or false), commit, release, and extend — when the owning tenant's status is
+        CLOSED and the CLOSED flip is durable
         (added to the ErrorCode enum in revision 2026-07-10, mirroring the governance spec's
         code of the same name). This is the runtime-plane half of the terminal-owner mutation
         guard in cycles-governance-admin-v0.1.25.yaml (CASCADE SEMANTICS Rule 2), whose scoped
@@ -69,6 +70,19 @@ info:
         plane as 401 UNAUTHORIZED — but Mode B invariant (a) of that cascade requires that a
         mutation observed AFTER the CLOSED flip MUST NOT succeed even in the window before
         keys are revoked; this binding closes that race on the runtime plane.
+        Non-persisting evaluations: POST /v1/reservations with dry_run=true and POST /v1/decide
+        MUST NOT produce HTTP 409 TENANT_CLOSED for a closed owning tenant. The evaluation MUST
+        instead reflect the closed tenant as-if-live: decision=DENY with
+        reason_code=TENANT_CLOSED. Rationale: dry-run and /decide outcomes are attestations of
+        what live execution would do (and MAY be captured as signed evidence per
+        cycles-evidence-v0.2.yaml); an evaluation that ignores a durable CLOSED flip would
+        attest ALLOW for a request whose live execution MUST fail.
+        Guard evaluation (both surfaces): a tenant record with status CLOSED triggers the
+        guard (409 on the persisting surface, decision=DENY on the non-persisting surface); a
+        tenant record that exists but whose status cannot be determined (malformed or corrupt
+        record) MUST fail closed with HTTP 500 INTERNAL_ERROR — on the non-persisting surface
+        too, because the server cannot attest against corrupt governance state; a subject
+        tenant with no tenant record is not guarded (there is no status to observe).
         Precedence: for non-replay mutations on a closed tenant's reservations,
         TENANT_CLOSED takes precedence over the reservation-state errors
         (RESERVATION_FINALIZED, RESERVATION_EXPIRED) — Rule 2 rejects "regardless of
@@ -797,6 +811,11 @@ components:
             reservations are permitted until reconciled.
           - DEBT_OUTSTANDING — a derived scope has debt > 0 and overdraft_limit == 0
             (no policy permits further debt accrual).
+          - TENANT_CLOSED — the owning tenant's status is CLOSED (deployments with a
+            governance plane; added in revision 2026-07-10). Populated on /decide and
+            dry_run=true evaluations; the persisting mutation surface reports the same
+            condition as HTTP 409 error=TENANT_CLOSED instead (see the closed-tenant
+            binding in ERROR SEMANTICS).
 
         KNOWN VALUES (v0.1.26 runtime extension):
           - ACTION_QUOTA_EXCEEDED — a per-kind or risk-class action quota rule was
@@ -1759,9 +1778,17 @@ paths:
         - subject.tenant MUST match the effective tenant derived from auth; otherwise the server MUST return 403 FORBIDDEN.
         
         DEBT/OVERDRAFT STATE (NORMATIVE):
-        - If the subject scope has debt > 0 or is_over_limit=true, server SHOULD return 
-        decision=DENY with reason_code=DEBT_OUTSTANDING or reason_code=OVERDRAFT_LIMIT_EXCEEDED 
+        - If the subject scope has debt > 0 or is_over_limit=true, server SHOULD return
+        decision=DENY with reason_code=DEBT_OUTSTANDING or reason_code=OVERDRAFT_LIMIT_EXCEEDED
         respectively. Server MUST NOT return 409 for these conditions on /decide.
+
+        CLOSED TENANT (NORMATIVE):
+        - If the owning tenant's status is CLOSED (deployments with a governance plane),
+          server MUST return decision=DENY with reason_code=TENANT_CLOSED, reflecting
+          as-if-live the 409 TENANT_CLOSED the persisting mutation surface returns.
+          Server MUST NOT return 409 for this condition on /decide. A tenant record whose
+          status cannot be determined (malformed record) MUST fail closed with 500
+          INTERNAL_ERROR — see the closed-tenant binding in ERROR SEMANTICS.
 
         Idempotency on /decide is for request deduplication only. A replayed ALLOW response reflects budget state at the time of 
         the original call; clients MUST NOT treat a replayed decision as current budget authorization.
@@ -1808,6 +1835,12 @@ paths:
         - affected_scopes MUST be populated regardless of decision outcome (ALLOW / ALLOW_WITH_CAPS / DENY).
         - If decision=ALLOW_WITH_CAPS, caps MUST be present; otherwise caps MUST be absent.
         - If decision=DENY, reason_code SHOULD be populated; it is the primary diagnostic signal for why the dry_run was denied.
+        - If the owning tenant's status is CLOSED (deployments with a governance plane),
+          dry_run MUST NOT return 409 TENANT_CLOSED; it MUST return decision=DENY with
+          reason_code=TENANT_CLOSED, reflecting as-if-live the 409 the persisting create
+          returns. A tenant record whose status cannot be determined (malformed record)
+          MUST fail closed with 500 INTERNAL_ERROR even on dry_run — see the closed-tenant
+          binding in ERROR SEMANTICS.
         - balances MAY be populated (recommended for operator visibility), but MUST reflect a non-mutating evaluation.
 
         OVER-LIMIT BLOCKING (NORMATIVE):
