@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cycles Budget Authority API
-  version: 0.1.25.12
+  version: 0.1.25.13
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -58,6 +58,26 @@ info:
         2. During reservation: when the scope is in over-limit state (debt > overdraft_limit due to prior concurrent commits)
       - Outstanding debt blocking reservation MUST return HTTP 409 with error=DEBT_OUTSTANDING
         (when debt > 0 and new reservation is attempted).
+      - Closed owning tenant MUST return HTTP 409 with error=TENANT_CLOSED on the reservation
+        mutation surface — reservation create (POST /v1/reservations), commit, release, and
+        extend — when the owning tenant's status is CLOSED and the CLOSED flip is durable
+        (added to the ErrorCode enum in revision 2026-07-10, mirroring the governance spec's
+        code of the same name). This is the runtime-plane half of the terminal-owner mutation
+        guard in cycles-governance-admin-v0.1.25.yaml (CASCADE SEMANTICS Rule 2), whose scoped
+        operations include "any reservation create/commit/release/extend". Rationale: the close
+        cascade revokes the tenant's API keys, so a closed tenant usually surfaces on this
+        plane as 401 UNAUTHORIZED — but Mode B invariant (a) of that cascade requires that a
+        mutation observed AFTER the CLOSED flip MUST NOT succeed even in the window before
+        keys are revoked; this binding closes that race on the runtime plane.
+        Cross-plane applicability: the guard applies only where tenant records are available
+        to the runtime plane. Where the runtime can observe the owning tenant's status, the
+        409 TENANT_CLOSED rejection is a MUST; servers deployed WITHOUT a governance plane
+        have no tenant records and therefore no tenant status to observe — the rule is not
+        applicable to them.
+        Non-mutating reservation reads (GET /v1/reservations, GET /v1/reservations/{id})
+        MUST NOT be rejected with TENANT_CLOSED: they remain available (subject to normal
+        auth) on reservations of a CLOSED tenant for post-close audit, mirroring Rule 2's
+        read-access rule.
       - Finalized reservations MUST return HTTP 409 with error=RESERVATION_FINALIZED.
       - Expired reservations MUST return HTTP 410 with error=RESERVATION_EXPIRED.
         (commit/release: beyond expires_at_ms + grace_period_ms; extend: beyond expires_at_ms;
@@ -671,6 +691,7 @@ components:
         - DEBT_OUTSTANDING
         - MAX_EXTENSIONS_EXCEEDED
         - LIMIT_EXCEEDED
+        - TENANT_CLOSED
         - INTERNAL_ERROR
 
     ErrorResponse:

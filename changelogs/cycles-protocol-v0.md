@@ -6,6 +6,33 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.13 — 2026-07-10
+
+_(revision 2026-07-10 — TENANT_CLOSED on the runtime ErrorCode enum + closed-tenant mutation binding)_
+
+- **`TENANT_CLOSED` added to the ErrorCode enum** for HTTP 409 rejections of
+  reservation mutations whose owning tenant is CLOSED; mirrors the governance
+  spec's code of the same name (its CASCADE SEMANTICS Rule 2 terminal-owner
+  mutation guard, added there in v0.1.25.29, scopes "any reservation
+  create/commit/release/extend" — but the runtime enum never carried the
+  code, so a conformant runtime-plane 409 body was impossible to construct).
+- **ERROR SEMANTICS closed-tenant binding (NORMATIVE).** `POST
+  /v1/reservations` (create), commit, release, and extend MUST return HTTP
+  409 with error=TENANT_CLOSED when the owning tenant's status is CLOSED and
+  the CLOSED flip is durable. Rationale: the close cascade revokes the
+  tenant's API keys, so closed tenants usually surface on the runtime plane
+  as 401 UNAUTHORIZED — but governance Mode B invariant (a) requires that a
+  mutation observed after the flip MUST NOT succeed even in the window
+  before keys are revoked; this binding closes that race on the runtime
+  plane. Applies only where tenant records are available to the runtime
+  plane (MUST when the owning tenant's status is observable); servers
+  deployed WITHOUT a governance plane have no tenant records and therefore
+  no tenant status to observe — the rule is not applicable to them.
+  Non-mutating reservation reads (GET /v1/reservations,
+  GET /v1/reservations/{id}) are never rejected with TENANT_CLOSED
+  (mirrors Rule 2's read-access rule).
+- Additive only (one enum value; otherwise prose) — semantic_base remains 0.1.25.
+
 ## v0.1.25.12 — 2026-07-04
 
 _(revision 2026-07-04 — clarify webhook per-tenant ordering under retries + actor.type prose parity)_

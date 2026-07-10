@@ -63,7 +63,7 @@ spec_family:
     isolation; SDK generators and validator pipelines need a merged artifact.
     The merge_recipes section below defines how to produce those artifacts.
   current_versions:
-    base_runtime: "0.1.25.12"             # clarify webhook per-tenant ordering under retries + actor.type prose parity
+    base_runtime: "0.1.25.13"             # + TENANT_CLOSED on ErrorCode + closed-tenant 409 binding on reserve/commit/release/extend
     base_runtime_semantic_base: "0.1.25"  # frozen wire baseline — evidence revisions are additive, 0.1.25 clients stay compatible
     base_governance: "0.1.25.36"          # + admin_on_behalf_of on Event.actor.type enum (dual-auth emit gap)
     base_governance_semantic_base: "0.1.25.9"  # frozen wire baseline
@@ -71,7 +71,7 @@ spec_family:
     extension_governance: "0.1.27"        # trace_id on redeclared ErrorResponse
     action_kinds: "0.1.27"                # trace_id on redeclared ErrorResponse
     evidence_envelope: "0.2.0"            # normative cut: drafts/cycles-evidence-v0.1.yaml → cycles-evidence-v0.2.yaml (signer-key resolution now normative)
-    spec_index: "0.1.35"                  # governance_base actor enum → 0.1.25.36 + runtime_base ordering clarification → 0.1.25.12
+    spec_index: "0.1.36"                  # runtime_base TENANT_CLOSED binding → 0.1.25.13
 
 # ---------------------------------------------------------------------------
 # CANONICAL DOCUMENTS
@@ -86,7 +86,7 @@ documents:
 
   - id: runtime_base
     file: cycles-protocol-v0.yaml
-    version: "0.1.25.12"         # clarify webhook per-tenant ordering under retries + actor.type prose parity
+    version: "0.1.25.13"         # + TENANT_CLOSED on ErrorCode + closed-tenant 409 binding on reserve/commit/release/extend
     semantic_base: "0.1.25"      # frozen wire baseline — evidence fields are additive/optional
     role: base
     conformance: normative
