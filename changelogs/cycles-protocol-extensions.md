@@ -6,6 +6,41 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.27 — 2026-07-10
+
+_(revision 2026-07-10 — ErrorCodeExtension base-list refresh against runtime 0.1.25.13)_
+
+- **`ErrorCodeExtension` base list refreshed** against the canonical
+  `ErrorCode` enum in `cycles-protocol-v0.yaml` revision 0.1.25.13. The
+  reproduced base list had drifted: it lacked `LIMIT_EXCEEDED` (added to the
+  base enum in runtime revision 0.1.25.12) and `TENANT_CLOSED` (added in
+  runtime revision 0.1.25.13) while claiming "All v0.1.25 codes unchanged".
+  Both codes are now present (before `INTERNAL_ERROR`, matching canonical
+  order) and the description cites the base revision the list is reproduced
+  from. The three v0.1.26 extension codes (`ACTION_QUOTA_EXCEEDED`,
+  `ACTION_KIND_NOT_ALLOWED`, `ACTION_KIND_DENIED`) are unchanged.
+- No extension wire-surface change — the extension adds the same three
+  codes as before; this revision only corrects the reproduced base list
+  (OpenAPI cannot express additive enum extension, so the full enum is
+  restated and must track the base).
+- **`DenyDetail.reason_code` known-values list re-aligned** with the base
+  DecisionReasonCode documented values: adds `TENANT_CLOSED` (added to the
+  base known values in runtime revision 0.1.25.13 for closed-tenant
+  dry_run / decide denials); the base list is now described as seven
+  values. Same alignment maintenance as the 2026-04-11 BUDGET_NOT_FOUND
+  addition; reason codes remain an OPEN string, so this is
+  documentation-only.
+- **REASON CODE POPULATION base-denials list re-aligned** (the normative
+  population rule on DecisionResponseExtension, which
+  ReservationCreateResponseExtension incorporates by reference): the
+  base-spec denial list now includes `TENANT_CLOSED`, so a closed-tenant
+  DENY on a fresh dry_run / decide evaluation mirrors
+  `reason_code=TENANT_CLOSED` into `deny_detail.reason_code` like every
+  other base denial — the list previously contradicted the DenyDetail
+  known-values alignment above. The RESERVATION EVALUATION ORDER intro
+  now also notes that base-spec admission gates (notably the
+  closed-tenant guard) run before STEP 1.
+
 ## v0.1.26 — 2026-04-11
 
 _(2026-04-11 revision)_

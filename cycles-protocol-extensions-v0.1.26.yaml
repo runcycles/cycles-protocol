@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cycles Protocol Extensions — Runtime Enforcement Plane
-  version: 0.1.26
+  version: 0.1.27
   x-conformance: normative
   license:
     name: Apache 2.0
@@ -170,8 +170,13 @@ info:
 
     RESERVATION EVALUATION ORDER (NORMATIVE):
       Policies evaluated in priority order (highest first). Only the
-      highest-priority matching policy's rules apply. The full evaluation
-      order within the reservation path is:
+      highest-priority matching policy's rules apply. Base-spec admission
+      gates run BEFORE this order — notably the closed-tenant guard (runtime
+      revision 0.1.25.13): a CLOSED owning tenant yields 409 TENANT_CLOSED on
+      the persisting surface, or decision=DENY with reason_code=TENANT_CLOSED
+      on fresh (non-replay) dry_run / decide evaluations, before any policy
+      rule below is consulted (see cycles-protocol-v0.yaml ERROR SEMANTICS).
+      The full evaluation order within the reservation path is:
 
       STEP 1 — ACTION KIND ACCESS CONTROL (allow/deny lists):
         For the highest-priority matching policy:
@@ -342,14 +347,16 @@ components:
           description: >-
             Known values:
               BUDGET_EXCEEDED, BUDGET_FROZEN, BUDGET_CLOSED, BUDGET_NOT_FOUND,
-              OVERDRAFT_LIMIT_EXCEEDED, DEBT_OUTSTANDING,
+              OVERDRAFT_LIMIT_EXCEEDED, DEBT_OUTSTANDING, TENANT_CLOSED,
               ACTION_QUOTA_EXCEEDED, ACTION_KIND_NOT_ALLOWED, ACTION_KIND_DENIED,
               TENANT_SUSPENDED, POLICY_VIOLATION.
 
-            The first six are the v0.1.25 base-spec known values documented
+            The first seven are the base-spec known values documented
             on the DecisionReasonCode schema in cycles-protocol-v0.yaml
             (an OPEN string with documented known values — not a closed enum,
-            so extensions can add new reason codes without base spec changes).
+            so extensions can add new reason codes without base spec changes;
+            TENANT_CLOSED was added there in base revision 0.1.25.13 for
+            closed-tenant dry_run / decide denials).
             v0.1.26 adds ACTION_QUOTA_EXCEEDED, ACTION_KIND_NOT_ALLOWED, and
             ACTION_KIND_DENIED to the known values for this field.
             TENANT_SUSPENDED and POLICY_VIOLATION are additional
@@ -437,9 +444,12 @@ components:
           any reason string including v0.1.26 extension values. v0.1.26
           servers populate it as follows:
 
-          - For base v0.1.25 denials (BUDGET_EXCEEDED, BUDGET_FROZEN,
+          - For base-spec denials (BUDGET_EXCEEDED, BUDGET_FROZEN,
             BUDGET_CLOSED, BUDGET_NOT_FOUND, OVERDRAFT_LIMIT_EXCEEDED,
-            DEBT_OUTSTANDING):
+            DEBT_OUTSTANDING, and TENANT_CLOSED — the last added to the base
+            known values in runtime revision 0.1.25.13; it appears on fresh
+            (non-replay) dry_run / decide evaluations for a closed owning
+            tenant):
               * Populate DecisionResponse.reason_code with the matching value.
               * Populate deny_detail.reason_code with the same value (mirror).
 
@@ -519,8 +529,11 @@ components:
       description: >-
         Extended ErrorCode enum. Adds ACTION_QUOTA_EXCEEDED,
         ACTION_KIND_NOT_ALLOWED, and ACTION_KIND_DENIED.
-        All v0.1.25 codes unchanged.
-        Implementations MUST add these three codes to the ErrorCode enum.
+        All base codes unchanged; the base list below is reproduced from
+        cycles-protocol-v0.yaml as of runtime revision 0.1.25.13 (includes
+        LIMIT_EXCEEDED, added there in 0.1.25.12, and TENANT_CLOSED, added
+        there in 0.1.25.13). Implementations MUST add the three v0.1.26
+        codes to the ErrorCode enum.
       enum:
         - INVALID_REQUEST
         - UNAUTHORIZED
@@ -536,6 +549,8 @@ components:
         - OVERDRAFT_LIMIT_EXCEEDED
         - DEBT_OUTSTANDING
         - MAX_EXTENSIONS_EXCEEDED
+        - LIMIT_EXCEEDED
+        - TENANT_CLOSED
         - INTERNAL_ERROR
         # NEW in v0.1.26:
         - ACTION_QUOTA_EXCEEDED

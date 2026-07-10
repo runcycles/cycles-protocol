@@ -6,6 +6,24 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.37 — 2026-07-10
+
+- Adds `TENANT_CLOSED` to the `EventDataReservationDenied.reason_code`
+  documented known values (v0.1.25 list). Mirrors the runtime plane's
+  closed-tenant guard (cycles-protocol-v0.yaml revision 0.1.25.13): denials
+  whose owning tenant is CLOSED surface as 409 `TENANT_CLOSED` on the
+  persisting mutation surface and as `decision=DENY` with
+  `reason_code=TENANT_CLOSED` on fresh dry_run / decide evaluations, so
+  `reservation.denied` events for those denials carry the same reason
+  string. Fourth instance of the additive-enum-gap class (actor enum in
+  v0.1.25.36, EventCategory in .34, cascade EventTypes in .35) — though
+  here the field is an OPEN string with explicit consumer-tolerance
+  guidance, so the omission was a documentation gap, not a validation
+  break.
+
+  **Compatibility:** Documentation-only — `reason_code` is an open string;
+  no schema shapes, operations, or status codes change.
+
 ## v0.1.25.36 — 2026-07-04
 
 - Adds `admin_on_behalf_of` to the `Event.actor.type` enum. Third instance

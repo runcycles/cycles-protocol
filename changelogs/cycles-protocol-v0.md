@@ -6,6 +6,60 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.13 — 2026-07-10
+
+_(revision 2026-07-10 — TENANT_CLOSED on the runtime ErrorCode enum + closed-tenant mutation binding)_
+
+- **`TENANT_CLOSED` added to the ErrorCode enum** for HTTP 409 rejections of
+  reservation mutations whose owning tenant is CLOSED; mirrors the governance
+  spec's code of the same name (its CASCADE SEMANTICS Rule 2 terminal-owner
+  mutation guard, added there in v0.1.25.29, scopes "any reservation
+  create/commit/release/extend" — but the runtime enum never carried the
+  code, so a conformant runtime-plane 409 body was impossible to construct).
+- **ERROR SEMANTICS closed-tenant binding (NORMATIVE).** `POST
+  /v1/reservations` (create), commit, release, and extend MUST return HTTP
+  409 with error=TENANT_CLOSED when the owning tenant's status is CLOSED and
+  the CLOSED flip is durable. Rationale: the close cascade revokes the
+  tenant's API keys, so closed tenants usually surface on the runtime plane
+  as 401 UNAUTHORIZED — but governance Mode B invariant (a) requires that a
+  mutation observed after the flip MUST NOT succeed even in the window
+  before keys are revoked; this binding closes that race on the runtime
+  plane. Precedence: for non-replay mutations, TENANT_CLOSED takes
+  precedence over the reservation-state errors (RESERVATION_FINALIZED,
+  RESERVATION_EXPIRED) per Rule 2's "regardless of that child's own
+  current status"; idempotent same-key replays of pre-close mutations
+  retain replay precedence and return the original stored response
+  (consistent with Rule 2 invariant (b)). Applicability: a deployment
+  that operates a governance plane MUST enforce the guard — by making
+  CLOSED status observable to the runtime plane, or via an equivalent
+  centralized post-flip mutation guard; the requirement is behavioral,
+  not architectural. Only deployments with no governance tenant records
+  at all are exempt. Non-mutating reservation reads (GET
+  /v1/reservations, GET /v1/reservations/{id}) are never rejected with
+  TENANT_CLOSED (mirrors Rule 2's read-access rule). The extendReservation
+  operation's local ERROR SEMANTICS list gains the matching bullet.
+- **Dry-run / decide closed-tenant rule (NORMATIVE).** The 409 binding is
+  scoped to the PERSISTING mutation surface (create with `dry_run` absent
+  or false, commit, release, extend). Non-persisting evaluations — `POST
+  /v1/reservations` with `dry_run=true` and `POST /v1/decide` — MUST NOT
+  return 409 TENANT_CLOSED; a fresh (non-replay) evaluation MUST
+  reflect the closed tenant as-if-live with decision=DENY and
+  reason_code=TENANT_CLOSED (TENANT_CLOSED added to DecisionReasonCode's
+  documented known values).
+  Rationale: dry-run/decide outcomes are attestations of what live
+  execution would do and MAY be captured as signed evidence
+  (cycles-evidence-v0.2.yaml); an evaluation that ignores a durable
+  CLOSED flip would attest ALLOW for a request whose live execution MUST
+  fail. Guard evaluation on both surfaces: a malformed tenant record
+  (status undeterminable) fails closed with 500 INTERNAL_ERROR — the
+  server cannot attest against corrupt governance state; an absent
+  tenant record is unguarded. Same-key replays of pre-close evaluations
+  return the original stored response per the IDEMPOTENCY rules — replay
+  precedence applies on the non-persisting surface exactly as on the
+  persisting one. The createReservation DRY-RUN RESPONSE RULES and the
+  /decide operation description carry matching local blocks.
+- Additive only (one enum value; otherwise prose) — semantic_base remains 0.1.25.
+
 ## v0.1.25.12 — 2026-07-04
 
 _(revision 2026-07-04 — clarify webhook per-tenant ordering under retries + actor.type prose parity)_

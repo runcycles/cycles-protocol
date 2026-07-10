@@ -4,9 +4,9 @@
 # This is the pre-built runtime-plane merged artifact for Cycles v0.1.26.
 # To regenerate: python scripts/merge_specs.py
 # Sources:
-#   - cycles-protocol-v0.yaml (v0.1.25, runtime base)
-#   - cycles-protocol-extensions-v0.1.26.yaml (v0.1.26, runtime extension)
-#   - cycles-action-kinds-v0.1.26.yaml (v0.1.26, action kind registry)
+#   - cycles-protocol-v0.yaml (v0.1.25.13, runtime base)
+#   - cycles-protocol-extensions-v0.1.26.yaml (v0.1.27, runtime extension)
+#   - cycles-action-kinds-v0.1.26.yaml (v0.1.27, action kind registry)
 # Canonical sources live at the paths above. Edit source files, regenerate.
 # ============================================================================
 openapi: 3.1.0
@@ -25,9 +25,9 @@ info:
       - Action kind registry (62 built-in kinds) + quota counter endpoint + reset
 
     Source specs:
-      - cycles-protocol-v0.yaml (runtime base v0.1.25)
-      - cycles-protocol-extensions-v0.1.26.yaml (runtime extension v0.1.26)
-      - cycles-action-kinds-v0.1.26.yaml (action kinds v0.1.26)
+      - cycles-protocol-v0.yaml (runtime base v0.1.25.13)
+      - cycles-protocol-extensions-v0.1.26.yaml (runtime extension v0.1.27)
+      - cycles-action-kinds-v0.1.26.yaml (action kinds v0.1.27)
 
     Use this file for: SDK codegen, runtime server validation, Swagger UI.
     Use cycles-openapi-admin-merged.yaml for admin tooling / dashboards.
@@ -249,6 +249,7 @@ components:
       - DEBT_OUTSTANDING
       - MAX_EXTENSIONS_EXCEEDED
       - LIMIT_EXCEEDED
+      - TENANT_CLOSED
       - INTERNAL_ERROR
       - ACTION_QUOTA_EXCEEDED
       - ACTION_KIND_NOT_ALLOWED
@@ -335,6 +336,11 @@ components:
             reservations are permitted until reconciled.
           - DEBT_OUTSTANDING — a derived scope has debt > 0 and overdraft_limit == 0
             (no policy permits further debt accrual).
+          - TENANT_CLOSED — the owning tenant's status is CLOSED (deployments with a
+            governance plane; added in revision 2026-07-10). Populated on /decide and
+            dry_run=true evaluations; the persisting mutation surface reports the same
+            condition as HTTP 409 error=TENANT_CLOSED instead (see the closed-tenant
+            binding in ERROR SEMANTICS).
 
         KNOWN VALUES (v0.1.26 runtime extension):
           - ACTION_QUOTA_EXCEEDED — a per-kind or risk-class action quota rule was
@@ -1293,11 +1299,11 @@ components:
           description: |-
             Known values:
               BUDGET_EXCEEDED, BUDGET_FROZEN, BUDGET_CLOSED, BUDGET_NOT_FOUND,
-              OVERDRAFT_LIMIT_EXCEEDED, DEBT_OUTSTANDING,
+              OVERDRAFT_LIMIT_EXCEEDED, DEBT_OUTSTANDING, TENANT_CLOSED,
               ACTION_QUOTA_EXCEEDED, ACTION_KIND_NOT_ALLOWED, ACTION_KIND_DENIED,
               TENANT_SUSPENDED, POLICY_VIOLATION.
 
-            The first six are the v0.1.25 base-spec known values documented on the DecisionReasonCode schema in cycles-protocol-v0.yaml (an OPEN string with documented known values — not a closed enum, so extensions can add new reason codes without base spec changes). v0.1.26 adds ACTION_QUOTA_EXCEEDED, ACTION_KIND_NOT_ALLOWED, and ACTION_KIND_DENIED to the known values for this field. TENANT_SUSPENDED and POLICY_VIOLATION are additional governance-context reasons that MAY appear on DenyDetail but are not listed on the base DecisionReasonCode known values.
+            The first seven are the base-spec known values documented on the DecisionReasonCode schema in cycles-protocol-v0.yaml (an OPEN string with documented known values — not a closed enum, so extensions can add new reason codes without base spec changes; TENANT_CLOSED was added there in base revision 0.1.25.13 for closed-tenant dry_run / decide denials). v0.1.26 adds ACTION_QUOTA_EXCEEDED, ACTION_KIND_NOT_ALLOWED, and ACTION_KIND_DENIED to the known values for this field. TENANT_SUSPENDED and POLICY_VIOLATION are additional governance-context reasons that MAY appear on DenyDetail but are not listed on the base DecisionReasonCode known values.
             Consumers MUST gracefully handle unrecognized values (e.g., log and display as-is) — future extensions may add more.
         quota_violation:
           $ref: '#/components/schemas/ActionQuotaViolation'
@@ -1356,9 +1362,12 @@ components:
           any reason string including v0.1.26 extension values. v0.1.26
           servers populate it as follows:
 
-          - For base v0.1.25 denials (BUDGET_EXCEEDED, BUDGET_FROZEN,
+          - For base-spec denials (BUDGET_EXCEEDED, BUDGET_FROZEN,
             BUDGET_CLOSED, BUDGET_NOT_FOUND, OVERDRAFT_LIMIT_EXCEEDED,
-            DEBT_OUTSTANDING):
+            DEBT_OUTSTANDING, and TENANT_CLOSED — the last added to the base
+            known values in runtime revision 0.1.25.13; it appears on fresh
+            (non-replay) dry_run / decide evaluations for a closed owning
+            tenant):
               * Populate DecisionResponse.reason_code with the matching value.
               * Populate deny_detail.reason_code with the same value (mirror).
 
@@ -1424,7 +1433,9 @@ components:
     ErrorCodeExtension:
       type: string
       description: Extended ErrorCode enum. Adds ACTION_QUOTA_EXCEEDED, ACTION_KIND_NOT_ALLOWED, and ACTION_KIND_DENIED.
-        All v0.1.25 codes unchanged. Implementations MUST add these three codes to the ErrorCode enum.
+        All base codes unchanged; the base list below is reproduced from cycles-protocol-v0.yaml as of
+        runtime revision 0.1.25.13 (includes LIMIT_EXCEEDED, added there in 0.1.25.12, and TENANT_CLOSED,
+        added there in 0.1.25.13). Implementations MUST add the three v0.1.26 codes to the ErrorCode enum.
       enum:
       - INVALID_REQUEST
       - UNAUTHORIZED
@@ -1440,6 +1451,8 @@ components:
       - OVERDRAFT_LIMIT_EXCEEDED
       - DEBT_OUTSTANDING
       - MAX_EXTENSIONS_EXCEEDED
+      - LIMIT_EXCEEDED
+      - TENANT_CLOSED
       - INTERNAL_ERROR
       - ACTION_QUOTA_EXCEEDED
       - ACTION_KIND_NOT_ALLOWED
@@ -2333,7 +2346,16 @@ paths:
         Returns ALLOW / DENY, optionally with Caps for soft landing. This endpoint does not reserve budget. Clients that require concurrency safety MUST use /v1/reservations.
         IDEMPOTENCY (NORMATIVE):  - On replay with the same idempotency_key, the server MUST return the original successful response payload.
         TENANCY (NORMATIVE):  - subject.tenant MUST match the effective tenant derived from auth; otherwise the server MUST return 403 FORBIDDEN.
-        DEBT/OVERDRAFT STATE (NORMATIVE): - If the subject scope has debt > 0 or is_over_limit=true, server SHOULD return  decision=DENY with reason_code=DEBT_OUTSTANDING or reason_code=OVERDRAFT_LIMIT_EXCEEDED  respectively. Server MUST NOT return 409 for these conditions on /decide.
+        DEBT/OVERDRAFT STATE (NORMATIVE): - If the subject scope has debt > 0 or is_over_limit=true, server SHOULD return decision=DENY with reason_code=DEBT_OUTSTANDING or reason_code=OVERDRAFT_LIMIT_EXCEEDED respectively. Server MUST NOT return 409 for these conditions on /decide.
+        CLOSED TENANT (NORMATIVE): - If the owning tenant's status is CLOSED (deployments with a governance plane),
+          a fresh (non-replay) evaluation MUST return decision=DENY with
+          reason_code=TENANT_CLOSED, reflecting as-if-live the 409 TENANT_CLOSED the
+          persisting mutation surface returns (same-key replays of pre-close decisions
+          follow the IDEMPOTENCY rule above and the replayed-decision caveat below).
+          Server MUST NOT return 409 for this condition on /decide. A tenant record whose
+          status cannot be determined (malformed record) MUST fail closed with 500
+          INTERNAL_ERROR — see the closed-tenant binding in ERROR SEMANTICS.
+
         Idempotency on /decide is for request deduplication only. A replayed ALLOW response reflects budget state at the time of  the original call; clients MUST NOT treat a replayed decision as current budget authorization.
       parameters:
       - $ref: '#/components/parameters/IdempotencyKeyHeader'
@@ -2386,15 +2408,20 @@ paths:
         \ - reservation_id and expires_at_ms MUST be absent. - affected_scopes MUST be populated regardless\
         \ of decision outcome (ALLOW / ALLOW_WITH_CAPS / DENY). - If decision=ALLOW_WITH_CAPS, caps MUST\
         \ be present; otherwise caps MUST be absent. - If decision=DENY, reason_code SHOULD be populated;\
-        \ it is the primary diagnostic signal for why the dry_run was denied. - balances MAY be populated\
-        \ (recommended for operator visibility), but MUST reflect a non-mutating evaluation.\nOVER-LIMIT\
-        \ BLOCKING (NORMATIVE): - If ANY affected scope has debt > overdraft_limit (is_over_limit=true),\
-        \ the reservation MUST be rejected \n  with 409 OVERDRAFT_LIMIT_EXCEEDED, regardless of available\
-        \ remaining budget.\n- This blocks new work when overdraft reconciliation is needed.\nIDEMPOTENCY\
-        \ (NORMATIVE): - On replay with the same idempotency_key, the server MUST return the original\
-        \ successful response payload,  including the original reservation_id (if any).\nTENANCY (NORMATIVE):\
-        \  - subject.tenant MUST match the effective tenant derived from auth; otherwise the server MUST\
-        \ return 403 FORBIDDEN."
+        \ it is the primary diagnostic signal for why the dry_run was denied. - If the owning tenant's\
+        \ status is CLOSED (deployments with a governance plane),\n  dry_run MUST NOT return 409 TENANT_CLOSED;\
+        \ a fresh (non-replay) evaluation MUST\n  return decision=DENY with reason_code=TENANT_CLOSED,\
+        \ reflecting as-if-live the\n  409 the persisting create returns (same-key replays of pre-close\
+        \ evaluations\n  follow the IDEMPOTENCY rule below). A tenant record whose status cannot be determined\
+        \ (malformed record)\n  MUST fail closed with 500 INTERNAL_ERROR even on dry_run — see the closed-tenant\n\
+        \  binding in ERROR SEMANTICS.\n- balances MAY be populated (recommended for operator visibility),\
+        \ but MUST reflect a non-mutating evaluation.\nOVER-LIMIT BLOCKING (NORMATIVE): - If ANY affected\
+        \ scope has debt > overdraft_limit (is_over_limit=true), the reservation MUST be rejected \n \
+        \ with 409 OVERDRAFT_LIMIT_EXCEEDED, regardless of available remaining budget.\n- This blocks\
+        \ new work when overdraft reconciliation is needed.\nIDEMPOTENCY (NORMATIVE): - On replay with\
+        \ the same idempotency_key, the server MUST return the original successful response payload, \
+        \ including the original reservation_id (if any).\nTENANCY (NORMATIVE):  - subject.tenant MUST\
+        \ match the effective tenant derived from auth; otherwise the server MUST return 403 FORBIDDEN."
       parameters:
       - $ref: '#/components/parameters/IdempotencyKeyHeader'
       requestBody:
@@ -2939,7 +2966,11 @@ paths:
 
         IDEMPOTENCY (NORMATIVE): - On replay with the same idempotency_key, the server MUST return the original successful response payload.
         TENANCY (NORMATIVE): - If the reservation exists but is owned by a different effective tenant, the server MUST return 403 FORBIDDEN.
-        ERROR SEMANTICS (NORMATIVE): - If the reservation is COMMITTED or RELEASED, server MUST return 409 with error=RESERVATION_FINALIZED. - If the reservation is expired (server time > expires_at_ms), server MUST return 410 with error=RESERVATION_EXPIRED. - If the reservation never existed, server MUST return 404 with error=NOT_FOUND.
+        ERROR SEMANTICS (NORMATIVE): - If the owning tenant's status is CLOSED (deployments with a governance plane),
+          server MUST return 409 with error=TENANT_CLOSED, taking precedence over the
+          reservation-state errors below for non-replay requests — see the closed-tenant
+          binding in this document's top-level ERROR SEMANTICS.
+        - If the reservation is COMMITTED or RELEASED, server MUST return 409 with error=RESERVATION_FINALIZED. - If the reservation is expired (server time > expires_at_ms), server MUST return 410 with error=RESERVATION_EXPIRED. - If the reservation never existed, server MUST return 404 with error=NOT_FOUND.
       parameters:
       - $ref: '#/components/parameters/ReservationId'
       - $ref: '#/components/parameters/IdempotencyKeyHeader'
