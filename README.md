@@ -557,7 +557,7 @@ List endpoints (`GET /v1/reservations`, `GET /v1/balances`) support cursor-based
 | 409 | `OVERDRAFT_LIMIT_EXCEEDED` | Debt would exceed limit, or scope is over-limit |
 | 409 | `DEBT_OUTSTANDING` | Debt > 0 blocks new reservations |
 | 409 | `MAX_EXTENSIONS_EXCEEDED` | Tenant `max_reservation_extensions` limit reached |
-| 409 | `TENANT_CLOSED` | Owning tenant is CLOSED (deployments with a governance plane); blocks persisting reserve/commit/release/extend and takes precedence over reservation-state errors for non-replay requests. Dry-run and `/decide` instead return `decision=DENY` with `reason_code=TENANT_CLOSED` |
+| 409 | `TENANT_CLOSED` | Owning tenant is CLOSED (deployments with a governance plane); blocks persisting reserve/commit/release/extend and takes precedence over reservation-state errors for non-replay requests. Dry-run and `/decide` instead return `decision=DENY` with `reason_code=TENANT_CLOSED` on fresh (non-replay) evaluations; same-key pre-close replays return the original stored response |
 | 410 | `RESERVATION_EXPIRED` | Commit/release: beyond `expires_at_ms + grace_period_ms`. Extend: beyond `expires_at_ms` (no grace period). `getReservation`: reservation exists with `status=EXPIRED`. |
 | 429 | `LIMIT_EXCEEDED` | Server-side throttling (optional in v0). Not used for budget exhaustion. |
 | 500 | `INTERNAL_ERROR` | Server error |

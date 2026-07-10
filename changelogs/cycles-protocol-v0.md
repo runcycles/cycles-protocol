@@ -42,9 +42,10 @@ _(revision 2026-07-10 — TENANT_CLOSED on the runtime ErrorCode enum + closed-t
   scoped to the PERSISTING mutation surface (create with `dry_run` absent
   or false, commit, release, extend). Non-persisting evaluations — `POST
   /v1/reservations` with `dry_run=true` and `POST /v1/decide` — MUST NOT
-  return 409 TENANT_CLOSED; they MUST reflect the closed tenant
-  as-if-live with decision=DENY and reason_code=TENANT_CLOSED
-  (TENANT_CLOSED added to DecisionReasonCode's documented known values).
+  return 409 TENANT_CLOSED; a fresh (non-replay) evaluation MUST
+  reflect the closed tenant as-if-live with decision=DENY and
+  reason_code=TENANT_CLOSED (TENANT_CLOSED added to DecisionReasonCode's
+  documented known values).
   Rationale: dry-run/decide outcomes are attestations of what live
   execution would do and MAY be captured as signed evidence
   (cycles-evidence-v0.2.yaml); an evaluation that ignores a durable
@@ -52,8 +53,7 @@ _(revision 2026-07-10 — TENANT_CLOSED on the runtime ErrorCode enum + closed-t
   fail. Guard evaluation on both surfaces: a malformed tenant record
   (status undeterminable) fails closed with 500 INTERNAL_ERROR — the
   server cannot attest against corrupt governance state; an absent
-  tenant record is unguarded. The DENY MUST applies to fresh
-  (non-replay) evaluations; same-key replays of pre-close evaluations
+  tenant record is unguarded. Same-key replays of pre-close evaluations
   return the original stored response per the IDEMPOTENCY rules — replay
   precedence applies on the non-persisting surface exactly as on the
   persisting one. The createReservation DRY-RUN RESPONSE RULES and the
