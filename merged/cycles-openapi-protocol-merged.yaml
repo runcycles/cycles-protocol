@@ -4,9 +4,9 @@
 # This is the pre-built runtime-plane merged artifact for Cycles v0.1.26.
 # To regenerate: python scripts/merge_specs.py
 # Sources:
-#   - cycles-protocol-v0.yaml (v0.1.25, runtime base)
-#   - cycles-protocol-extensions-v0.1.26.yaml (v0.1.26, runtime extension)
-#   - cycles-action-kinds-v0.1.26.yaml (v0.1.26, action kind registry)
+#   - cycles-protocol-v0.yaml (v0.1.25.13, runtime base)
+#   - cycles-protocol-extensions-v0.1.26.yaml (v0.1.27, runtime extension)
+#   - cycles-action-kinds-v0.1.26.yaml (v0.1.27, action kind registry)
 # Canonical sources live at the paths above. Edit source files, regenerate.
 # ============================================================================
 openapi: 3.1.0
@@ -25,9 +25,9 @@ info:
       - Action kind registry (62 built-in kinds) + quota counter endpoint + reset
 
     Source specs:
-      - cycles-protocol-v0.yaml (runtime base v0.1.25)
-      - cycles-protocol-extensions-v0.1.26.yaml (runtime extension v0.1.26)
-      - cycles-action-kinds-v0.1.26.yaml (action kinds v0.1.26)
+      - cycles-protocol-v0.yaml (runtime base v0.1.25.13)
+      - cycles-protocol-extensions-v0.1.26.yaml (runtime extension v0.1.27)
+      - cycles-action-kinds-v0.1.26.yaml (action kinds v0.1.27)
 
     Use this file for: SDK codegen, runtime server validation, Swagger UI.
     Use cycles-openapi-admin-merged.yaml for admin tooling / dashboards.
