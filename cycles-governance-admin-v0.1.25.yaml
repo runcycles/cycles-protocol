@@ -7110,8 +7110,23 @@ paths:
         - Concurrent replays to the same subscription are NOT allowed.
 
         LIMITS:
-        - Maximum 1000 events per replay request.
+        - Maximum 1000 events per replay request (the `max_events` cap).
         - Use from/to to control the replay window.
+        - SCAN LIMIT (NORMATIVE): reaching `max_events` deliverable events WITHIN
+          the window is a normal pagination cap and is a SUCCESS (the caller
+          continues by advancing `from` past the last replayed event). Distinct
+          from this: a server enforces a maximum number of candidate events it
+          will SCAN across the [from, to] window while satisfying a request. If
+          the window contains more candidate events than that scan limit AND the
+          request cannot be satisfied within it — i.e. fewer than `max_events`
+          deliverable events are found within the scanned portion while more
+          candidates remain beyond it — the server MUST reject the request with
+          400 INVALID_REQUEST rather than silently returning a partial replay;
+          the caller should narrow the from/to range and retry. The scan-limit
+          VALUE is server-defined (implementation-specific; a reference server
+          documents its own limit) — the normative point is the BEHAVIOR: no
+          silent partial replay; a too-broad window is a 400, not a truncated
+          success.
       security:
         - AdminKeyAuth: []
       parameters:
@@ -7171,7 +7186,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '400':
-          description: Invalid replay request
+          description: >-
+            Invalid replay request — including error=INVALID_REQUEST when the
+            [from, to] window exceeds the server's scan limit and cannot be
+            satisfied within it (narrow the from/to range; see LIMITS → SCAN
+            LIMIT). Not returned merely for reaching the max_events cap, which
+            is a normal success.
           content:
             application/json:
               schema:

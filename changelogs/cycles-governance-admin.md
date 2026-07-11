@@ -103,6 +103,20 @@ Corrects three issues in v0.1.25.40 (all reviewer findings against merged main).
   category SYSTEM). Both /test operation descriptions and the CONFORMANCE.md
   invariant bullet carry the exception; it rides through the F2 merge injection
   into the merged admin artifact.
+- **replayEvents scan-limit behavior (NORMATIVE).** Surfaced by the
+  cycles-server-admin #210 replay work: a replay whose [from, to] window
+  contains more candidate events than the server's replay SCAN LIMIT and cannot
+  be satisfied within it (fewer than `max_events` deliverable events found
+  within the scanned portion, with more beyond) MUST be rejected with 400
+  INVALID_REQUEST rather than silently returning a partial replay — the caller
+  narrows the from/to range. Made explicitly distinct from the `max_events`
+  pagination cap (reaching it within the window is a normal SUCCESS). No schema
+  change — replayEvents already declared a 400 "Invalid replay request"
+  (ErrorResponse); this documents the existing-but-unspecified semantic and
+  extends the LIMITS block. The scan-limit VALUE stays server-defined
+  (implementation-specific; reference servers document their own limit) — the
+  normative point is the behavior (400 + narrow-window, no silent partial). The
+  400 response description is extended to name this case.
 - **Merged artifact preserves the invariant (tooling contract).** `scripts/
   merge_specs.py` substitutes its own info.description when generating the
   merged artifacts, which dropped the WEBHOOK SUBSCRIPTION INVARIANTS block and
