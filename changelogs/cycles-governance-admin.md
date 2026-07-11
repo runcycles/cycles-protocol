@@ -84,6 +84,25 @@ Corrects three issues in v0.1.25.40 (all reviewer findings against merged main).
   a violating subscription from being PERSISTED and report an equivalent
   validation failure — while the HTTP reference surfaces surface it
   specifically as 400 INVALID_REQUEST.
+- **INVARIANT 2 webhook-test carve-out (NORMATIVE).** The reference admin
+  implementation (cycles-server-admin #210) surfaced that the `/test`
+  operations (`testTenantWebhook` / `testWebhookSubscription`) POST a synthetic
+  `system.webhook_test` connectivity event directly to a subscription's own
+  endpoint — so an ABSOLUTE reading of INVARIANT 2 would forbid testing any
+  tenant-owned subscription (`system.*` is admin-only), a spec-vs-impl mismatch.
+  Added a SCOPE clause to INVARIANT 2: it governs delivery of governance EVENTS
+  (from the event stream) to a subscription and does NOT apply to the
+  owner-triggered test probe — a point-to-point, owner-requested connectivity
+  check that bypasses the dispatch queue and carries no governance telemetry, so
+  a tenant-owned subscription MAY receive its own `system.webhook_test` probe
+  WITHOUT adding `system` to its stored selectors (which still MUST satisfy
+  INVARIANT 2). The carve-out is limited to that synthetic test event on the
+  /test operations; no real `system.*` / `api_key.*` / `policy.*` / `webhook.*`
+  governance event may reach a tenant-owned subscription. Verified the event
+  type against source (`SYSTEM_WEBHOOK_TEST` = wire `system.webhook_test`,
+  category SYSTEM). Both /test operation descriptions and the CONFORMANCE.md
+  invariant bullet carry the exception; it rides through the F2 merge injection
+  into the merged admin artifact.
 - **Merged artifact preserves the invariant (tooling contract).** `scripts/
   merge_specs.py` substitutes its own info.description when generating the
   merged artifacts, which dropped the WEBHOOK SUBSCRIPTION INVARIANTS block and

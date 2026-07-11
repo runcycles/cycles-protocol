@@ -301,6 +301,24 @@ info:
         "__system__" are NOT tenant-owned (operator-owned) and MAY carry
         admin-only selectors — system-wide admin monitoring is legitimate.
 
+        SCOPE — WEBHOOK TEST PROBE EXCEPTION: INVARIANT 2 governs the SELECTORS
+        a tenant-owned subscription may carry, and thereby which governance
+        events (from the event stream) may be DELIVERED to it. It does NOT
+        apply to the owner-triggered webhook test probe (the testTenantWebhook
+        / testWebhookSubscription "/test" operations), which POSTs a single
+        synthetic `system.webhook_test` connectivity event directly to the
+        subscription's own endpoint at the owner's request — a point-to-point
+        probe that bypasses the event-dispatch queue and carries NO governance
+        telemetry. A tenant-owned subscription MAY receive its own test probe
+        even though `system.webhook_test` is a `system.*` (admin-only)
+        EventType, and this does NOT require adding `system` to the
+        subscription's selectors (the subscription's stored `event_types` /
+        `event_categories` are unchanged and still MUST satisfy INVARIANT 2).
+        The exception is limited to this synthetic test event on the /test
+        operations; it does NOT permit any real `system.*` / `api_key.*` /
+        `policy.*` / `webhook.*` governance event from the event stream to be
+        delivered to a tenant-owned subscription.
+
     SPEC FAMILY CONTEXT:
       This is the STABLE GOVERNANCE BASE for the Cycles Protocol v0.1.x
       spec family. The current conformance target is v0.1.25 — this file
@@ -6721,6 +6739,12 @@ paths:
         - Does NOT count toward consecutive_failures.
         - Does NOT affect subscription status.
         - Returns the HTTP response status and timing from the endpoint.
+        - This owner-triggered synthetic probe is EXEMPT from WEBHOOK SUBSCRIPTION
+          INVARIANT 2 (info.description): a tenant-owned subscription MAY receive its
+          own `system.webhook_test` probe even though `system.*` is admin-only. It
+          does not change the subscription's stored selectors and does not permit any
+          real `system.*` governance event to reach the subscription — see
+          INVARIANT 2 → SCOPE — WEBHOOK TEST PROBE EXCEPTION.
       security:
         - AdminKeyAuth: []
       parameters:
@@ -7819,6 +7843,11 @@ paths:
       summary: Send a test event to a tenant's webhook
       description: >-
         Sends a synthetic system.webhook_test event. Does not count toward consecutive failures.
+        This owner-triggered probe is EXEMPT from WEBHOOK SUBSCRIPTION INVARIANT 2
+        (info.description): a tenant-owned subscription MAY receive its own
+        `system.webhook_test` probe even though `system.*` is admin-only, without
+        adding `system` to its selectors — see INVARIANT 2 → SCOPE — WEBHOOK TEST
+        PROBE EXCEPTION. Real `system.*` governance events remain barred.
 
         TENANCY:
           - Under ApiKeyAuth: 404 on cross-tenant subscription.
