@@ -4,7 +4,7 @@
 # This is the pre-built runtime-plane merged artifact for Cycles v0.1.26.
 # To regenerate: python scripts/merge_specs.py
 # Sources:
-#   - cycles-protocol-v0.yaml (v0.1.25.13, runtime base)
+#   - cycles-protocol-v0.yaml (v0.1.25.14, runtime base)
 #   - cycles-protocol-extensions-v0.1.26.yaml (v0.1.27, runtime extension)
 #   - cycles-action-kinds-v0.1.26.yaml (v0.1.27, action kind registry)
 # Canonical sources live at the paths above. Edit source files, regenerate.
@@ -25,7 +25,7 @@ info:
       - Action kind registry (62 built-in kinds) + quota counter endpoint + reset
 
     Source specs:
-      - cycles-protocol-v0.yaml (runtime base v0.1.25.13)
+      - cycles-protocol-v0.yaml (runtime base v0.1.25.14)
       - cycles-protocol-extensions-v0.1.26.yaml (runtime extension v0.1.27)
       - cycles-action-kinds-v0.1.26.yaml (action kinds v0.1.27)
 
@@ -3224,7 +3224,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          $ref: '#/components/responses/ErrorResponse'
+          description: 'Persisting-debit denial. error=TENANT_CLOSED when the owning tenant''s status
+            is CLOSED (createEvent is a persisting budget debit on the same runtime-plane surface as commit;
+            see ERROR SEMANTICS — there is no dry_run/decide mode on /v1/events, so on a fresh (non-replay)
+            request the closed-tenant outcome is this 409, never a decision=DENY; a same-key replay of
+            a pre-close event still returns its original stored 201 per IDEMPOTENCY). Plus the two 409
+            codes explicitly specified by EventCreateRequest.overage_policy: error=BUDGET_EXCEEDED under
+            overage_policy=REJECT, and error=OVERDRAFT_LIMIT_EXCEEDED under overage_policy=ALLOW_WITH_OVERDRAFT.'
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+            X-Cycles-Trace-Id:
+              $ref: '#/components/headers/X-Cycles-Trace-Id'
+            X-Cycles-Tenant:
+              $ref: '#/components/headers/X-Cycles-Tenant'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '500':
           $ref: '#/components/responses/ErrorResponse'
   /v1/action-kinds:
