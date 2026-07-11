@@ -78,7 +78,7 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
   the category added at revision 0.1.25.33).
 - Note: the empty-both state (`event_types` and `event_categories` both
   empty, which a naive matcher would treat as match-all) is prevented — but
-  see the CORRECTION in v0.1.25.39 below: this entry originally claimed the
+  see the CORRECTION in v0.1.25.39 above: this entry originally claimed the
   guarantee came from `event_types` `minItems: 1` on all three webhook
   schemas. That was wrong for the UPDATE path (`WebhookUpdateRequest` has no
   such constraint in the shipped admin server, so PATCH can clear
