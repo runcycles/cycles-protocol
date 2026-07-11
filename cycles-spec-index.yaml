@@ -65,13 +65,13 @@ spec_family:
   current_versions:
     base_runtime: "0.1.25.13"             # + TENANT_CLOSED on ErrorCode + closed-tenant 409 binding on reserve/commit/release/extend
     base_runtime_semantic_base: "0.1.25"  # frozen wire baseline — evidence revisions are additive, 0.1.25 clients stay compatible
-    base_governance: "0.1.25.38"          # tenant webhook boundary covers event_categories (400 on admin-only category) + count corrections
+    base_governance: "0.1.25.39"          # category-only webhook subs: drop minItems:1 (update + subscription) + SUBSCRIPTION SELECTOR INVARIANT
     base_governance_semantic_base: "0.1.25.9"  # frozen wire baseline
     extension_runtime: "0.1.27"           # ErrorCodeExtension base-list refresh (+ LIMIT_EXCEEDED, TENANT_CLOSED) against runtime 0.1.25.13
     extension_governance: "0.1.27"        # trace_id on redeclared ErrorResponse
     action_kinds: "0.1.27"                # trace_id on redeclared ErrorResponse
     evidence_envelope: "0.2.1"            # ErrorResponseMirror re-cut against canonical ErrorCode 0.1.25.13 (+ LIMIT_EXCEEDED, TENANT_CLOSED)
-    spec_index: "0.1.37"                  # base_governance tenant-webhook category boundary → 0.1.25.38
+    spec_index: "0.1.38"                  # base_governance category-only webhook subscriptions → 0.1.25.39
 
 # ---------------------------------------------------------------------------
 # CANONICAL DOCUMENTS
@@ -107,7 +107,7 @@ documents:
 
   - id: governance_base
     file: cycles-governance-admin-v0.1.25.yaml
-    version: "0.1.25.38"          # tenant webhook boundary covers event_categories (matches info.version)
+    version: "0.1.25.39"          # category-only webhook subscriptions + SUBSCRIPTION SELECTOR INVARIANT (matches info.version)
     semantic_base: "0.1.25.9"     # frozen wire baseline
     role: base
     conformance: mixed

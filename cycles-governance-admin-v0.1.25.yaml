@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.38
+  version: 0.1.25.39
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Stable governance base — document revision 0.1.25.38; semantic base
+    Stable governance base — document revision 0.1.25.39; semantic base
     frozen at 0.1.25.9. This file is self-sufficient for the current
     v0.1.25 conformance target (runcycles' reference servers implement
     this today — adds a normative tenant-close cascade contract at
@@ -34,7 +34,12 @@ info:
     0.1.25.38 makes the tenant self-service webhook boundary cover
     event_categories — an admin-only category MUST be rejected with 400
     INVALID_REQUEST since categories are additive in delivery matching —
-    and corrects the stale tenant-accessible counts)
+    and corrects the stale tenant-accessible counts; document revision
+    0.1.25.39 allows category-only webhook subscriptions (removes
+    minItems:1 from WebhookUpdateRequest / WebhookSubscription
+    event_types) and adds the normative SUBSCRIPTION SELECTOR INVARIANT
+    guaranteeing at least one non-empty selector, reconciling the spec
+    to shipped admin behavior)
     and also serves as the base for the upcoming v0.1.26
     spec family. Covers tenant management, authentication, and runtime
     enforcement. NOTE: This file alone is NOT sufficient for the
@@ -235,7 +240,7 @@ info:
       spec family. The current conformance target is v0.1.25 — this file
       alone (plus cycles-protocol-v0.yaml) is sufficient for the active
       target, and runcycles' reference servers implement that baseline
-      today. Document revision 0.1.25.38; semantic base frozen at 0.1.25.9
+      today. Document revision 0.1.25.39; semantic base frozen at 0.1.25.9
       (see cycles-spec-index.yaml for the versioning model).
 
       The upcoming v0.1.26 target adds new capabilities (action quotas,
@@ -2407,10 +2412,26 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/EventType'
-          minItems: 1
           description: >-
-            Event types this subscription receives. At least one required.
-            Use category wildcards for broad subscriptions (see event_categories).
+            Event types this subscription receives. ALWAYS PRESENT (this field
+            is required on the persisted subscription), but MAY be empty on a
+            CATEGORY-ONLY subscription (event_types: [] with a non-empty
+            event_categories — e.g. "all budget.* by category"). It is the
+            SUBSCRIPTION SELECTOR INVARIANT below, not a minItems constraint,
+            that keeps a persisted subscription from having no selector at all;
+            an empty event_types here therefore always co-occurs with a
+            non-empty event_categories.
+
+            SUBSCRIPTION SELECTOR INVARIANT (NORMATIVE): a persisted
+            subscription MUST always match at least one event selector — at
+            least one of `event_types` / `event_categories` MUST be non-empty.
+            A create or update whose resulting state would leave BOTH empty
+            MUST be rejected with 400 INVALID_REQUEST. This invariant is what
+            makes category-only subscriptions valid and what makes the
+            empty-both "match ALL event classes" state unreachable (the earlier
+            assumption that `event_types` `minItems: 1` alone guaranteed this
+            was incorrect for the update path — the guarantee is this
+            server-side invariant, now normative).
         event_categories:
           type: array
           items:
@@ -2418,6 +2439,9 @@ components:
           description: >-
             Subscribe to all events in these categories. Additive with event_types.
             E.g., ["budget"] subscribes to all budget.* events, including future ones.
+            MAY be the sole selector (category-only subscription) when
+            event_types is empty, subject to the SUBSCRIPTION SELECTOR
+            INVARIANT on event_types above.
             On the tenant self-service plane (/v1/webhooks), entries are subject to
             the same tenant-accessible boundary as event_types — because matching is
             additive, an admin-only category would widen the subscription past the
@@ -2666,6 +2690,19 @@ components:
       description: >-
         Partial update. Only provided fields are modified.
         To rotate the signing secret, provide a new value.
+
+        SELECTOR CLEARING (NORMATIVE): unlike WebhookCreateRequest (where
+        event_types is required and non-empty), an update MAY set event_types
+        to an empty array to convert the subscription to CATEGORY-ONLY —
+        PROVIDED event_categories is (or remains) non-empty. The resulting
+        persisted state is still subject to the SUBSCRIPTION SELECTOR
+        INVARIANT (WebhookSubscription.event_types): an update whose resulting
+        state would leave BOTH event_types and event_categories empty MUST be
+        rejected with 400 INVALID_REQUEST. Because this is a partial update,
+        the resulting state combines the provided fields with the existing
+        subscription's unchanged fields (e.g. clearing event_types while the
+        stored event_categories is non-empty is accepted; clearing it while
+        the stored event_categories is also empty is rejected).
       properties:
         name:
           type: string
@@ -2681,11 +2718,20 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/EventType'
-          minItems: 1
+          description: >-
+            Event types to set. Optional (omit to leave unchanged). MAY be an
+            empty array to clear event_types for a category-only subscription,
+            subject to the SELECTOR CLEARING rule above. No minItems constraint
+            on update (contrast WebhookCreateRequest.event_types, which is
+            required and non-empty).
         event_categories:
           type: array
           items:
             $ref: '#/components/schemas/EventCategory'
+          description: >-
+            Event categories to set. Optional (omit to leave unchanged).
+            On the tenant self-service plane, admin-only categories are
+            rejected per createTenantWebhook (TENANT-ACCESSIBLE BOUNDARY).
         scope_filter:
           type: string
         thresholds:
@@ -7252,6 +7298,17 @@ paths:
         - The same boundary applies to updateTenantWebhook, partial updates
           included: any provided event_types or event_categories array is
           validated in full.
+
+        SUBSCRIPTION SELECTOR INVARIANT (NORMATIVE): every persisted
+        subscription MUST match at least one selector — at least one of
+        event_types / event_categories MUST be non-empty. A create or update
+        whose resulting state would leave BOTH empty MUST be rejected with 400
+        INVALID_REQUEST (see WebhookSubscription.event_types). On create,
+        event_types is additionally required and non-empty; on update it MAY be
+        cleared to empty for a CATEGORY-ONLY subscription provided
+        event_categories remains non-empty (see WebhookUpdateRequest —
+        SELECTOR CLEARING). Category-only subscriptions on this plane are still
+        bound by the TENANT-ACCESSIBLE BOUNDARY above.
 
         PERMISSIONS:
         - Requires webhooks:write permission on the API key.
