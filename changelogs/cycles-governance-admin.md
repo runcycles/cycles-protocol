@@ -6,6 +6,91 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.40 — 2026-07-11
+
+- **Tenant-accessible category boundary extended to the ADMIN webhook write
+  path for tenant-owned targets (NORMATIVE).** Closes the residual from
+  issue #209. `createWebhookSubscription` (`POST /v1/admin/webhooks`) and
+  `updateWebhookSubscription` (`PATCH /v1/admin/webhooks/{id}`) now carry a
+  TENANT-OWNED CATEGORY BOUNDARY rule: when the target subscription's owning
+  tenant is a CONCRETE tenant (`tenant_id` present and != `"__system__"`),
+  `event_types` / `event_categories` MUST satisfy the same tenant-accessible
+  boundary the tenant self-service path enforces (budget / reservation /
+  tenant only); an admin-only event type or category (api_key, policy,
+  webhook, system) MUST be rejected with 400 INVALID_REQUEST. The constraint
+  is a property of the OWNING TENANT, not the caller, so it holds regardless
+  of auth context (admin key or admin-on-behalf-of). References the existing
+  TENANT-ACCESSIBLE BOUNDARY block (v0.1.25.38) rather than restating the
+  sets.
+- **`__system__` carve-out.** When `tenant_id` is omitted or == `"__system__"`
+  the subscription is NOT tenant-owned and admin-only categories remain
+  permitted — system-wide admin monitoring is legitimate and those rows carry
+  no tenant-controlled delivery endpoint.
+- Rationale: `event_categories` is ADDITIVE in delivery matching, and the
+  owning tenant controls the delivery URL and signing secret of any
+  subscription under its `tenant_id`, so an admin-only category on such a row
+  would leak admin governance/security telemetry (api_key / policy / webhook /
+  system events) to a tenant-controlled endpoint. This makes "tenant-owned ⇒
+  tenant-accessible categories only" true by construction and stops new
+  carriers at the root. Confirmed against the reference admin server:
+  `WebhookAdminController.create` / `update` applied NO category validation,
+  so the admin write path (`POST /v1/admin/webhooks?tenant_id=X` and its
+  PATCH) could place admin-only categories on tenant X's row; fixed in
+  parallel in cycles-server-admin. A provenance/delivery-filtering model
+  (delivering admin-only telemetry to tenant endpoints with provenance
+  tagging) was considered and DECLINED — no legitimate need to deliver
+  admin-only governance telemetry to a tenant-controlled endpoint.
+- The `WebhookSubscription.event_categories` schema note (added in v0.1.25.38)
+  is broadened from "tenant self-service plane" to "any subscription owned by
+  a concrete tenant (tenant self-service plane, or the admin plane with a
+  non-__system__ tenant_id)", with the `__system__` exemption. Both admin
+  endpoints' 400 response descriptions gain the admin-only-category cause.
+- **MIGRATION (if you provisioned admin-only categories on a tenant-owned
+  subscription).** The admin write path previously ACCEPTED admin-only
+  categories/types on a concrete-tenant subscription (returning 201/200); it
+  now rejects them with 400. The security rule is: a tenant-OWNED subscription
+  must never carry admin categories, because the tenant controls its delivery
+  URL + signing secret. To monitor admin-only events (api_key / policy /
+  webhook / system), use a `__system__`-owned subscription (`POST
+  /v1/admin/webhooks` with NO tenant_id, or tenant_id="__system__") — which is
+  operator-owned, so admin categories are permitted — with `event_categories`
+  set to the admin classes; it receives ALL tenants' admin events (a
+  `__system__` subscription is in the dispatch union for every tenant), and the
+  operator filters to a specific tenant CLIENT-SIDE on the envelope `tenant_id`.
+  Note: `scope_filter` CANNOT select a single tenant's admin telemetry
+  server-side — most admin lifecycle events are emitted null-scoped (verified in
+  the reference server: `api_key.*`, `webhook.*`, and the `system.*` webhook-test
+  event carry no `scope`; only `policy.*` carries a real tenant-bounded scope
+  and could be scope-filtered), and a `scope_filter` like `"tenant:<id>/*"`
+  matches only descendant scopes and excludes null-scoped events. The envelope
+  `tenant_id` is present on admin events regardless, so client-side tenant
+  filtering is the reliable path.
+- Non-normative (out of scope; admin-server concern): cleanup of existing
+  offender rows — subscriptions created before this boundary that already
+  carry admin-only categories on a tenant-owned `tenant_id` — is a migration
+  concern for the admin server (tracked in cycles-server-admin 0.1.25.51 /
+  its AUDIT), NOT a spec-normative requirement: this spec does NOT mandate the
+  remediation mechanism (as with the tenant-close cascade backfill). The spec
+  change stops NEW carriers; remediating historical rows is an implementation
+  task.
+- Also bumps the info.summary / SPEC FAMILY CONTEXT document-revision
+  self-references to 0.1.25.40 and extends the summary chronicle.
+
+  **Compatibility — INTENTIONAL BEHAVIOR-BREAKING SECURITY CORRECTION.** This
+  is not a mere clarification: admin-plane create/update requests that
+  previously SUCCEEDED (201/200) provisioning admin-only categories or types
+  on a concrete-tenant (non-__system__) subscription now return 400
+  INVALID_REQUEST. The wire surface is unchanged — no schema shape, operation,
+  or status-code inventory changes (the 400 reuses the existing
+  INVALID_REQUEST code, and both endpoints already declared a 400) — it is the
+  ACCEPTANCE behavior that tightens. Existing admin clients/workflows that set
+  admin-only categories on tenant-owned rows MUST change (see MIGRATION above).
+  Same honesty as the v0.1.25.38 / .49 BEHAVIOR CHANGE framing: the break is
+  deliberate — it closes a telemetry-leak vector (issue #209) where a tenant,
+  controlling its subscription's URL + signing secret, would receive admin
+  governance/security events. semantic_base stays 0.1.25.9 (wire contract
+  unchanged; the security invariant tightens).
+
 ## v0.1.25.39 — 2026-07-11
 
 - **Category-only webhook subscriptions are legitimate; `minItems: 1` on the

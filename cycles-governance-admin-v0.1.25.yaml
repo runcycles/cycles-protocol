@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.39
+  version: 0.1.25.40
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Stable governance base — document revision 0.1.25.39; semantic base
+    Stable governance base — document revision 0.1.25.40; semantic base
     frozen at 0.1.25.9. This file is self-sufficient for the current
     v0.1.25 conformance target (runcycles' reference servers implement
     this today — adds a normative tenant-close cascade contract at
@@ -39,7 +39,11 @@ info:
     minItems:1 from WebhookUpdateRequest / WebhookSubscription
     event_types) and adds the normative SUBSCRIPTION SELECTOR INVARIANT
     guaranteeing at least one non-empty selector, reconciling the spec
-    to shipped admin behavior)
+    to shipped admin behavior; document revision 0.1.25.40 extends the
+    tenant-accessible category boundary to the admin webhook write path
+    for tenant-owned targets (createWebhookSubscription /
+    updateWebhookSubscription reject admin-only categories on a
+    non-__system__ tenant's subscription), closing issue #209)
     and also serves as the base for the upcoming v0.1.26
     spec family. Covers tenant management, authentication, and runtime
     enforcement. NOTE: This file alone is NOT sufficient for the
@@ -240,7 +244,7 @@ info:
       spec family. The current conformance target is v0.1.25 — this file
       alone (plus cycles-protocol-v0.yaml) is sufficient for the active
       target, and runcycles' reference servers implement that baseline
-      today. Document revision 0.1.25.39; semantic base frozen at 0.1.25.9
+      today. Document revision 0.1.25.40; semantic base frozen at 0.1.25.9
       (see cycles-spec-index.yaml for the versioning model).
 
       The upcoming v0.1.26 target adds new capabilities (action quotas,
@@ -2442,11 +2446,14 @@ components:
             MAY be the sole selector (category-only subscription) when
             event_types is empty, subject to the SUBSCRIPTION SELECTOR
             INVARIANT on event_types above.
-            On the tenant self-service plane (/v1/webhooks), entries are subject to
-            the same tenant-accessible boundary as event_types — because matching is
+            For any subscription owned by a CONCRETE tenant — whether created/updated
+            via the tenant self-service plane (/v1/webhooks) or via the admin plane
+            (/v1/admin/webhooks with a non-"__system__" tenant_id) — entries are subject
+            to the same tenant-accessible boundary as event_types: because matching is
             additive, an admin-only category would widen the subscription past the
-            tenant-accessible set; see createTenantWebhook (TENANT-ACCESSIBLE
-            BOUNDARY).
+            tenant-accessible set. See createTenantWebhook (TENANT-ACCESSIBLE BOUNDARY)
+            and createWebhookSubscription (TENANT-OWNED CATEGORY BOUNDARY). Subscriptions
+            owned by "__system__" are exempt (admin-only categories permitted).
         scope_filter:
           type: string
           description: >-
@@ -6191,6 +6198,37 @@ paths:
         - Omit tenant_id to create a system-wide subscription (receives events from all tenants).
         - System-wide subscriptions still respect scope_filter if provided.
 
+        TENANT-OWNED CATEGORY BOUNDARY (NORMATIVE): when the target subscription's
+        owning tenant is a CONCRETE tenant (tenant_id present and != "__system__"),
+        event_types and event_categories MUST satisfy the same tenant-accessible
+        boundary the tenant self-service path enforces — budget.* / reservation.* /
+        tenant.* types, and only the budget / reservation / tenant categories; an
+        admin-only event type or category (api_key, policy, webhook, system) MUST be
+        rejected with 400 INVALID_REQUEST. See createTenantWebhook (TENANT-ACCESSIBLE
+        BOUNDARY) for the exact type/category sets — the same boundary applies here,
+        on the admin write path, for tenant-owned targets. This holds regardless of
+        auth context (admin key or admin-on-behalf-of): the constraint is a property
+        of the owning tenant, not of the caller. Rationale: event_categories is
+        ADDITIVE in delivery matching, and the owning tenant controls the delivery
+        URL and signing secret of any subscription under its tenant_id, so an
+        admin-only category on such a row would leak admin governance/security
+        telemetry (api_key / policy / webhook / system events) to a tenant-controlled
+        endpoint. When tenant_id is omitted or == "__system__", the subscription is
+        NOT tenant-owned and admin-only categories remain permitted (system-wide
+        admin monitoring is legitimate). Closes issue #209 at the admin write path
+        (the previously ungoverned carrier of admin-only categories onto tenant-owned
+        rows). To monitor admin-only events, create a __system__-owned subscription
+        (omit tenant_id, or set tenant_id="__system__") — operator-owned (operator
+        controls its URL + signing secret), so admin categories are permitted — with
+        event_categories set to the admin classes; it is in the dispatch union for
+        every tenant, so it receives ALL tenants' admin events, which the operator
+        filters to a specific tenant CLIENT-SIDE on the envelope `tenant_id`. Note:
+        scope_filter CANNOT select a single tenant's admin telemetry server-side,
+        because most admin lifecycle events are emitted with a null `scope`
+        (`api_key.*`, `webhook.*`, and the `system.*` webhook-test event carry no
+        scope; only `policy.*` carries a real tenant-bounded scope and could be
+        scope-filtered). A tenant-OWNED subscription MUST NOT be used for this.
+
         EVENTS (document revision 0.1.25.33):
         - On success, server MUST emit one `webhook.created` Event.
           Payload conforms to EventDataWebhookLifecycle with
@@ -6227,7 +6265,10 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '400':
-          description: Invalid request (e.g., non-HTTPS URL in production mode, invalid event type)
+          description: >-
+            Invalid request (e.g., non-HTTPS URL in production mode, invalid event type,
+            or — for a tenant-owned target (tenant_id != "__system__") — an admin-only
+            event type or category per TENANT-OWNED CATEGORY BOUNDARY).
           content:
             application/json:
               schema:
@@ -6428,6 +6469,20 @@ paths:
         - Rotate signing secret: provide new signing_secret value
         - Change event types: provide new event_types array (replaces, does not merge)
 
+        TENANT-OWNED CATEGORY BOUNDARY (NORMATIVE): the owning tenant is resolved from
+        the target subscription's stored tenant_id. When that owning tenant is a
+        CONCRETE tenant (tenant_id != "__system__"), any provided event_types /
+        event_categories MUST satisfy the same tenant-accessible boundary the tenant
+        self-service path enforces (budget / reservation / tenant only); an admin-only
+        event type or category (api_key, policy, webhook, system) MUST be rejected with
+        400 INVALID_REQUEST. See createTenantWebhook (TENANT-ACCESSIBLE BOUNDARY) for
+        the exact sets and createWebhookSubscription (TENANT-OWNED CATEGORY BOUNDARY)
+        for the rationale — a tenant owns the delivery URL + signing secret of any row
+        under its tenant_id, so admin-only categories there leak admin telemetry to a
+        tenant-controlled endpoint. This holds regardless of auth context (admin key or
+        admin-on-behalf-of). Subscriptions whose owning tenant is "__system__" are not
+        tenant-owned and admin-only categories remain permitted.
+
         EVENTS (document revision 0.1.25.33):
         - On every successful PATCH the server MUST emit exactly one
           Event, typed by the nature of the change:
@@ -6476,7 +6531,10 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '400':
-          description: Invalid update
+          description: >-
+            Invalid update (e.g., invalid event type, or — when the target's owning
+            tenant is a concrete tenant (tenant_id != "__system__") — an admin-only
+            event type or category per TENANT-OWNED CATEGORY BOUNDARY).
           content:
             application/json:
               schema:
