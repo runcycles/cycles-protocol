@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.37
+  version: 0.1.25.38
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Stable governance base — document revision 0.1.25.36; semantic base
+    Stable governance base — document revision 0.1.25.38; semantic base
     frozen at 0.1.25.9. This file is self-sufficient for the current
     v0.1.25 conformance target (runcycles' reference servers implement
     this today — adds a normative tenant-close cascade contract at
@@ -27,7 +27,14 @@ info:
     responses emitted by the tenant-close cascade validate against
     Event.event_type; document revision 0.1.25.36 adds
     `admin_on_behalf_of` to the Event.actor.type enum so events emitted
-    by admin-key dual-auth operations validate)
+    by admin-key dual-auth operations validate; document revision
+    0.1.25.37 adds TENANT_CLOSED to the
+    EventDataReservationDenied.reason_code documented known values,
+    mirroring the runtime plane's closed-tenant guard; document revision
+    0.1.25.38 makes the tenant self-service webhook boundary cover
+    event_categories — an admin-only category MUST be rejected with 400
+    INVALID_REQUEST since categories are additive in delivery matching —
+    and corrects the stale tenant-accessible counts)
     and also serves as the base for the upcoming v0.1.26
     spec family. Covers tenant management, authentication, and runtime
     enforcement. NOTE: This file alone is NOT sufficient for the
@@ -228,7 +235,7 @@ info:
       spec family. The current conformance target is v0.1.25 — this file
       alone (plus cycles-protocol-v0.yaml) is sufficient for the active
       target, and runcycles' reference servers implement that baseline
-      today. Document revision 0.1.25.36; semantic base frozen at 0.1.25.9
+      today. Document revision 0.1.25.38; semantic base frozen at 0.1.25.9
       (see cycles-spec-index.yaml for the versioning model).
 
       The upcoming v0.1.26 target adds new capabilities (action quotas,
@@ -2411,6 +2418,11 @@ components:
           description: >-
             Subscribe to all events in these categories. Additive with event_types.
             E.g., ["budget"] subscribes to all budget.* events, including future ones.
+            On the tenant self-service plane (/v1/webhooks), entries are subject to
+            the same tenant-accessible boundary as event_types — because matching is
+            additive, an admin-only category would widen the subscription past the
+            tenant-accessible set; see createTenantWebhook (TENANT-ACCESSIBLE
+            BOUNDARY).
         scope_filter:
           type: string
           description: >-
@@ -7220,9 +7232,26 @@ paths:
       description: >-
         Tenant-scoped webhook creation. The subscription is automatically scoped
         to the authenticated tenant. Tenants can only subscribe to tenant-accessible
-        event types: budget.*, reservation.*, tenant.* (26 of 40 types).
+        event types: budget.*, reservation.*, tenant.* (29 of 51 types).
 
-        api_key.*, policy.*, and system.* events require admin access.
+        api_key.*, policy.*, webhook.*, and system.* events require admin access.
+
+        TENANT-ACCESSIBLE BOUNDARY (NORMATIVE):
+        - event_types: every entry MUST be tenant-accessible (budget.*,
+          reservation.*, tenant.*). A restricted event type MUST be rejected
+          with 400 INVALID_REQUEST.
+        - event_categories: every entry MUST likewise be a tenant-accessible
+          category (budget, reservation, tenant). A category whose event types
+          are admin-only (api_key, policy, webhook, system) MUST be rejected
+          with 400 INVALID_REQUEST. Rationale: event_categories is ADDITIVE
+          with event_types in delivery matching (see
+          WebhookSubscription.event_categories) — an unvalidated category
+          widens the subscription beyond the tenant-accessible set even when
+          every entry in event_types is allowed, so validating event_types
+          alone does not enforce the boundary.
+        - The same boundary applies to updateTenantWebhook, partial updates
+          included: any provided event_types or event_categories array is
+          validated in full.
 
         PERMISSIONS:
         - Requires webhooks:write permission on the API key.
@@ -7248,7 +7277,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '400':
-          description: Invalid request (non-HTTPS URL, restricted event type, etc.)
+          description: Invalid request (non-HTTPS URL, restricted event type or event category, etc.)
           content:
             application/json:
               schema:
@@ -7433,7 +7462,12 @@ paths:
       x-conformance: reference
       summary: Update a tenant's webhook subscription
       description: >-
-        Partial update — only provided fields are modified. Restricted to tenant-accessible event types.
+        Partial update — only provided fields are modified. Restricted to
+        tenant-accessible event types AND event categories: any provided
+        event_types or event_categories array is validated in full against
+        the tenant-accessible boundary (budget.*/reservation.*/tenant.*;
+        see createTenantWebhook — TENANT-ACCESSIBLE BOUNDARY). Admin-only
+        entries MUST be rejected with 400 INVALID_REQUEST.
 
         TENANCY:
           - Under ApiKeyAuth: 404 on cross-tenant subscription.
@@ -7481,7 +7515,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '400':
-          description: Invalid update (restricted event type, invalid URL, etc.)
+          description: Invalid update (restricted event type or event category, invalid URL, etc.)
           content:
             application/json:
               schema:

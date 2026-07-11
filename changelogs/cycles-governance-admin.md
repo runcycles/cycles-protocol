@@ -6,6 +6,46 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.38 — 2026-07-10
+
+- **Tenant self-service webhook boundary now covers `event_categories`
+  (NORMATIVE).** `createTenantWebhook` and `updateTenantWebhook` gain a
+  TENANT-ACCESSIBLE BOUNDARY block: every `event_categories` entry MUST be a
+  tenant-accessible category (budget, reservation, tenant); a category whose
+  event types are admin-only (api_key, policy, webhook, system) MUST be
+  rejected with 400 INVALID_REQUEST — matching the existing event_types
+  rejection rule. Rationale: `event_categories` is ADDITIVE with
+  `event_types` in delivery matching, so an unvalidated category widens the
+  subscription beyond the tenant-accessible set even when every entry in
+  `event_types` is allowed. Prompted by a confirmed authorization gap in the
+  reference admin server (tenant keys could receive admin-only events by
+  pairing one allowed type with an admin-only category; fixed in parallel as
+  cycles-server-admin 0.1.25.50). Partial updates are covered explicitly:
+  any provided `event_types` or `event_categories` array is validated in
+  full. The `WebhookSubscription.event_categories` schema description and
+  both endpoints' 400 response descriptions carry matching notes.
+- **Stale tenant-accessible counts corrected** on `createTenantWebhook`:
+  the enum has 51 EventTypes (budget 17, reservation 6, tenant 6, webhook 7,
+  api_key 7, policy 3, system 5), so the tenant-accessible set
+  (budget.*/reservation.*/tenant.*) is **29 of 51** — the prose said
+  "26 of 40" — and the admin-only list now includes `webhook.*` (it omitted
+  the category added at revision 0.1.25.33).
+- Note: the empty-both state (`event_types` and `event_categories` both
+  empty, which a naive matcher would treat as match-all) is NOT reachable
+  through the documented API — `event_types` carries `minItems: 1` on
+  `WebhookSubscription`, `WebhookCreateRequest`, and `WebhookUpdateRequest`,
+  and updates are partial (a provided array must satisfy `minItems`; an
+  omitted field is unchanged) — so no additional rule is needed for it.
+- Also fixes the stale document-revision self-references (info.summary
+  headline and SPEC FAMILY CONTEXT were stuck at 0.1.25.36 through the
+  0.1.25.37 bump) and extends the summary chronicle with .37/.38.
+
+  **Compatibility:** Prose/documentation only — no schema shapes,
+  operations, or status codes change. The 400 INVALID_REQUEST rejection was
+  already the documented behavior for restricted event_types; this revision
+  extends the same rule to event_categories, which conforming servers
+  (reference server as of cycles-server-admin 0.1.25.50) enforce.
+
 ## v0.1.25.37 — 2026-07-10
 
 - Adds `TENANT_CLOSED` to the `EventDataReservationDenied.reason_code`
