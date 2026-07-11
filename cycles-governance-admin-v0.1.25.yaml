@@ -48,9 +48,7 @@ info:
     halves into a single normative cross-plane WEBHOOK SUBSCRIPTION
     INVARIANT (tenant-owned subscriptions carry only tenant-accessible
     selectors, by any provisioning mechanism) on the conformance surface,
-    marks that boundary's reference implementation PENDING (cycles-server-
-    admin PR #210, unreleased), and fixes the #209 operator migration
-    recipe to be submittable)
+    and fixes the #209 operator migration recipe to be submittable)
     and also serves as the base for the upcoming v0.1.26
     spec family. Covers tenant management, authentication, and runtime
     enforcement. NOTE: This file alone is NOT sufficient for the
@@ -307,18 +305,18 @@ info:
       This is the STABLE GOVERNANCE BASE for the Cycles Protocol v0.1.x
       spec family. The current conformance target is v0.1.25 — this file
       alone (plus cycles-protocol-v0.yaml) is sufficient for the active
-      target. Reference-implementation status (including any pending
-      enforcement) is tracked in CONFORMANCE.md and the changelog, not in
-      this contract prose (see AUTHORING CONVENTION). Document revision
+      target. Reference-implementation status is tracked in CONFORMANCE.md
+      and the changelog, not in this contract prose (see AUTHORING
+      CONVENTION). Document revision
       0.1.25.41; semantic base frozen at 0.1.25.9
       (see cycles-spec-index.yaml for the versioning model).
 
       The upcoming v0.1.26 target adds new capabilities (action quotas,
       risk-class quotas, access control lists, tenant observe_mode,
       action_quotas:read permission) via cycles-governance-extensions-v0.1.26.yaml
-      as additive extensions. v0.1.26 is not yet required for conformance
-      and runcycles' reference servers do not implement it yet. See
-      CONFORMANCE.md for the active conformance statement.
+      as additive extensions. v0.1.26 is not yet required for conformance;
+      see CONFORMANCE.md for the active conformance statement and
+      reference-implementation status.
 
       For v0.1.25 admin tooling, this file is self-sufficient.
 
@@ -1811,10 +1809,8 @@ components:
                 tenant-scoped dual-auth operation on the tenant's behalf (e.g.
                 createBudget / createPolicy / tenant-webhook mutations under
                 AdminKeyAuth). Mirrors the audit-log actor_type of the same
-                name; reference servers have emitted this on such events since
-                the dual-auth surface landed — added to the enum in revision
-                2026-07-04 (same additive-enum-gap class as EventCategory
-                "webhook" and the cascade EventTypes).
+                name and is emitted on events produced by admin-key dual-auth
+                operations.
                 system: Triggered by internal process (e.g., expiry sweep, anomaly detector)
                 scheduler: Triggered by scheduled task
             key_id:

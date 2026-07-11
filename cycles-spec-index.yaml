@@ -48,12 +48,14 @@ spec_family:
     `conformance` and `conformance_status` fields on each entry below).
     The current conformance target is **v0.1.25**: cycles-protocol-v0.yaml
     (normative) and cycles-governance-admin-v0.1.25.yaml (mixed — endpoint
-    definitions are reference; Event, EventType, EventData*, WebhookDelivery,
-    Permission schemas and eight cross-plane operations are normative via
-    individual x-conformance labels, PLUS a set of cross-plane normative
-    invariants — the WEBHOOK SUBSCRIPTION INVARIANTS in info.description —
-    that bind regardless of any operation's x-conformance label or the
-    provisioning mechanism used). The three v0.1.26 extension specs
+    definitions are reference; eight cross-plane operations are normative via
+    individual x-conformance labels; the Event, EventType, EventData*,
+    WebhookDelivery, WebhookRetryPolicy, and Permission schemas are normative
+    by enumeration in CONFORMANCE.md (schemas are not x-conformance-labeled);
+    PLUS a set of cross-plane normative invariants — the WEBHOOK SUBSCRIPTION
+    INVARIANTS in info.description — that bind regardless of any operation's
+    x-conformance label or the provisioning mechanism used). The three
+    v0.1.26 extension specs
     are normative within their own spec contracts but carry
     `conformance_status: upcoming` — they are SHOULD-level today and will
     be promoted to MUST once the reference stack ships v0.1.26 support.
