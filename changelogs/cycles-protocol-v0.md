@@ -6,6 +6,38 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.14 — 2026-07-11
+
+_(revision 2026-07-11 — extend the closed-tenant 409 binding to POST /v1/events)_
+
+- **Closed-tenant binding now covers POST /v1/events (createEvent) — NORMATIVE.**
+  The ERROR SEMANTICS closed-tenant binding's enumerated persisting surface
+  (previously reservation create / commit / release / extend) now ALSO includes
+  `POST /v1/events`: a closed owning tenant MUST get HTTP 409 error=TENANT_CLOSED
+  there too. Rationale: createEvent is post-only accounting that directly debits
+  every budgeted derived scope and accrues overdraft debt exactly like commit — a
+  persisting budget mutation on the same runtime-plane surface as the reservation
+  ops, and the remaining runtime-plane persisting mutation not previously guarded.
+  An investigation spike confirmed the exposure: `event.lua` had per-scope
+  BUDGET_FROZEN / BUDGET_CLOSED checks but NO tenant-status guard, leaving the
+  same Mode B race (a debit observed after the CLOSED flip, before key revocation)
+  open on the event path. Fixed in parallel by a tenant-status guard in
+  cycles-server's `event.lua`.
+- **Events are ALWAYS persisting** — there is no dry_run or decide mode on
+  /v1/events — so the closed-tenant outcome there is ALWAYS the 409 TENANT_CLOSED
+  of the persisting surface; createEvent NEVER returns a decision=DENY for this
+  condition. The persisting-surface behaviors already specified for the
+  reservation mutations — fail-closed on a malformed/undeterminable tenant record
+  (500 INTERNAL_ERROR), the not-applicable case when no governance plane exists,
+  and the idempotent same-key replay exception — apply to createEvent unchanged.
+- The /v1/events operation's `409` response gains a one-line description naming
+  TENANT_CLOSED (alongside the endpoint's existing 409 codes BUDGET_EXCEEDED and
+  OVERDRAFT_LIMIT_EXCEEDED), mirroring how the operation already expands its 404.
+- Wire-compatible: no enum or schema change. TENANT_CLOSED was added to the
+  ErrorCode enum in v0.1.25.13, and /v1/events already declared a generic 409 —
+  this revision only makes the binding explicit for the event path. semantic_base
+  remains 0.1.25.
+
 ## v0.1.25.13 — 2026-07-10
 
 _(revision 2026-07-10 — TENANT_CLOSED on the runtime ErrorCode enum + closed-tenant mutation binding)_

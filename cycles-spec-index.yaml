@@ -63,7 +63,7 @@ spec_family:
     isolation; SDK generators and validator pipelines need a merged artifact.
     The merge_recipes section below defines how to produce those artifacts.
   current_versions:
-    base_runtime: "0.1.25.13"             # + TENANT_CLOSED on ErrorCode + closed-tenant 409 binding on reserve/commit/release/extend
+    base_runtime: "0.1.25.14"             # closed-tenant 409 TENANT_CLOSED binding extended to POST /v1/events (persisting debit)
     base_runtime_semantic_base: "0.1.25"  # frozen wire baseline — evidence revisions are additive, 0.1.25 clients stay compatible
     base_governance: "0.1.25.39"          # category-only webhook subs: drop minItems:1 (update + subscription) + SUBSCRIPTION SELECTOR INVARIANT
     base_governance_semantic_base: "0.1.25.9"  # frozen wire baseline
@@ -71,7 +71,7 @@ spec_family:
     extension_governance: "0.1.27"        # trace_id on redeclared ErrorResponse
     action_kinds: "0.1.27"                # trace_id on redeclared ErrorResponse
     evidence_envelope: "0.2.1"            # ErrorResponseMirror re-cut against canonical ErrorCode 0.1.25.13 (+ LIMIT_EXCEEDED, TENANT_CLOSED)
-    spec_index: "0.1.38"                  # base_governance category-only webhook subscriptions → 0.1.25.39
+    spec_index: "0.1.39"                  # base_runtime closed-tenant binding extended to POST /v1/events → 0.1.25.14
 
 # ---------------------------------------------------------------------------
 # CANONICAL DOCUMENTS
@@ -86,7 +86,7 @@ documents:
 
   - id: runtime_base
     file: cycles-protocol-v0.yaml
-    version: "0.1.25.13"         # + TENANT_CLOSED on ErrorCode + closed-tenant 409 binding on reserve/commit/release/extend
+    version: "0.1.25.14"         # closed-tenant 409 TENANT_CLOSED binding extended to POST /v1/events (persisting debit)
     semantic_base: "0.1.25"      # frozen wire baseline — evidence fields are additive/optional
     role: base
     conformance: normative

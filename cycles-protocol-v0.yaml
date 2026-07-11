@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cycles Budget Authority API
-  version: 0.1.25.13
+  version: 0.1.25.14
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -59,17 +59,29 @@ info:
       - Outstanding debt blocking reservation MUST return HTTP 409 with error=DEBT_OUTSTANDING
         (when debt > 0 and new reservation is attempted).
       - Closed owning tenant MUST return HTTP 409 with error=TENANT_CLOSED on the persisting
-        reservation mutation surface — reservation create (POST /v1/reservations with dry_run
-        absent or false), commit, release, and extend — when the owning tenant's status is
-        CLOSED and the CLOSED flip is durable
+        mutation surface — reservation create (POST /v1/reservations with dry_run
+        absent or false), commit, release, extend, AND POST /v1/events (createEvent) — when the
+        owning tenant's status is CLOSED and the CLOSED flip is durable
         (added to the ErrorCode enum in revision 2026-07-10, mirroring the governance spec's
-        code of the same name). This is the runtime-plane half of the terminal-owner mutation
-        guard in cycles-governance-admin-v0.1.25.yaml (CASCADE SEMANTICS Rule 2), whose scoped
-        operations include "any reservation create/commit/release/extend". Rationale: the close
+        code of the same name). POST /v1/events is a persisting BUDGET DEBIT (post-only
+        accounting that directly debits every budgeted derived scope and accrues overdraft
+        debt, exactly like commit) — it is on the same runtime-plane persisting surface as the
+        reservation mutations and MUST be guarded identically. This is the runtime-plane half
+        of the terminal-owner mutation guard in cycles-governance-admin-v0.1.25.yaml (CASCADE
+        SEMANTICS Rule 2); that section enumerates "any reservation create/commit/release/extend"
+        on the runtime plane, and createEvent is the remaining runtime-plane persisting budget
+        mutation subject to the same Mode B invariant, so the runtime plane guards it on the
+        same basis. Rationale: the close
         cascade revokes the tenant's API keys, so a closed tenant usually surfaces on this
         plane as 401 UNAUTHORIZED — but Mode B invariant (a) of that cascade requires that a
         mutation observed AFTER the CLOSED flip MUST NOT succeed even in the window before
         keys are revoked; this binding closes that race on the runtime plane.
+        POST /v1/events has no dry_run or decide mode — it always persists — so the closed-tenant
+        outcome there is ALWAYS the 409 TENANT_CLOSED of the persisting surface; it never returns
+        a decision=DENY. Everything below that the persisting surface inherits — fail-closed on a
+        malformed/undeterminable tenant record (500 INTERNAL_ERROR), the not-applicable case when
+        no governance plane exists, and the idempotent same-key replay exception (a replay of a
+        pre-close event returns the original stored response) — applies to createEvent unchanged.
         Non-persisting evaluations: POST /v1/reservations with dry_run=true and POST /v1/decide
         MUST NOT produce HTTP 409 TENANT_CLOSED for a closed owning tenant. A fresh (non-replay)
         evaluation MUST instead reflect the closed tenant as-if-live: decision=DENY with
@@ -2681,5 +2693,20 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ErrorResponse'}
-        "409": {$ref: '#/components/responses/ErrorResponse'}
+        "409":
+          description: >-
+            Persisting-debit denial. error=TENANT_CLOSED when the owning tenant's status is
+            CLOSED (createEvent is a persisting budget debit on the same runtime-plane surface
+            as commit; see ERROR SEMANTICS — there is no dry_run/decide mode on /v1/events, so
+            the closed-tenant outcome is always this 409, never a decision=DENY). Also the
+            existing budget-state 409 codes for this endpoint: error=BUDGET_EXCEEDED under
+            overage_policy=REJECT, and error=OVERDRAFT_LIMIT_EXCEEDED under
+            overage_policy=ALLOW_WITH_OVERDRAFT (see EventCreateRequest.overage_policy).
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/X-Request-Id'}
+            X-Cycles-Trace-Id: {$ref: '#/components/headers/X-Cycles-Trace-Id'}
+            X-Cycles-Tenant: {$ref: '#/components/headers/X-Cycles-Tenant'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
         "500": {$ref: '#/components/responses/ErrorResponse'}
