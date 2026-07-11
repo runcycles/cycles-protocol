@@ -6,6 +6,67 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.41 — 2026-07-11
+
+Corrects three issues in v0.1.25.40 (all reviewer findings against merged main).
+
+- **Implementation status honesty (P1).** v0.1.25.40 stated the admin-plane
+  category boundary was "fixed in parallel" and the spec's
+  reference-servers-implement-the-baseline-"today" claims implied conformance
+  that does not exist: the boundary is NOT shipped — latest admin release is
+  cycles-server-admin v0.1.25.50 (without it) and the implementation is in
+  OPEN, UNRELEASED PR #210. The info.summary and SPEC FAMILY CONTEXT
+  baseline-implemented claims now carry a SCOPED caveat: the rest of the
+  baseline (including INVARIANT 1 and the tenant self-service half of
+  INVARIANT 2, document revision 0.1.25.38) is implemented, but the
+  admin-plane half of the tenant-owned category boundary (document revision
+  0.1.25.40/.41) is normatively defined yet its reference implementation is
+  PENDING (cycles-server-admin PR #210, unreleased as of 2026-07-11). A
+  matching status line sits in CONFORMANCE.md's normative-invariants block.
+  Each carries a TODO to drop the caveat once #210 releases. (This does NOT
+  un-claim the general baseline — only the .40/.41 admin-plane enforcement.)
+- **Boundary is now on the conformance surface (P1).** The two admin webhook
+  operations are `x-conformance: reference`, so the "NORMATIVE" boundary added
+  in .40 was outside the conformance surface — a server could claim
+  conformance while ignoring it. Rather than promote the two ops to
+  `x-conformance: normative` (which would force the reference endpoint shape on
+  servers that the §MAY clause explicitly lets substitute their provisioning
+  mechanism), this revision defines a single cross-plane
+  **WEBHOOK SUBSCRIPTION INVARIANTS** block (info.description) — a property of
+  a persisted subscription's STORED STATE, binding regardless of any
+  operation's x-conformance label or which provisioning mechanism a server
+  exposes — and adds it to CONFORMANCE.md's §MUST normative surface:
+    * INVARIANT 1 (selector presence, from .39) and
+    * INVARIANT 2 (tenant-owned subscriptions carry only tenant-accessible
+      selectors — unifying the .38 tenant self-service half and the .40 admin
+      write-path half into ONE rule that holds "by ANY provisioning mechanism:
+      tenant self-service, admin plane, admin-on-behalf-of, or future").
+  The §MAY "replace the reference provisioning mechanism" allowance is
+  tightened to state a substituted mechanism MUST still uphold these
+  invariants. The two admin endpoints' boundary blocks now point at the
+  invariant. Chosen over per-operation promotion because the boundary is a
+  cross-cutting security property of the subscription DATA, not of a specific
+  endpoint, and must bind even when webhook provisioning is done by an
+  alternative mechanism.
+- **Migration recipe made submittable (P2).** The .40 recipe told operators to
+  create a `__system__` subscription with only `event_categories` set, but
+  `WebhookCreateRequest` still requires `event_types` (minItems:1, kept on
+  create in .39) — so that create is rejected. Corrected: create the
+  `__system__` subscription with `event_types` listing the admin event types to
+  monitor (e.g. `["api_key.created","api_key.revoked"]`), which satisfies
+  minItems:1 directly; no `event_categories` needed. For category-level
+  matching, create with at least one event_type first, then PATCH `event_types`
+  to `[]` with `event_categories` set (the .39 create/update selector
+  asymmetry). Both the endpoint prose and the changelog recipe are updated.
+- Also bumps the info.summary / SPEC FAMILY CONTEXT document-revision
+  self-references to 0.1.25.41 and extends the summary chronicle.
+
+  **Compatibility:** Prose/normative-surface only — no schema shape, operation,
+  or status-code change. This revision does NOT add a new wire constraint
+  beyond what .38/.39/.40 already defined; it makes the existing boundary
+  conformance-binding, corrects false implementation-status claims, and fixes
+  an unsubmittable operator recipe. semantic_base stays 0.1.25.9.
+
 ## v0.1.25.40 — 2026-07-11
 
 - **Tenant-accessible category boundary extended to the ADMIN webhook write
@@ -35,8 +96,11 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
   carriers at the root. Confirmed against the reference admin server:
   `WebhookAdminController.create` / `update` applied NO category validation,
   so the admin write path (`POST /v1/admin/webhooks?tenant_id=X` and its
-  PATCH) could place admin-only categories on tenant X's row; fixed in
-  parallel in cycles-server-admin. A provenance/delivery-filtering model
+  PATCH) could place admin-only categories on tenant X's row. Reference
+  implementation is PENDING (corrected in v0.1.25.41 — see that entry): it is
+  prepared in cycles-server-admin PR #210 and unreleased as of 2026-07-11;
+  the latest admin release v0.1.25.50 does NOT enforce this boundary. A
+  provenance/delivery-filtering model
   (delivering admin-only telemetry to tenant endpoints with provenance
   tagging) was considered and DECLINED — no legitimate need to deliver
   admin-only governance telemetry to a tenant-controlled endpoint.
@@ -53,10 +117,15 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
   URL + signing secret. To monitor admin-only events (api_key / policy /
   webhook / system), use a `__system__`-owned subscription (`POST
   /v1/admin/webhooks` with NO tenant_id, or tenant_id="__system__") — which is
-  operator-owned, so admin categories are permitted — with `event_categories`
-  set to the admin classes; it receives ALL tenants' admin events (a
-  `__system__` subscription is in the dispatch union for every tenant), and the
-  operator filters to a specific tenant CLIENT-SIDE on the envelope `tenant_id`.
+  operator-owned, so admin selectors are permitted — with `event_types` listing
+  the admin event types you want (e.g. `["api_key.created","api_key.revoked"]`),
+  which satisfies the create-time `event_types` minItems:1 requirement directly
+  (corrected in v0.1.25.41 — the original .40 recipe set only `event_categories`,
+  which a create rejects; for category-level matching, create with ≥1 event_type
+  then PATCH `event_types` to `[]` with `event_categories` set). It receives ALL
+  tenants' admin events (a `__system__` subscription is in the dispatch union for
+  every tenant), and the operator filters to a specific tenant CLIENT-SIDE on the
+  envelope `tenant_id`.
   Note: `scope_filter` CANNOT select a single tenant's admin telemetry
   server-side — most admin lifecycle events are emitted null-scoped (verified in
   the reference server: `api_key.*`, `webhook.*`, and the `system.*` webhook-test

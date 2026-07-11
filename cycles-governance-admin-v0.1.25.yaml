@@ -1,15 +1,21 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.40
+  version: 0.1.25.41
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Stable governance base — document revision 0.1.25.40; semantic base
+    Stable governance base — document revision 0.1.25.41; semantic base
     frozen at 0.1.25.9. This file is self-sufficient for the current
     v0.1.25 conformance target (runcycles' reference servers implement
-    this today — adds a normative tenant-close cascade contract at
+    the baseline today, with ONE scoped exception noted below: the
+    WEBHOOK SUBSCRIPTION INVARIANT 2 admin-plane half — document revision
+    0.1.25.40/.41 — is normatively defined but its reference
+    implementation is PENDING, prepared in cycles-server-admin PR #210 and
+    unreleased as of 2026-07-11; latest admin release v0.1.25.50 does not
+    yet enforce it. TODO: drop this caveat when #210 releases. — adds a
+    normative tenant-close cascade contract at
     document revision 0.1.25.31; document revision 0.1.25.32 adds
     per-row Event emission requirements to bulkActionBudgets and
     bulkActionTenants for observability parity with single-op paths;
@@ -43,7 +49,14 @@ info:
     tenant-accessible category boundary to the admin webhook write path
     for tenant-owned targets (createWebhookSubscription /
     updateWebhookSubscription reject admin-only categories on a
-    non-__system__ tenant's subscription), closing issue #209)
+    non-__system__ tenant's subscription), closing issue #209; document
+    revision 0.1.25.41 unifies the .38 tenant-plane and .40 admin-plane
+    halves into a single normative cross-plane WEBHOOK SUBSCRIPTION
+    INVARIANT (tenant-owned subscriptions carry only tenant-accessible
+    selectors, by any provisioning mechanism) on the conformance surface,
+    marks that boundary's reference implementation PENDING (cycles-server-
+    admin PR #210, unreleased), and fixes the #209 operator migration
+    recipe to be submittable)
     and also serves as the base for the upcoming v0.1.26
     spec family. Covers tenant management, authentication, and runtime
     enforcement. NOTE: This file alone is NOT sufficient for the
@@ -239,12 +252,63 @@ info:
         - Extension-plane cascade (action-kinds, risk-class quotas,
           ACLs) — see cycles-governance-extensions-v0.1.26.yaml.
 
+    WEBHOOK SUBSCRIPTION INVARIANTS (NORMATIVE, CROSS-PLANE):
+      These are properties of a PERSISTED webhook subscription's stored
+      state, binding on a conformant server REGARDLESS of which provisioning
+      mechanism it exposes (the reference create/update endpoints on either
+      the tenant self-service plane or the admin plane, admin-on-behalf-of,
+      or any alternative mechanism a server substitutes per the "MAY replace
+      the reference provisioning surface" allowance). A server MUST NOT be
+      able to reach a persisted state that violates them by any path. They
+      are enforced at every subscription create and update. Listed here (not
+      only inline on the endpoints) so the conformance surface can reference
+      them independent of any single operation's x-conformance label.
+
+      INVARIANT 1 — SELECTOR PRESENCE: every persisted subscription MUST
+        match at least one event selector — at least one of `event_types`
+        / `event_categories` MUST be non-empty. A create or update whose
+        resulting state would leave BOTH empty MUST be rejected with 400
+        INVALID_REQUEST. (Introduced document revision 0.1.25.39; see
+        WebhookSubscription.event_types.)
+
+      INVARIANT 2 — TENANT-OWNED SELECTORS ARE TENANT-ACCESSIBLE: a
+        subscription owned by a CONCRETE tenant (owning tenant_id present and
+        != "__system__") MUST NOT carry admin-only event types or categories.
+        Its `event_types` MUST be drawn only from budget.* / reservation.* /
+        tenant.*, and its `event_categories` only from budget / reservation /
+        tenant; an admin-only type or category (api_key, policy, webhook,
+        system) MUST be rejected with 400 INVALID_REQUEST. This is ONE rule
+        with two provisioning halves — the tenant self-service path
+        (createTenantWebhook / updateTenantWebhook, document revision
+        0.1.25.38) and the admin write path (createWebhookSubscription /
+        updateWebhookSubscription, document revision 0.1.25.40) — that
+        together make "tenant-owned ⇒ tenant-accessible selectors only" hold
+        by construction. The constraint is a property of the OWNING TENANT,
+        not of the caller or the endpoint, so it applies under admin-key,
+        admin-on-behalf-of, and tenant auth alike. Rationale: event_categories
+        is ADDITIVE in delivery matching, and the owning tenant controls the
+        delivery URL and signing secret of any subscription under its
+        tenant_id, so an admin-only selector on such a row would leak admin
+        governance/security telemetry (api_key / policy / webhook / system
+        events) to a tenant-controlled endpoint. Subscriptions owned by
+        "__system__" are NOT tenant-owned (operator-owned) and MAY carry
+        admin-only selectors — system-wide admin monitoring is legitimate.
+
     SPEC FAMILY CONTEXT:
       This is the STABLE GOVERNANCE BASE for the Cycles Protocol v0.1.x
       spec family. The current conformance target is v0.1.25 — this file
       alone (plus cycles-protocol-v0.yaml) is sufficient for the active
       target, and runcycles' reference servers implement that baseline
-      today. Document revision 0.1.25.40; semantic base frozen at 0.1.25.9
+      today, with one scoped exception: the WEBHOOK SUBSCRIPTION INVARIANT 2
+      admin-plane enforcement (document revision 0.1.25.40/.41) is
+      normatively defined but NOT YET SHIPPED — its reference
+      implementation is prepared in cycles-server-admin PR #210 and is
+      PENDING merge/release as of 2026-07-11 (latest admin release
+      v0.1.25.50 does not enforce it). The rest of the baseline, including
+      INVARIANT 1 and the tenant self-service half of INVARIANT 2
+      (document revision 0.1.25.38), is implemented. TODO: remove this
+      caveat once cycles-server-admin PR #210 releases. Document revision
+      0.1.25.41; semantic base frozen at 0.1.25.9
       (see cycles-spec-index.yaml for the versioning model).
 
       The upcoming v0.1.26 target adds new capabilities (action quotas,
@@ -6198,7 +6262,9 @@ paths:
         - Omit tenant_id to create a system-wide subscription (receives events from all tenants).
         - System-wide subscriptions still respect scope_filter if provided.
 
-        TENANT-OWNED CATEGORY BOUNDARY (NORMATIVE): when the target subscription's
+        TENANT-OWNED CATEGORY BOUNDARY (NORMATIVE): the admin-write-path half of the
+        cross-plane WEBHOOK SUBSCRIPTION INVARIANT 2 (info.description; part of the
+        conformance surface). When the target subscription's
         owning tenant is a CONCRETE tenant (tenant_id present and != "__system__"),
         event_types and event_categories MUST satisfy the same tenant-accessible
         boundary the tenant self-service path enforces — budget.* / reservation.* /
@@ -6219,15 +6285,21 @@ paths:
         (the previously ungoverned carrier of admin-only categories onto tenant-owned
         rows). To monitor admin-only events, create a __system__-owned subscription
         (omit tenant_id, or set tenant_id="__system__") — operator-owned (operator
-        controls its URL + signing secret), so admin categories are permitted — with
-        event_categories set to the admin classes; it is in the dispatch union for
-        every tenant, so it receives ALL tenants' admin events, which the operator
-        filters to a specific tenant CLIENT-SIDE on the envelope `tenant_id`. Note:
-        scope_filter CANNOT select a single tenant's admin telemetry server-side,
-        because most admin lifecycle events are emitted with a null `scope`
-        (`api_key.*`, `webhook.*`, and the `system.*` webhook-test event carry no
-        scope; only `policy.*` carries a real tenant-bounded scope and could be
-        scope-filtered). A tenant-OWNED subscription MUST NOT be used for this.
+        controls its URL + signing secret), so admin selectors are permitted — with
+        `event_types` listing the admin event types you want (e.g.
+        ["api_key.created","api_key.revoked"]); that satisfies the create-time
+        `event_types` minItems:1 requirement directly and needs no event_categories.
+        (For category-level matching you must create with at least one event_type
+        first, then PATCH `event_types` to [] with `event_categories` set — the create/
+        update selector asymmetry of document revision 0.1.25.39.) The __system__
+        subscription is in the dispatch union for every tenant, so it receives ALL
+        tenants' admin events, which the operator filters to a specific tenant
+        CLIENT-SIDE on the envelope `tenant_id`. Note: scope_filter CANNOT select a
+        single tenant's admin telemetry server-side, because most admin lifecycle
+        events are emitted with a null `scope` (`api_key.*`, `webhook.*`, and the
+        `system.*` webhook-test event carry no scope; only `policy.*` carries a real
+        tenant-bounded scope and could be scope-filtered). A tenant-OWNED subscription
+        MUST NOT be used for this.
 
         EVENTS (document revision 0.1.25.33):
         - On success, server MUST emit one `webhook.created` Event.
@@ -6469,7 +6541,9 @@ paths:
         - Rotate signing secret: provide new signing_secret value
         - Change event types: provide new event_types array (replaces, does not merge)
 
-        TENANT-OWNED CATEGORY BOUNDARY (NORMATIVE): the owning tenant is resolved from
+        TENANT-OWNED CATEGORY BOUNDARY (NORMATIVE): the admin-write-path half of the
+        cross-plane WEBHOOK SUBSCRIPTION INVARIANT 2 (info.description; part of the
+        conformance surface). The owning tenant is resolved from
         the target subscription's stored tenant_id. When that owning tenant is a
         CONCRETE tenant (tenant_id != "__system__"), any provided event_types /
         event_categories MUST satisfy the same tenant-accessible boundary the tenant
