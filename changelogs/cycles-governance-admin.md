@@ -6,6 +6,61 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.40 — 2026-07-11
+
+- **Tenant-accessible category boundary extended to the ADMIN webhook write
+  path for tenant-owned targets (NORMATIVE).** Closes the residual from
+  issue #209. `createWebhookSubscription` (`POST /v1/admin/webhooks`) and
+  `updateWebhookSubscription` (`PATCH /v1/admin/webhooks/{id}`) now carry a
+  TENANT-OWNED CATEGORY BOUNDARY rule: when the target subscription's owning
+  tenant is a CONCRETE tenant (`tenant_id` present and != `"__system__"`),
+  `event_types` / `event_categories` MUST satisfy the same tenant-accessible
+  boundary the tenant self-service path enforces (budget / reservation /
+  tenant only); an admin-only event type or category (api_key, policy,
+  webhook, system) MUST be rejected with 400 INVALID_REQUEST. The constraint
+  is a property of the OWNING TENANT, not the caller, so it holds regardless
+  of auth context (admin key or admin-on-behalf-of). References the existing
+  TENANT-ACCESSIBLE BOUNDARY block (v0.1.25.38) rather than restating the
+  sets.
+- **`__system__` carve-out.** When `tenant_id` is omitted or == `"__system__"`
+  the subscription is NOT tenant-owned and admin-only categories remain
+  permitted — system-wide admin monitoring is legitimate and those rows carry
+  no tenant-controlled delivery endpoint.
+- Rationale: `event_categories` is ADDITIVE in delivery matching, and the
+  owning tenant controls the delivery URL and signing secret of any
+  subscription under its `tenant_id`, so an admin-only category on such a row
+  would leak admin governance/security telemetry (api_key / policy / webhook /
+  system events) to a tenant-controlled endpoint. This makes "tenant-owned ⇒
+  tenant-accessible categories only" true by construction and stops new
+  carriers at the root. Confirmed against the reference admin server:
+  `WebhookAdminController.create` / `update` applied NO category validation,
+  so the admin write path (`POST /v1/admin/webhooks?tenant_id=X` and its
+  PATCH) could place admin-only categories on tenant X's row; fixed in
+  parallel in cycles-server-admin. A provenance/delivery-filtering model
+  (delivering admin-only telemetry to tenant endpoints with provenance
+  tagging) was considered and DECLINED — no legitimate need to deliver
+  admin-only governance telemetry to a tenant-controlled endpoint.
+- The `WebhookSubscription.event_categories` schema note (added in v0.1.25.38)
+  is broadened from "tenant self-service plane" to "any subscription owned by
+  a concrete tenant (tenant self-service plane, or the admin plane with a
+  non-__system__ tenant_id)", with the `__system__` exemption. Both admin
+  endpoints' 400 response descriptions gain the admin-only-category cause.
+- Non-normative (out of scope; admin-server concern): cleanup of existing
+  offender rows — subscriptions created before this boundary that already
+  carry admin-only categories on a tenant-owned `tenant_id` — is a migration
+  concern for the admin server's AUDIT, not a spec-normative requirement (as
+  with the tenant-close cascade backfill). The spec change stops NEW carriers;
+  remediating historical rows is an implementation task.
+- Also bumps the info.summary / SPEC FAMILY CONTEXT document-revision
+  self-references to 0.1.25.40 and extends the summary chronicle.
+
+  **Compatibility:** Prose/normative-clarification only — no schema shape,
+  operation, or status-code change (the 400 INVALID_REQUEST rejection reuses
+  the existing code and the endpoints already declared a 400). Tightens a
+  previously-unconstrained admin write path; conforming servers (reference
+  admin server as of the parallel fix) enforce it. semantic_base stays
+  0.1.25.9.
+
 ## v0.1.25.39 — 2026-07-11
 
 - **Category-only webhook subscriptions are legitimate; `minItems: 1` on the
