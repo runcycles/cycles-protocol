@@ -6217,7 +6217,12 @@ paths:
         NOT tenant-owned and admin-only categories remain permitted (system-wide
         admin monitoring is legitimate). Closes issue #209 at the admin write path
         (the previously ungoverned carrier of admin-only categories onto tenant-owned
-        rows).
+        rows). To monitor a SPECIFIC tenant's admin-only events, create a
+        __system__-owned subscription (omit tenant_id, or set tenant_id="__system__")
+        and bound it with a scope_filter to that tenant's scope (e.g.
+        "tenant:<id>/*") — that subscription is operator-owned (the operator controls
+        its delivery URL + signing secret), so admin categories are permitted; a
+        tenant-OWNED subscription MUST NOT be used for this.
 
         EVENTS (document revision 0.1.25.33):
         - On success, server MUST emit one `webhook.created` Event.

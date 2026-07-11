@@ -45,21 +45,45 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
   a concrete tenant (tenant self-service plane, or the admin plane with a
   non-__system__ tenant_id)", with the `__system__` exemption. Both admin
   endpoints' 400 response descriptions gain the admin-only-category cause.
+- **MIGRATION (if you provisioned admin-only categories on a tenant-owned
+  subscription).** The admin write path previously ACCEPTED admin-only
+  categories/types on a concrete-tenant subscription (returning 201/200); it
+  now rejects them with 400. If you were monitoring a specific tenant's
+  admin-only events (api_key / policy / webhook / system) this way, switch to
+  a `__system__`-owned subscription (created via `POST /v1/admin/webhooks`
+  with NO tenant_id, or tenant_id="__system__") and bound it with a
+  `scope_filter` to that tenant's scope (e.g. `scope_filter: "tenant:<id>/*"`).
+  A `__system__` subscription is operator-owned — the operator controls its
+  delivery URL and signing secret — so admin categories are permitted there;
+  a tenant-OWNED subscription must never carry admin categories because the
+  tenant controls its URL + secret. This delivers the same tenant-scoped
+  admin telemetry to an operator-controlled endpoint instead of a
+  tenant-controlled one.
 - Non-normative (out of scope; admin-server concern): cleanup of existing
   offender rows — subscriptions created before this boundary that already
   carry admin-only categories on a tenant-owned `tenant_id` — is a migration
-  concern for the admin server's AUDIT, not a spec-normative requirement (as
-  with the tenant-close cascade backfill). The spec change stops NEW carriers;
-  remediating historical rows is an implementation task.
+  concern for the admin server (tracked in cycles-server-admin 0.1.25.51 /
+  its AUDIT), NOT a spec-normative requirement: this spec does NOT mandate the
+  remediation mechanism (as with the tenant-close cascade backfill). The spec
+  change stops NEW carriers; remediating historical rows is an implementation
+  task.
 - Also bumps the info.summary / SPEC FAMILY CONTEXT document-revision
   self-references to 0.1.25.40 and extends the summary chronicle.
 
-  **Compatibility:** Prose/normative-clarification only — no schema shape,
-  operation, or status-code change (the 400 INVALID_REQUEST rejection reuses
-  the existing code and the endpoints already declared a 400). Tightens a
-  previously-unconstrained admin write path; conforming servers (reference
-  admin server as of the parallel fix) enforce it. semantic_base stays
-  0.1.25.9.
+  **Compatibility — INTENTIONAL BEHAVIOR-BREAKING SECURITY CORRECTION.** This
+  is not a mere clarification: admin-plane create/update requests that
+  previously SUCCEEDED (201/200) provisioning admin-only categories or types
+  on a concrete-tenant (non-__system__) subscription now return 400
+  INVALID_REQUEST. The wire surface is unchanged — no schema shape, operation,
+  or status-code inventory changes (the 400 reuses the existing
+  INVALID_REQUEST code, and both endpoints already declared a 400) — it is the
+  ACCEPTANCE behavior that tightens. Existing admin clients/workflows that set
+  admin-only categories on tenant-owned rows MUST change (see MIGRATION above).
+  Same honesty as the v0.1.25.38 / .49 BEHAVIOR CHANGE framing: the break is
+  deliberate — it closes a telemetry-leak vector (issue #209) where a tenant,
+  controlling its subscription's URL + signing secret, would receive admin
+  governance/security events. semantic_base stays 0.1.25.9 (wire contract
+  unchanged; the security invariant tightens).
 
 ## v0.1.25.39 — 2026-07-11
 
