@@ -6,6 +6,52 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.39 — 2026-07-11
+
+- **Category-only webhook subscriptions are legitimate; `minItems: 1` on the
+  update schema was the stale side (NORMATIVE).** Reconciles the spec to the
+  shipped-and-released reference admin behavior (cycles-server-admin
+  0.1.25.50): a webhook subscription MAY select events by category alone
+  (`event_types: []` with a non-empty `event_categories` — e.g. "all
+  `budget.*` by category"). Changes:
+  - `WebhookUpdateRequest.event_types`: `minItems: 1` REMOVED. On update the
+    array MAY be set to `[]` to convert a subscription to category-only,
+    provided `event_categories` is (or remains) non-empty. `event_types` was
+    already optional on the update schema (no `required` list). New SELECTOR
+    CLEARING note on the schema.
+  - `WebhookSubscription.event_types`: `minItems: 1` REMOVED so a persisted
+    category-only subscription (`event_types: []`) validates. The field STAYS
+    in `WebhookSubscription.required` — a persisted subscription always
+    carries the field, possibly as an empty array (the reference admin model
+    serializes it unconditionally, no `@JsonInclude(NON_NULL)`), so
+    required-present is correct and required-non-empty is not.
+  - **SUBSCRIPTION SELECTOR INVARIANT (NORMATIVE)** added to
+    `WebhookSubscription.event_types` and the tenant-webhook endpoint prose:
+    a persisted subscription MUST match at least one selector — at least one
+    of `event_types` / `event_categories` MUST be non-empty; a create or
+    update whose resulting state would leave BOTH empty MUST be rejected with
+    400 INVALID_REQUEST. This is the real guarantee that the empty-both
+    "match ALL event classes" state is unreachable (correcting the v0.1.25.38
+    note, which wrongly attributed it to `minItems: 1`).
+- **`WebhookCreateRequest.event_types` UNCHANGED** — stays `required` +
+  `minItems: 1`, matching the shipped create behavior (`@NotEmpty` on the
+  admin create DTO; not relaxed this wave — relaxing it would be a server
+  code change, not a spec reconciliation).
+- OPEN DESIGN (not fixed here): the create/update asymmetry — create requires
+  a non-empty `event_types` while update allows clearing it to category-only
+  — is real and matches shipped behavior. Allowing category-only on CREATE
+  too (drop `@NotEmpty` / `minItems: 1` on create, gated by the same selector
+  invariant) is a candidate future enhancement; it would be a coordinated
+  server + spec change and is deliberately out of scope for this revision.
+- Also bumps the info.summary / SPEC FAMILY CONTEXT document-revision
+  self-references to 0.1.25.39 and extends the summary chronicle.
+
+  **Compatibility:** Additive/relaxing on the wire — removing `minItems: 1`
+  only widens what validates (a previously-invalid `event_types: []` update
+  body now validates, gated by the selector invariant); no field, operation,
+  or status code is removed or renamed. semantic_base stays 0.1.25.9.
+  Reconciles the spec to already-shipped server behavior.
+
 ## v0.1.25.38 — 2026-07-10
 
 - **Tenant self-service webhook boundary now covers `event_categories`
@@ -31,11 +77,14 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
   "26 of 40" — and the admin-only list now includes `webhook.*` (it omitted
   the category added at revision 0.1.25.33).
 - Note: the empty-both state (`event_types` and `event_categories` both
-  empty, which a naive matcher would treat as match-all) is NOT reachable
-  through the documented API — `event_types` carries `minItems: 1` on
-  `WebhookSubscription`, `WebhookCreateRequest`, and `WebhookUpdateRequest`,
-  and updates are partial (a provided array must satisfy `minItems`; an
-  omitted field is unchanged) — so no additional rule is needed for it.
+  empty, which a naive matcher would treat as match-all) is prevented — but
+  see the CORRECTION in v0.1.25.39 below: this entry originally claimed the
+  guarantee came from `event_types` `minItems: 1` on all three webhook
+  schemas. That was wrong for the UPDATE path (`WebhookUpdateRequest` has no
+  such constraint in the shipped admin server, so PATCH can clear
+  `event_types` to `[]`); the real guarantee is the server-side empty-both
+  guard, made spec-normative as the SUBSCRIPTION SELECTOR INVARIANT in
+  v0.1.25.39.
 - Also fixes the stale document-revision self-references (info.summary
   headline and SPEC FAMILY CONTEXT were stuck at 0.1.25.36 through the
   0.1.25.37 bump) and extends the summary chronicle with .37/.38.
