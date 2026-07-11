@@ -6217,12 +6217,17 @@ paths:
         NOT tenant-owned and admin-only categories remain permitted (system-wide
         admin monitoring is legitimate). Closes issue #209 at the admin write path
         (the previously ungoverned carrier of admin-only categories onto tenant-owned
-        rows). To monitor a SPECIFIC tenant's admin-only events, create a
-        __system__-owned subscription (omit tenant_id, or set tenant_id="__system__")
-        and bound it with a scope_filter to that tenant's scope (e.g.
-        "tenant:<id>/*") — that subscription is operator-owned (the operator controls
-        its delivery URL + signing secret), so admin categories are permitted; a
-        tenant-OWNED subscription MUST NOT be used for this.
+        rows). To monitor admin-only events, create a __system__-owned subscription
+        (omit tenant_id, or set tenant_id="__system__") — operator-owned (operator
+        controls its URL + signing secret), so admin categories are permitted — with
+        event_categories set to the admin classes; it is in the dispatch union for
+        every tenant, so it receives ALL tenants' admin events, which the operator
+        filters to a specific tenant CLIENT-SIDE on the envelope `tenant_id`. Note:
+        scope_filter CANNOT select a single tenant's admin telemetry server-side,
+        because most admin lifecycle events are emitted with a null `scope`
+        (`api_key.*`, `webhook.*`, and the `system.*` webhook-test event carry no
+        scope; only `policy.*` carries a real tenant-bounded scope and could be
+        scope-filtered). A tenant-OWNED subscription MUST NOT be used for this.
 
         EVENTS (document revision 0.1.25.33):
         - On success, server MUST emit one `webhook.created` Event.

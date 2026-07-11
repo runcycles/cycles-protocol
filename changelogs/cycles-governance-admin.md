@@ -48,17 +48,23 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 - **MIGRATION (if you provisioned admin-only categories on a tenant-owned
   subscription).** The admin write path previously ACCEPTED admin-only
   categories/types on a concrete-tenant subscription (returning 201/200); it
-  now rejects them with 400. If you were monitoring a specific tenant's
-  admin-only events (api_key / policy / webhook / system) this way, switch to
-  a `__system__`-owned subscription (created via `POST /v1/admin/webhooks`
-  with NO tenant_id, or tenant_id="__system__") and bound it with a
-  `scope_filter` to that tenant's scope (e.g. `scope_filter: "tenant:<id>/*"`).
-  A `__system__` subscription is operator-owned — the operator controls its
-  delivery URL and signing secret — so admin categories are permitted there;
-  a tenant-OWNED subscription must never carry admin categories because the
-  tenant controls its URL + secret. This delivers the same tenant-scoped
-  admin telemetry to an operator-controlled endpoint instead of a
-  tenant-controlled one.
+  now rejects them with 400. The security rule is: a tenant-OWNED subscription
+  must never carry admin categories, because the tenant controls its delivery
+  URL + signing secret. To monitor admin-only events (api_key / policy /
+  webhook / system), use a `__system__`-owned subscription (`POST
+  /v1/admin/webhooks` with NO tenant_id, or tenant_id="__system__") — which is
+  operator-owned, so admin categories are permitted — with `event_categories`
+  set to the admin classes; it receives ALL tenants' admin events (a
+  `__system__` subscription is in the dispatch union for every tenant), and the
+  operator filters to a specific tenant CLIENT-SIDE on the envelope `tenant_id`.
+  Note: `scope_filter` CANNOT select a single tenant's admin telemetry
+  server-side — most admin lifecycle events are emitted null-scoped (verified in
+  the reference server: `api_key.*`, `webhook.*`, and the `system.*` webhook-test
+  event carry no `scope`; only `policy.*` carries a real tenant-bounded scope
+  and could be scope-filtered), and a `scope_filter` like `"tenant:<id>/*"`
+  matches only descendant scopes and excludes null-scoped events. The envelope
+  `tenant_id` is present on admin events regardless, so client-side tenant
+  filtering is the reliable path.
 - Non-normative (out of scope; admin-server concern): cleanup of existing
   offender rows — subscriptions created before this boundary that already
   carry admin-only categories on a tenant-owned `tenant_id` — is a migration
