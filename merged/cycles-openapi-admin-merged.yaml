@@ -7551,21 +7551,25 @@ paths:
       description: |-
         Re-delivers historical events to the subscription's endpoint. Useful for recovering from outages or backfilling a new subscription.
         BEHAVIOR: - Events are delivered in chronological order. - Each delivery is tracked as a new WebhookDelivery with source "replay". - Replay respects the subscription's retry policy. - Concurrent replays to the same subscription are NOT allowed.
-        LIMITS: - Maximum 1000 events per replay request (the `max_events` cap). - Use from/to to control the replay window. - SCAN LIMIT (NORMATIVE): reaching `max_events` deliverable events WITHIN
-          the window is a normal pagination cap and is a SUCCESS (the caller
-          continues by advancing `from` past the last replayed event). Distinct
-          from this: a server enforces a maximum number of candidate events it
-          will SCAN across the [from, to] window while satisfying a request. If
-          the window contains more candidate events than that scan limit AND the
-          request cannot be satisfied within it — i.e. fewer than `max_events`
-          deliverable events are found within the scanned portion while more
-          candidates remain beyond it — the server MUST reject the request with
-          400 INVALID_REQUEST rather than silently returning a partial replay;
-          the caller should narrow the from/to range and retry. The scan-limit
-          VALUE is server-defined (implementation-specific; a reference server
-          documents its own limit) — the normative point is the BEHAVIOR: no
-          silent partial replay; a too-broad window is a 400, not a truncated
-          success.
+        LIMITS: - Maximum 1000 events per replay request (the `max_events` cap). - Use from/to to control the replay window.
+        COMPLETENESS — ALL-OR-NARROW (NORMATIVE): a successful replay delivers EVERY deliverable event in the [from, to] window. It is COMPLETE for that window — never a partial with an implied continuation. There is NO continuation position in the API: the accepted response (`replay_id` / `events_queued` / `estimated_completion_seconds`) carries no cursor or last-replayed marker, and `max_events` is NOT a resumable page cursor. Consequently: - If the window contains MORE than `max_events` deliverable events, the
+          server MUST reject the request with 400 INVALID_REQUEST (no partial
+          replay). The caller narrows the from/to range, or raises `max_events`
+          (up to the 1000 cap), so the whole window fits in one request.
+        - If the window exceeds the server's SCAN LIMIT (more candidate events
+          than the server will scan while evaluating the request), the server
+          MUST likewise reject with 400 INVALID_REQUEST. The caller narrows the
+          from/to range. The scan-limit VALUE is server-defined
+          (implementation-specific; a reference server documents its own limit);
+          the normative point is the BEHAVIOR — complete-or-400, never a silent
+          or implied-continuation partial.
+        - Practical limitation (honest note): because there is no continuation
+          position, a set of MORE than `max_events` (up to the 1000 cap)
+          deliverable events sharing a SINGLE timestamp cannot be narrowed by
+          from/to to fit and must be covered by raising `max_events`; a set
+          larger than the 1000 cap at one timestamp is beyond what a single
+          replay can deliver. For governance events this is effectively
+          unreachable.
       security:
       - AdminKeyAuth: []
       parameters:
@@ -7624,10 +7628,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '400':
-          description: Invalid replay request — including error=INVALID_REQUEST when the [from, to] window
-            exceeds the server's scan limit and cannot be satisfied within it (narrow the from/to range;
-            see LIMITS → SCAN LIMIT). Not returned merely for reaching the max_events cap, which is a
-            normal success.
+          description: 'Invalid replay request — including error=INVALID_REQUEST when the [from, to] window
+            contains MORE than `max_events` deliverable events, or exceeds the server''s scan limit: a
+            replay is all-or-narrow (complete for the window or rejected), so the caller narrows the from/to
+            range or raises `max_events` up to the 1000 cap (see LIMITS → COMPLETENESS). There is no partial
+            replay and no continuation cursor.'
           content:
             application/json:
               schema:
