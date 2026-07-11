@@ -10,21 +10,28 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 Corrects three issues in v0.1.25.40 (all reviewer findings against merged main).
 
-- **Implementation status honesty (P1).** v0.1.25.40 stated the admin-plane
-  category boundary was "fixed in parallel" and the spec's
-  reference-servers-implement-the-baseline-"today" claims implied conformance
-  that does not exist: the boundary is NOT shipped — latest admin release is
-  cycles-server-admin v0.1.25.50 (without it) and the implementation is in
-  OPEN, UNRELEASED PR #210. The info.summary and SPEC FAMILY CONTEXT
-  baseline-implemented claims now carry a SCOPED caveat: the rest of the
-  baseline (including INVARIANT 1 and the tenant self-service half of
-  INVARIANT 2, document revision 0.1.25.38) is implemented, but the
-  admin-plane half of the tenant-owned category boundary (document revision
-  0.1.25.40/.41) is normatively defined yet its reference implementation is
-  PENDING (cycles-server-admin PR #210, unreleased as of 2026-07-11). A
-  matching status line sits in CONFORMANCE.md's normative-invariants block.
-  Each carries a TODO to drop the caveat once #210 releases. (This does NOT
-  un-claim the general baseline — only the .40/.41 admin-plane enforcement.)
+- **Implementation-status honesty (P1) — status lives in the docs, not the
+  contract.** v0.1.25.40 said the admin-plane category boundary was "fixed in
+  parallel" and the reference-servers-"implement-the-baseline-today" claims
+  implied conformance that does not exist: the boundary is NOT shipped — latest
+  admin release is cycles-server-admin v0.1.25.50 (without it) and the
+  implementation is in OPEN, UNRELEASED PR #210. Per this spec's AUTHORING
+  CONVENTION (impl-version markers do NOT belong in normative contract prose),
+  the volatile status — release version, PR number, date, TODO — is kept OUT of
+  the canonical yaml: info.summary and SPEC FAMILY CONTEXT no longer make
+  implementation-status claims at all (they defer to CONFORMANCE.md and the
+  changelog). The pending caveat now lives in its proper home,
+  CONFORMANCE.md's new **§Reference-implementation status** section (and this
+  entry): the admin-plane half of WEBHOOK SUBSCRIPTION INVARIANT 2 (document
+  revision 0.1.25.40/.41) is normatively defined but its reference
+  implementation is PENDING — prepared in cycles-server-admin PR #210,
+  unreleased as of 2026-07-11; latest admin release v0.1.25.50 does not enforce
+  it. INVARIANT 1 (.39) and the tenant self-service half of INVARIANT 2 (.38)
+  ARE implemented. CONFORMANCE.md:5, README, and the spec-index conformance
+  notes that claimed the baseline "implemented today" now carry the scoped
+  exception. TODO (in CONFORMANCE.md/changelog): drop the caveat when #210
+  releases. (This does NOT un-claim the general baseline — only the .40/.41
+  admin-plane enforcement.)
 - **Boundary is now on the conformance surface (P1).** The two admin webhook
   operations are `x-conformance: reference`, so the "NORMATIVE" boundary added
   in .40 was outside the conformance surface — a server could claim
@@ -35,19 +42,43 @@ Corrects three issues in v0.1.25.40 (all reviewer findings against merged main).
   **WEBHOOK SUBSCRIPTION INVARIANTS** block (info.description) — a property of
   a persisted subscription's STORED STATE, binding regardless of any
   operation's x-conformance label or which provisioning mechanism a server
-  exposes — and adds it to CONFORMANCE.md's §MUST normative surface:
+  exposes:
     * INVARIANT 1 (selector presence, from .39) and
     * INVARIANT 2 (tenant-owned subscriptions carry only tenant-accessible
       selectors — unifying the .38 tenant self-service half and the .40 admin
       write-path half into ONE rule that holds "by ANY provisioning mechanism:
       tenant self-service, admin plane, admin-on-behalf-of, or future").
-  The §MAY "replace the reference provisioning mechanism" allowance is
-  tightened to state a substituted mechanism MUST still uphold these
-  invariants. The two admin endpoints' boundary blocks now point at the
-  invariant. Chosen over per-operation promotion because the boundary is a
-  cross-cutting security property of the subscription DATA, not of a specific
-  endpoint, and must bind even when webhook provisioning is done by an
-  alternative mechanism.
+  Cross-plane normative invariants are added as a FIRST-CLASS category of the
+  normative surface in the formal source model — CONFORMANCE.md's
+  authoritative-source rule (new item 3) and its §MUST section, plus the
+  cycles-spec-index.yaml publication_model_rationale + governance
+  conformance_note and README's Mixed-tier row — alongside named schemas and
+  `x-conformance: normative` operations, so no reader can exclude them. The
+  §MAY "replace the reference provisioning mechanism" allowance is tightened to
+  state a substituted mechanism MUST still uphold these invariants. The two
+  admin endpoints' boundary blocks point at the invariant. Chosen over
+  per-operation promotion because the boundary is a cross-cutting security
+  property of the subscription DATA, not of a specific endpoint, and must bind
+  even when webhook provisioning is done by an alternative mechanism.
+- **Invariant is provisioning-neutral (violation handling).** The invariant
+  binds "any provisioning mechanism" but the rules named HTTP 400
+  INVALID_REQUEST, which a non-HTTP provisioner (GitOps, direct store write,
+  CLI) cannot literally return. A VIOLATION HANDLING clause now states the
+  binding requirement generically — every provisioning mechanism MUST prevent
+  a violating subscription from being PERSISTED and report an equivalent
+  validation failure — while the HTTP reference surfaces surface it
+  specifically as 400 INVALID_REQUEST.
+- **Merged artifact preserves the invariant (tooling contract).** `scripts/
+  merge_specs.py` substitutes its own info.description when generating the
+  merged artifacts, which dropped the WEBHOOK SUBSCRIPTION INVARIANTS block and
+  left the admin endpoints' "see INVARIANT 2 (info.description)" references
+  dangling in `merged/cycles-openapi-admin-merged.yaml` (the file validators
+  and codegen consume). The merge script now lifts that block verbatim from the
+  governance base's info.description into the merged admin artifact's
+  info.description (raising if the section markers are missing, so a rename
+  fails the merge loudly rather than silently dropping a normative contract).
+  Regenerated byte-stable; the runtime merged artifact carries no webhook
+  invariant reference and is unaffected.
 - **Migration recipe made submittable (P2).** The .40 recipe told operators to
   create a `__system__` subscription with only `event_categories` set, but
   `WebhookCreateRequest` still requires `event_types` (minItems:1, kept on
@@ -59,13 +90,17 @@ Corrects three issues in v0.1.25.40 (all reviewer findings against merged main).
   to `[]` with `event_categories` set (the .39 create/update selector
   asymmetry). Both the endpoint prose and the changelog recipe are updated.
 - Also bumps the info.summary / SPEC FAMILY CONTEXT document-revision
-  self-references to 0.1.25.41 and extends the summary chronicle.
+  self-references to 0.1.25.41 and extends the summary chronicle, and updates
+  README's stale "Governance base: v0.1.25.29" header to v0.1.25.41.
 
-  **Compatibility:** Prose/normative-surface only — no schema shape, operation,
-  or status-code change. This revision does NOT add a new wire constraint
-  beyond what .38/.39/.40 already defined; it makes the existing boundary
-  conformance-binding, corrects false implementation-status claims, and fixes
-  an unsubmittable operator recipe. semantic_base stays 0.1.25.9.
+  **Compatibility:** Prose/normative-surface + tooling (merge script) only — no
+  schema shape, operation, or status-code change. This revision does NOT add a
+  new wire constraint beyond what .38/.39/.40 already defined; it makes the
+  existing boundary conformance-binding and provisioning-neutral, ensures it
+  survives into the generated merged artifact, corrects false
+  implementation-status claims (moving the volatile pending status out of the
+  canonical contract into CONFORMANCE.md/changelog), and fixes an unsubmittable
+  operator recipe. semantic_base stays 0.1.25.9.
 
 ## v0.1.25.40 — 2026-07-11
 

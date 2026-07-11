@@ -50,7 +50,10 @@ spec_family:
     (normative) and cycles-governance-admin-v0.1.25.yaml (mixed — endpoint
     definitions are reference; Event, EventType, EventData*, WebhookDelivery,
     Permission schemas and eight cross-plane operations are normative via
-    individual x-conformance labels). The three v0.1.26 extension specs
+    individual x-conformance labels, PLUS a set of cross-plane normative
+    invariants — the WEBHOOK SUBSCRIPTION INVARIANTS in info.description —
+    that bind regardless of any operation's x-conformance label or the
+    provisioning mechanism used). The three v0.1.26 extension specs
     are normative within their own spec contracts but carry
     `conformance_status: upcoming` — they are SHOULD-level today and will
     be promoted to MUST once the reference stack ships v0.1.26 support.
@@ -119,6 +122,14 @@ documents:
       on individual operations (listEvents / getEvent / replayEvents /
       listTenantEvents / listWebhookDeliveries / listTenantWebhookDeliveries /
       getBalances / introspectAuth are normative; all others are reference).
+      In addition to those labeled operations and schemas, the
+      WEBHOOK SUBSCRIPTION INVARIANTS block (info.description) is a set of
+      cross-plane normative invariants on persisted webhook-subscription
+      state that bind regardless of any operation's x-conformance label or
+      the provisioning mechanism used — first-class members of the normative
+      surface. Reference-implementation status for these (one half pending)
+      is tracked in CONFORMANCE.md §Reference-implementation status and the
+      changelog, not here.
     title: Complete Budget Governance Admin API
     plane: governance-admin
     owns:
@@ -143,9 +154,12 @@ documents:
     conformance_status: upcoming
     conformance_note: >-
       Normative within its own spec contract, but v0.1.26 is not yet the
-      active conformance target. runcycles' reference servers implement
-      v0.1.25 today; this spec is SHOULD-level until v0.1.26 is promoted
-      to the active target in a future revision of CONFORMANCE.md.
+      active conformance target. runcycles' reference servers implement the
+      v0.1.25 baseline today (with one scoped exception tracked in
+      CONFORMANCE.md §Reference-implementation status — the admin-plane half
+      of WEBHOOK SUBSCRIPTION INVARIANT 2 is pending); this spec is
+      SHOULD-level until v0.1.26 is promoted to the active target in a future
+      revision of CONFORMANCE.md.
     title: Cycles Action Kind Registry
     plane: registry-and-quota-primitives
     owns:

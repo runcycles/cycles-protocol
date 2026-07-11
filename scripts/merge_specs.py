@@ -121,6 +121,33 @@ def spec_version(path: Path) -> str:
     return str(load(path)["info"]["version"])
 
 
+def extract_info_description_section(path: Path, start_marker: str, end_marker: str) -> str:
+    """
+    Extract a named section out of a source spec's info.description, verbatim.
+
+    Some cross-cutting NORMATIVE prose lives only in a source spec's
+    info.description (e.g. the WEBHOOK SUBSCRIPTION INVARIANTS block). The
+    merged artifacts substitute their own generated info.description, which
+    would otherwise DROP that prose and leave dangling "see info.description"
+    references on operations that survive the merge. This lifts the block
+    (from the first line containing `start_marker` up to, but not including,
+    the first later line containing `end_marker`) so callers can re-inject it
+    into the merged info.description. Deterministic → merge output stays
+    byte-stable. Raises if the markers are not found, so a spec edit that
+    renames the section fails the merge loudly instead of silently dropping
+    a normative contract.
+    """
+    desc = str((load(path).get("info") or {}).get("description") or "")
+    start = desc.find(start_marker)
+    if start == -1:
+        raise ValueError(f"{path.name}: info.description has no section '{start_marker}'")
+    # Back up to the start of the line the marker sits on (preserve indentation).
+    line_start = desc.rfind("\n", 0, start) + 1
+    end = desc.find(end_marker, start + len(start_marker))
+    block = desc[line_start:end] if end != -1 else desc[line_start:]
+    return block.rstrip()
+
+
 def merge_component_dict(
     dest: dict[str, Any],
     src: dict[str, Any] | None,
@@ -485,6 +512,13 @@ def main() -> int:
 
     # Admin merged (governance plane)
     print("\n[2/2] cycles-openapi-admin-merged.yaml (admin/governance plane)")
+    # Preserve cross-cutting NORMATIVE prose that lives only in the governance
+    # base's info.description into the merged info.description — otherwise the
+    # generated description drops it and the admin endpoints' "see
+    # WEBHOOK SUBSCRIPTION INVARIANT 2 (info.description)" references dangle.
+    webhook_invariants_block = extract_info_description_section(
+        GOV_BASE, "WEBHOOK SUBSCRIPTION INVARIANTS", "SPEC FAMILY CONTEXT"
+    )
     admin = build_merged(
         title=f"Cycles Protocol — Admin Plane (merged v{SUITE_VERSION})",
         version=SUITE_VERSION,
@@ -508,7 +542,11 @@ def main() -> int:
             "Use this file for: admin tooling codegen, policy editors, operator dashboards,\n"
             "governance API validators.\n"
             "Use cycles-openapi-protocol-merged.yaml for runtime server / SDK work.\n"
-            "See cycles-spec-index.yaml for the full suite composition manifest."
+            "See cycles-spec-index.yaml for the full suite composition manifest.\n\n"
+            "PRESERVED NORMATIVE PROSE (from cycles-governance-admin-v0.1.25.yaml\n"
+            "info.description — kept verbatim so cross-plane invariants and the\n"
+            "operation references to them survive into this generated artifact):\n\n"
+            + webhook_invariants_block
         ),
         sources=[
             ("governance_base", GOV_BASE),

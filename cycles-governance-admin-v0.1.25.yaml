@@ -8,13 +8,7 @@ info:
   summary: >-
     Stable governance base — document revision 0.1.25.41; semantic base
     frozen at 0.1.25.9. This file is self-sufficient for the current
-    v0.1.25 conformance target (runcycles' reference servers implement
-    the baseline today, with ONE scoped exception noted below: the
-    WEBHOOK SUBSCRIPTION INVARIANT 2 admin-plane half — document revision
-    0.1.25.40/.41 — is normatively defined but its reference
-    implementation is PENDING, prepared in cycles-server-admin PR #210 and
-    unreleased as of 2026-07-11; latest admin release v0.1.25.50 does not
-    yet enforce it. TODO: drop this caveat when #210 releases. — adds a
+    v0.1.25 conformance target (it adds a
     normative tenant-close cascade contract at
     document revision 0.1.25.31; document revision 0.1.25.32 adds
     per-row Event emission requirements to bulkActionBudgets and
@@ -264,11 +258,25 @@ info:
       only inline on the endpoints) so the conformance surface can reference
       them independent of any single operation's x-conformance label.
 
+      VIOLATION HANDLING (provisioning-neutral): every provisioning mechanism
+      MUST prevent a violating subscription from being PERSISTED and MUST
+      report an equivalent validation failure to whoever attempted it. The
+      HTTP reference surfaces (createTenantWebhook / updateTenantWebhook /
+      createWebhookSubscription / updateWebhookSubscription) surface that
+      failure specifically as HTTP 400 INVALID_REQUEST; a non-HTTP
+      provisioner (GitOps reconciler, direct store writer, CLI, etc.) reports
+      the equivalent failure in its own idiom (reject the apply / return
+      non-zero / raise) and MUST NOT persist the subscription. Where the rules
+      below say "rejected with 400 INVALID_REQUEST" they name the HTTP
+      reference behavior; the binding requirement is non-persistence plus an
+      equivalent failure signal.
+
       INVARIANT 1 — SELECTOR PRESENCE: every persisted subscription MUST
         match at least one event selector — at least one of `event_types`
         / `event_categories` MUST be non-empty. A create or update whose
-        resulting state would leave BOTH empty MUST be rejected with 400
-        INVALID_REQUEST. (Introduced document revision 0.1.25.39; see
+        resulting state would leave BOTH empty MUST be rejected (HTTP
+        reference surfaces: 400 INVALID_REQUEST; see VIOLATION HANDLING).
+        (Introduced document revision 0.1.25.39; see
         WebhookSubscription.event_types.)
 
       INVARIANT 2 — TENANT-OWNED SELECTORS ARE TENANT-ACCESSIBLE: a
@@ -277,7 +285,8 @@ info:
         Its `event_types` MUST be drawn only from budget.* / reservation.* /
         tenant.*, and its `event_categories` only from budget / reservation /
         tenant; an admin-only type or category (api_key, policy, webhook,
-        system) MUST be rejected with 400 INVALID_REQUEST. This is ONE rule
+        system) MUST be rejected (HTTP reference surfaces: 400
+        INVALID_REQUEST; see VIOLATION HANDLING). This is ONE rule
         with two provisioning halves — the tenant self-service path
         (createTenantWebhook / updateTenantWebhook, document revision
         0.1.25.38) and the admin write path (createWebhookSubscription /
@@ -298,16 +307,9 @@ info:
       This is the STABLE GOVERNANCE BASE for the Cycles Protocol v0.1.x
       spec family. The current conformance target is v0.1.25 — this file
       alone (plus cycles-protocol-v0.yaml) is sufficient for the active
-      target, and runcycles' reference servers implement that baseline
-      today, with one scoped exception: the WEBHOOK SUBSCRIPTION INVARIANT 2
-      admin-plane enforcement (document revision 0.1.25.40/.41) is
-      normatively defined but NOT YET SHIPPED — its reference
-      implementation is prepared in cycles-server-admin PR #210 and is
-      PENDING merge/release as of 2026-07-11 (latest admin release
-      v0.1.25.50 does not enforce it). The rest of the baseline, including
-      INVARIANT 1 and the tenant self-service half of INVARIANT 2
-      (document revision 0.1.25.38), is implemented. TODO: remove this
-      caveat once cycles-server-admin PR #210 releases. Document revision
+      target. Reference-implementation status (including any pending
+      enforcement) is tracked in CONFORMANCE.md and the changelog, not in
+      this contract prose (see AUTHORING CONVENTION). Document revision
       0.1.25.41; semantic base frozen at 0.1.25.9
       (see cycles-spec-index.yaml for the versioning model).
 

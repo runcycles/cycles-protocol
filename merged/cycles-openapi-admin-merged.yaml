@@ -39,6 +39,67 @@ info:
     governance API validators.
     Use cycles-openapi-protocol-merged.yaml for runtime server / SDK work.
     See cycles-spec-index.yaml for the full suite composition manifest.
+
+    PRESERVED NORMATIVE PROSE (from cycles-governance-admin-v0.1.25.yaml
+    info.description — kept verbatim so cross-plane invariants and the
+    operation references to them survive into this generated artifact):
+
+    WEBHOOK SUBSCRIPTION INVARIANTS (NORMATIVE, CROSS-PLANE):
+      These are properties of a PERSISTED webhook subscription's stored
+      state, binding on a conformant server REGARDLESS of which provisioning
+      mechanism it exposes (the reference create/update endpoints on either
+      the tenant self-service plane or the admin plane, admin-on-behalf-of,
+      or any alternative mechanism a server substitutes per the "MAY replace
+      the reference provisioning surface" allowance). A server MUST NOT be
+      able to reach a persisted state that violates them by any path. They
+      are enforced at every subscription create and update. Listed here (not
+      only inline on the endpoints) so the conformance surface can reference
+      them independent of any single operation's x-conformance label.
+
+      VIOLATION HANDLING (provisioning-neutral): every provisioning mechanism
+      MUST prevent a violating subscription from being PERSISTED and MUST
+      report an equivalent validation failure to whoever attempted it. The
+      HTTP reference surfaces (createTenantWebhook / updateTenantWebhook /
+      createWebhookSubscription / updateWebhookSubscription) surface that
+      failure specifically as HTTP 400 INVALID_REQUEST; a non-HTTP
+      provisioner (GitOps reconciler, direct store writer, CLI, etc.) reports
+      the equivalent failure in its own idiom (reject the apply / return
+      non-zero / raise) and MUST NOT persist the subscription. Where the rules
+      below say "rejected with 400 INVALID_REQUEST" they name the HTTP
+      reference behavior; the binding requirement is non-persistence plus an
+      equivalent failure signal.
+
+      INVARIANT 1 — SELECTOR PRESENCE: every persisted subscription MUST
+        match at least one event selector — at least one of `event_types`
+        / `event_categories` MUST be non-empty. A create or update whose
+        resulting state would leave BOTH empty MUST be rejected (HTTP
+        reference surfaces: 400 INVALID_REQUEST; see VIOLATION HANDLING).
+        (Introduced document revision 0.1.25.39; see
+        WebhookSubscription.event_types.)
+
+      INVARIANT 2 — TENANT-OWNED SELECTORS ARE TENANT-ACCESSIBLE: a
+        subscription owned by a CONCRETE tenant (owning tenant_id present and
+        != "__system__") MUST NOT carry admin-only event types or categories.
+        Its `event_types` MUST be drawn only from budget.* / reservation.* /
+        tenant.*, and its `event_categories` only from budget / reservation /
+        tenant; an admin-only type or category (api_key, policy, webhook,
+        system) MUST be rejected (HTTP reference surfaces: 400
+        INVALID_REQUEST; see VIOLATION HANDLING). This is ONE rule
+        with two provisioning halves — the tenant self-service path
+        (createTenantWebhook / updateTenantWebhook, document revision
+        0.1.25.38) and the admin write path (createWebhookSubscription /
+        updateWebhookSubscription, document revision 0.1.25.40) — that
+        together make "tenant-owned ⇒ tenant-accessible selectors only" hold
+        by construction. The constraint is a property of the OWNING TENANT,
+        not of the caller or the endpoint, so it applies under admin-key,
+        admin-on-behalf-of, and tenant auth alike. Rationale: event_categories
+        is ADDITIVE in delivery matching, and the owning tenant controls the
+        delivery URL and signing secret of any subscription under its
+        tenant_id, so an admin-only selector on such a row would leak admin
+        governance/security telemetry (api_key / policy / webhook / system
+        events) to a tenant-controlled endpoint. Subscriptions owned by
+        "__system__" are NOT tenant-owned (operator-owned) and MAY carry
+        admin-only selectors — system-wide admin monitoring is legitimate.
   x-changelog:
   - url: ./changelogs/cycles-governance-admin.md
     format: keep-a-changelog
