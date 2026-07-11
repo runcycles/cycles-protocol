@@ -3226,10 +3226,11 @@ paths:
         '409':
           description: 'Persisting-debit denial. error=TENANT_CLOSED when the owning tenant''s status
             is CLOSED (createEvent is a persisting budget debit on the same runtime-plane surface as commit;
-            see ERROR SEMANTICS — there is no dry_run/decide mode on /v1/events, so the closed-tenant
-            outcome is always this 409, never a decision=DENY). Also the existing budget-state 409 codes
-            for this endpoint: error=BUDGET_EXCEEDED under overage_policy=REJECT, and error=OVERDRAFT_LIMIT_EXCEEDED
-            under overage_policy=ALLOW_WITH_OVERDRAFT (see EventCreateRequest.overage_policy).'
+            see ERROR SEMANTICS — there is no dry_run/decide mode on /v1/events, so on a fresh (non-replay)
+            request the closed-tenant outcome is this 409, never a decision=DENY; a same-key replay of
+            a pre-close event still returns its original stored 201 per IDEMPOTENCY). Plus the two 409
+            codes explicitly specified by EventCreateRequest.overage_policy: error=BUDGET_EXCEEDED under
+            overage_policy=REJECT, and error=OVERDRAFT_LIMIT_EXCEEDED under overage_policy=ALLOW_WITH_OVERDRAFT.'
           headers:
             X-Request-Id:
               $ref: '#/components/headers/X-Request-Id'
