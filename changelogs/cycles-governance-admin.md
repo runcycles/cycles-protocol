@@ -123,8 +123,9 @@ Corrects three issues in v0.1.25.40 (all reviewer findings against merged main).
   transient backend failure): `events_queued` reports deliveries successfully
   ENQUEUED and MAY be fewer than the number selected; operators SHOULD treat a
   low `events_queued` as a degraded outcome. Replay is NOT idempotent — each
-  replay creates fresh WebhookDeliveries and re-delivers matching events, so
-  retrying after a partial enqueue MAY duplicate already-enqueued events. Honest
+  replay ATTEMPTS to enqueue every selected event as a fresh WebhookDelivery, so
+  retrying after a partial enqueue MAY duplicate the events that were
+  SUCCESSFULLY enqueued on the prior attempt. Honest
   limitation noted: with no continuation position, more than `max_events` (up to
   the 1000 cap) deliverable events at a SINGLE timestamp can't be narrowed and
   must be covered by raising `max_events`; beyond the cap at one timestamp is a

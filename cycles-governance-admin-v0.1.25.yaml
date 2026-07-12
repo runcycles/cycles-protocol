@@ -7130,9 +7130,10 @@ paths:
           strong guarantee is the COMPLETE SELECTION (or a 400), not an atomic
           all-or-nothing enqueue. Operators SHOULD treat an `events_queued`
           below the expected count as a degraded outcome to investigate.
-          Replay is NOT idempotent: each replay creates fresh WebhookDeliveries
-          and re-delivers every matching event, so retrying after a partial
-          enqueue MAY duplicate already-enqueued events.
+          Replay is NOT idempotent: each replay ATTEMPTS to enqueue every
+          selected event as a fresh WebhookDelivery, so retrying after a partial
+          enqueue MAY duplicate the events that were SUCCESSFULLY enqueued on the
+          prior attempt (those counted in `events_queued`).
         Selection rules (all-or-narrow):
         - If the window contains MORE than `max_events` deliverable events, the
           server MUST reject the request with 400 INVALID_REQUEST (no partial
