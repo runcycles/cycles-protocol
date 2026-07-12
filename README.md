@@ -18,7 +18,7 @@ Cycles is the protocol layer that ensures agents cannot authorize more spend or 
 
 **Spec suite:** v0.1.26 &middot; **Current conformance target:** v0.1.25 &middot; **Runtime base:** v0.1.25 &middot; **Governance base:** v0.1.25.41 (semantic_base 0.1.25.9) &middot; **API path:** `/v1` &middot; **License:** Apache 2.0
 
-The Cycles spec suite is organized by conformance status. The **current conformance target is v0.1.25** — the version runcycles' own reference servers implement today, with one scoped reference-implementation gap: the admin-plane half of the webhook tenant-owned category boundary (WEBHOOK SUBSCRIPTION INVARIANT 2, document revision 0.1.25.40/.41) is normatively defined but not yet shipped (pending in cycles-server-admin PR #210; see [`CONFORMANCE.md`](CONFORMANCE.md) §Reference-implementation status). v0.1.26 specs are published in this repo but not yet required; they are the **upcoming** target and will be promoted to normative once the reference stack implements them.
+The Cycles spec suite is organized by conformance status. The **current conformance target is v0.1.25** — the version runcycles' own reference servers implement today. v0.1.26 specs are published in this repo but not yet required; they are the **upcoming** target and will be promoted to normative once the reference stack implements them.
 
 | Tier | Files | Status |
 |---|---|---|

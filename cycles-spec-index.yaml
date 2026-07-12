@@ -70,7 +70,7 @@ spec_family:
   current_versions:
     base_runtime: "0.1.25.14"             # closed-tenant 409 TENANT_CLOSED binding extended to POST /v1/events (persisting debit)
     base_runtime_semantic_base: "0.1.25"  # frozen wire baseline — evidence revisions are additive, 0.1.25 clients stay compatible
-    base_governance: "0.1.25.41"          # unify webhook selector boundary into a cross-plane conformance INVARIANT + impl-pending honesty + migration recipe fix
+    base_governance: "0.1.25.41"          # unify webhook selector boundary into a cross-plane conformance INVARIANT + conformance-status tracking + migration recipe fix
     base_governance_semantic_base: "0.1.25.9"  # frozen wire baseline
     extension_runtime: "0.1.27"           # ErrorCodeExtension base-list refresh (+ LIMIT_EXCEEDED, TENANT_CLOSED) against runtime 0.1.25.13
     extension_governance: "0.1.27"        # trace_id on redeclared ErrorResponse
@@ -112,7 +112,7 @@ documents:
 
   - id: governance_base
     file: cycles-governance-admin-v0.1.25.yaml
-    version: "0.1.25.41"          # webhook subscription cross-plane conformance invariant + impl-pending honesty (matches info.version)
+    version: "0.1.25.41"          # webhook subscription cross-plane conformance invariant + conformance-status tracking (matches info.version)
     semantic_base: "0.1.25.9"     # frozen wire baseline
     role: base
     conformance: mixed
@@ -129,9 +129,9 @@ documents:
       cross-plane normative invariants on persisted webhook-subscription
       state that bind regardless of any operation's x-conformance label or
       the provisioning mechanism used — first-class members of the normative
-      surface. Reference-implementation status for these (one half pending)
-      is tracked in CONFORMANCE.md §Reference-implementation status and the
-      changelog, not here.
+      surface. Reference-implementation status for these is tracked in
+      CONFORMANCE.md §Reference-implementation status and the changelog, not
+      here.
     title: Complete Budget Governance Admin API
     plane: governance-admin
     owns:
@@ -157,11 +157,8 @@ documents:
     conformance_note: >-
       Normative within its own spec contract, but v0.1.26 is not yet the
       active conformance target. runcycles' reference servers implement the
-      v0.1.25 baseline today (with one scoped exception tracked in
-      CONFORMANCE.md §Reference-implementation status — the admin-plane half
-      of WEBHOOK SUBSCRIPTION INVARIANT 2 is pending); this spec is
-      SHOULD-level until v0.1.26 is promoted to the active target in a future
-      revision of CONFORMANCE.md.
+      full v0.1.25 baseline today; this spec is SHOULD-level until v0.1.26 is
+      promoted to the active target in a future revision of CONFORMANCE.md.
     title: Cycles Action Kind Registry
     plane: registry-and-quota-primitives
     owns:
