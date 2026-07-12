@@ -121,6 +121,81 @@ def spec_version(path: Path) -> str:
     return str(load(path)["info"]["version"])
 
 
+def _extract_section_from_text(desc: str, start_marker: str, end_marker: str, source_label: str) -> str:
+    """
+    Pure core of the info.description section lift (see
+    extract_info_description_section). Kept string-in/string-out so the
+    fail-loud behavior is unit-testable without a file (see _self_test).
+
+    Fails LOUDLY (raises ValueError) on ANY marker anomaly — missing start
+    marker, missing end marker, or an end marker at/before the start — rather
+    than silently dropping or truncating a normative contract.
+    """
+    start = desc.find(start_marker)
+    if start == -1:
+        raise ValueError(f"{source_label}: info.description has no section '{start_marker}'")
+    end = desc.find(end_marker, start + len(start_marker))
+    if end == -1:
+        raise ValueError(
+            f"{source_label}: section '{start_marker}' has no terminating marker "
+            f"'{end_marker}' after it - refusing to lift an unbounded block "
+            f"(a marker was renamed/removed)."
+        )
+    if end <= start:
+        raise ValueError(
+            f"{source_label}: end marker '{end_marker}' resolves at/before start "
+            f"marker '{start_marker}' - markers out of order or nested."
+        )
+    # Back up to the start of the line the start marker sits on (preserve indentation).
+    line_start = desc.rfind("\n", 0, start) + 1
+    block = desc[line_start:end]
+    if not block.strip():
+        raise ValueError(f"{source_label}: section '{start_marker}' extracted empty - check markers.")
+    return block.rstrip()
+
+
+def extract_info_description_section(path: Path, start_marker: str, end_marker: str) -> str:
+    """
+    Extract a named section out of a source spec's info.description, verbatim.
+
+    Some cross-cutting NORMATIVE prose lives only in a source spec's
+    info.description (e.g. the WEBHOOK SUBSCRIPTION INVARIANTS block). The
+    merged artifacts substitute their own generated info.description, which
+    would otherwise DROP that prose and leave dangling "see info.description"
+    references on operations that survive the merge. This lifts the block
+    (from the first line containing `start_marker` up to, but not including,
+    the first later line containing `end_marker`) so callers can re-inject it
+    into the merged info.description. Deterministic -> merge output stays
+    byte-stable. Fails loudly on any marker anomaly (see
+    _extract_section_from_text) so a rename/removal of EITHER marker breaks
+    the merge (and CI's merge-check) instead of silently dropping/truncating
+    a normative contract.
+    """
+    desc = str((load(path).get("info") or {}).get("description") or "")
+    return _extract_section_from_text(desc, start_marker, end_marker, path.name)
+
+
+def _self_test() -> None:
+    """
+    Guard the section-lift's fail-loud contract on every merge run, so a future
+    edit that weakens it (e.g. re-adding a silent fallback) is caught here
+    rather than by shipping a truncated merged artifact. Cheap; runs in-process.
+    """
+    sample = "PRE\nSTART here\nbody line\nEND here\nPOST\n"
+    assert _extract_section_from_text(sample, "START", "END", "t") == "START here\nbody line"
+    cases = [
+        ("MISSING", "END", "missing start"),
+        ("START", "MISSING", "missing end"),
+        ("END", "START", "reversed order"),
+    ]
+    for sm, em, label in cases:
+        try:
+            _extract_section_from_text(sample, sm, em, "t")
+        except ValueError:
+            continue
+        raise AssertionError(f"section-lift self-test failed: {label} did not raise")
+
+
 def merge_component_dict(
     dest: dict[str, Any],
     src: dict[str, Any] | None,
@@ -430,6 +505,8 @@ def main() -> int:
     print(f"Cycles Protocol v{SUITE_VERSION} — Merge Specs")
     print("=" * 70)
 
+    _self_test()  # verify the fail-loud section-lift contract before merging
+
     # Per-source composition metadata is read from each source spec's
     # info.version at merge time so it can never go stale on a revision bump.
     runtime_base_v = spec_version(RUNTIME_BASE)
@@ -485,6 +562,13 @@ def main() -> int:
 
     # Admin merged (governance plane)
     print("\n[2/2] cycles-openapi-admin-merged.yaml (admin/governance plane)")
+    # Preserve cross-cutting NORMATIVE prose that lives only in the governance
+    # base's info.description into the merged info.description — otherwise the
+    # generated description drops it and the admin endpoints' "see
+    # WEBHOOK SUBSCRIPTION INVARIANT 2 (info.description)" references dangle.
+    webhook_invariants_block = extract_info_description_section(
+        GOV_BASE, "WEBHOOK SUBSCRIPTION INVARIANTS", "SPEC FAMILY CONTEXT"
+    )
     admin = build_merged(
         title=f"Cycles Protocol — Admin Plane (merged v{SUITE_VERSION})",
         version=SUITE_VERSION,
@@ -508,7 +592,11 @@ def main() -> int:
             "Use this file for: admin tooling codegen, policy editors, operator dashboards,\n"
             "governance API validators.\n"
             "Use cycles-openapi-protocol-merged.yaml for runtime server / SDK work.\n"
-            "See cycles-spec-index.yaml for the full suite composition manifest."
+            "See cycles-spec-index.yaml for the full suite composition manifest.\n\n"
+            "PRESERVED NORMATIVE PROSE (from cycles-governance-admin-v0.1.25.yaml\n"
+            "info.description — kept verbatim so cross-plane invariants and the\n"
+            "operation references to them survive into this generated artifact):\n\n"
+            + webhook_invariants_block
         ),
         sources=[
             ("governance_base", GOV_BASE),

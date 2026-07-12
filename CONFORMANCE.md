@@ -2,14 +2,15 @@
 
 This document is the authoritative statement of what a Cycles implementation MUST, SHOULD, and MAY do to claim conformance with the Cycles Protocol.
 
-**Current conformance target:** **v0.1.25** (runtime base + governance-admin cross-plane surface). This is the version runcycles' own reference servers implement today and the version against which a second implementation can be validated.
+**Current conformance target:** **v0.1.25** (runtime base + governance-admin cross-plane surface). This is the version runcycles' own reference servers implement today and the version against which a second implementation can be validated — with one scoped reference-implementation gap noted below (the admin-plane half of WEBHOOK SUBSCRIPTION INVARIANT 2 is normatively defined but not yet shipped in the reference admin server; see §Reference-implementation status).
 
 **Upcoming conformance target:** **v0.1.26** (action-kind registry, runtime extensions, governance extensions). These specs are published in this repo but are **not yet required for conformance**; implementations SHOULD plan for them. They will be promoted to MUST in a future revision of this document once the reference stack implements them.
 
 **Authoritative sources (v0.1.25):**
 
-1. all files enumerated in [`cycles-spec-index.yaml`](cycles-spec-index.yaml) under `conformance: normative` **at or below v0.1.25** (currently `cycles-protocol-v0.yaml`), and
-2. any schemas or operations inside `conformance: mixed` documents (currently `cycles-governance-admin-v0.1.25.yaml`) that are individually labeled `x-conformance: normative`.
+1. all files enumerated in [`cycles-spec-index.yaml`](cycles-spec-index.yaml) under `conformance: normative` **at or below v0.1.25** (currently `cycles-protocol-v0.yaml`),
+2. inside `conformance: mixed` documents (currently `cycles-governance-admin-v0.1.25.yaml`): the operations individually labeled `x-conformance: normative`, and the schemas designated normative by being enumerated in this document's §MUST "Normative schemas" list (schemas in that spec are **not** `x-conformance`-labeled — only operations carry that label; a schema's normative status is established by the enumeration here), and
+3. any **cross-plane normative invariant** declared as such in a normative-or-mixed document — a property of persisted state or protocol behavior that binds regardless of which operation or provisioning mechanism produces it (e.g. the `WEBHOOK SUBSCRIPTION INVARIANTS` block in `cycles-governance-admin-v0.1.25.yaml` `info.description`). These invariants are first-class members of the normative surface alongside named schemas and `x-conformance: normative` operations; a server MUST uphold them even where the producing operation is `x-conformance: reference`.
 
 Language follows [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119): MUST / MUST NOT / SHOULD / SHOULD NOT / MAY.
 
@@ -17,12 +18,12 @@ Language follows [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119): MUST / MUST
 
 ## Summary
 
-Cycles is a **minimum protocol**. A conformant v0.1.25 server MUST implement 12 operations (4 core runtime reserve/commit/release/extend + 8 cross-plane event / webhook / auth-introspection; `getBalances` is cross-plane MUST because the admin spec re-declares the runtime's "nice-to-have" path as normative) and SHOULD implement an additional 4 runtime operations (decide, listReservations, getReservation, createEvent) that the spec marks OPTIONAL but that well-rounded servers expose. Total v0.1.25 protocol surface is 16 distinct operations. The server is otherwise free to implement tenant management, budget provisioning, key rotation, and audit UX however it likes.
+Cycles is a **minimum protocol**. A conformant v0.1.25 server MUST implement 12 operations (4 core runtime reserve/commit/release/extend + 8 cross-plane event / webhook / auth-introspection; `getBalances` is cross-plane MUST because the admin spec re-declares the runtime's "nice-to-have" path as normative), MUST honor the normative schemas and the cross-plane invariants (the `WEBHOOK SUBSCRIPTION INVARIANTS` — see §MUST), and SHOULD implement an additional 4 runtime operations (decide, listReservations, getReservation, createEvent) that the spec marks OPTIONAL but that well-rounded servers expose. Total v0.1.25 protocol surface is 16 distinct operations plus those schema + invariant contracts. The server is otherwise free to implement tenant management, budget provisioning, key rotation, and audit UX however it likes.
 
 | File | Target | Conformance | What it defines |
 |---|---|---|---|
 | [`cycles-protocol-v0.yaml`](cycles-protocol-v0.yaml) | v0.1.25 | normative | Runtime base: reserve / commit / release / decide / balances / events |
-| [`cycles-governance-admin-v0.1.25.yaml`](cycles-governance-admin-v0.1.25.yaml) | v0.1.25 | mixed | Mostly reference admin API (runcycles' management plane; implementers MAY diverge). Eight cross-plane operations and a set of schemas inside this file are normative — see §MUST below. |
+| [`cycles-governance-admin-v0.1.25.yaml`](cycles-governance-admin-v0.1.25.yaml) | v0.1.25 | mixed | Mostly reference admin API (runcycles' management plane; implementers MAY diverge). Eight cross-plane operations, a set of schemas, and a set of cross-plane invariants (the `WEBHOOK SUBSCRIPTION INVARIANTS`) inside this file are normative — see §MUST below. |
 | [`cycles-action-kinds-v0.1.26.yaml`](cycles-action-kinds-v0.1.26.yaml) | v0.1.26 | upcoming | Action-kind registry + quota primitives. SHOULD today; MUST once v0.1.26 is the active target. |
 | [`cycles-protocol-extensions-v0.1.26.yaml`](cycles-protocol-extensions-v0.1.26.yaml) | v0.1.26 | upcoming | DenyDetail, ObserveMode, v0.1.26 evaluation order, v0.1.26 schemas. SHOULD today. |
 | [`cycles-governance-extensions-v0.1.26.yaml`](cycles-governance-extensions-v0.1.26.yaml) | v0.1.26 | upcoming | Policy fields for action quotas / access control; tenant observe_mode. SHOULD today. |
@@ -61,9 +62,9 @@ Return the exact HTTP status + `error` code pairs defined in `cycles-protocol-v0
 
 Authenticate via `X-Cycles-API-Key` header and enforce tenant isolation per `cycles-protocol-v0.yaml` §AUTH & TENANCY. How API keys are provisioned, rotated, or scoped to permissions is implementation-specific.
 
-### Cross-plane operations and schemas (currently in `cycles-governance-admin-v0.1.25.yaml`)
+### Cross-plane operations, schemas, and invariants (currently in `cycles-governance-admin-v0.1.25.yaml`)
 
-Although `cycles-governance-admin-v0.1.25.yaml` is mostly reference (the tenant / budget / policy / API-key / audit CRUD is runcycles' own shape), **eight operations and a set of schemas in that file are normative** because they expose the protocol's event stream, webhook delivery contract, and balance / auth introspection surface across planes. Each carries an explicit `x-conformance: normative` label.
+Although `cycles-governance-admin-v0.1.25.yaml` is mostly reference (the tenant / budget / policy / API-key / audit CRUD is runcycles' own shape), **eight operations, a set of schemas, and a set of cross-plane invariants in that file are normative** because they expose the protocol's event stream, webhook delivery contract, balance / auth introspection surface, and webhook-subscription security rules across planes. The eight operations each carry an explicit `x-conformance: normative` label; the cross-plane invariants (below) bind independently of any operation label.
 
 Normative operations (8):
 
@@ -85,7 +86,20 @@ Normative schemas:
 
 Any events emitted MUST conform to the `EventType` enum and `EventData*` payload schemas; any webhooks delivered MUST match the `WebhookDelivery` envelope shape, signature header rules, and retry semantics.
 
-> **Transitional**: these operations and schemas currently live inside `cycles-governance-admin-v0.1.25.yaml`. A future revision will extract the event and webhook content into dedicated `cycles-events-v0.yaml` and `cycles-webhooks-v0.yaml` files. The contract is normative regardless of file location.
+Normative invariants (cross-plane — bind regardless of provisioning mechanism):
+
+The webhook create/update **operations** in `cycles-governance-admin-v0.1.25.yaml` are `x-conformance: reference` (a server MAY replace the reference provisioning surface — see §MAY). The following are properties of a persisted webhook subscription's **stored state**, normative independent of any operation's `x-conformance` label: a conformant server MUST NOT be able to reach a violating persisted state by *any* provisioning path it exposes (reference tenant self-service or admin endpoints, admin-on-behalf-of, or a substituted mechanism). Defined in `cycles-governance-admin-v0.1.25.yaml` §WEBHOOK SUBSCRIPTION INVARIANTS (`info.description`):
+
+- **Selector presence** — every persisted subscription MUST match at least one selector: at least one of `event_types` / `event_categories` is non-empty. A create/update that would leave both empty MUST be rejected `400 INVALID_REQUEST`. (document revision 0.1.25.39)
+- **Tenant-owned selectors are tenant-accessible** — a subscription owned by a concrete tenant (`tenant_id` != `"__system__"`) MUST NOT carry admin-only event types or categories (`api_key` / `policy` / `webhook` / `system`). This is one rule spanning the tenant self-service path (document revision 0.1.25.38) and the admin write path (document revision 0.1.25.40); it holds under admin-key, admin-on-behalf-of, and tenant auth. `"__system__"`-owned (operator-owned) subscriptions are exempt. **One narrow carve-out:** the owner-triggered webhook test probe (`/test` operations) sends a synthetic `system.webhook_test` connectivity event directly to the subscription's own endpoint and is NOT governance-event delivery — a tenant-owned subscription MAY receive its own test probe without carrying `system` selectors; no real `system.*` / `api_key.*` / `policy.*` / `webhook.*` event may be delivered to it (see `cycles-governance-admin-v0.1.25.yaml` §WEBHOOK SUBSCRIPTION INVARIANTS → INVARIANT 2 SCOPE). Its reference-implementation status (one half is pending) is tracked in §Reference-implementation status below.
+
+Both invariants are **provisioning-neutral**: every provisioning mechanism MUST prevent a violating subscription from being persisted and report an equivalent validation failure. The HTTP reference surfaces return `400 INVALID_REQUEST`; a non-HTTP provisioner (GitOps, direct store write, CLI) reports the equivalent failure in its own idiom and MUST NOT persist the subscription. See `cycles-governance-admin-v0.1.25.yaml` §WEBHOOK SUBSCRIPTION INVARIANTS → VIOLATION HANDLING.
+
+> **Transitional**: these operations, schemas, and invariants currently live inside `cycles-governance-admin-v0.1.25.yaml`. A future revision will extract the event and webhook content (including the webhook subscription invariants) into dedicated `cycles-events-v0.yaml` and `cycles-webhooks-v0.yaml` files. The contract is normative regardless of file location.
+
+### Reference-implementation status
+
+The v0.1.25 normative surface is implemented by runcycles' reference servers, **with one scoped gap**: the **admin-write-path half of WEBHOOK SUBSCRIPTION INVARIANT 2** (tenant-owned category boundary on `createWebhookSubscription` / `updateWebhookSubscription`, document revision 0.1.25.40/.41) is normatively defined but **not yet shipped** — its reference implementation is prepared in [cycles-server-admin PR #210](https://github.com/runcycles/cycles-server-admin/pull/210) and is PENDING merge/release as of 2026-07-11 (the latest admin release, v0.1.25.50, does not enforce it). The rest of the v0.1.25 surface — including INVARIANT 1 (selector presence, document revision 0.1.25.39) and the tenant self-service half of INVARIANT 2 (document revision 0.1.25.38) — is implemented. A second implementation validating against v0.1.25 today SHOULD implement the full invariant regardless; the gap is only in runcycles' reference stack. **TODO:** remove this note once cycles-server-admin PR #210 releases. (This status is tracked here and in the changelog, not in the canonical spec's contract prose — per that document's AUTHORING CONVENTION.)
 
 ---
 
@@ -122,7 +136,7 @@ These specs are published in this repo but are **not yet required for conformanc
 A conformant implementation MAY:
 
 - Adopt the shape of `cycles-governance-admin-v0.1.25.yaml` (tenants, budgets, policies, API keys, audit, webhook subscriptions, bulk operations) wholesale, as runcycles does.
-- Replace any or all of those reference portions with an alternative provisioning mechanism: OAuth/OIDC for auth, GitOps YAML for policies, internal admin console for tenants, direct DB writes for budget allocation, etc. (The reference portions only — the eight normative cross-plane operations listed under §MUST still apply.)
+- Replace any or all of those reference portions with an alternative provisioning mechanism: OAuth/OIDC for auth, GitOps YAML for policies, internal admin console for tenants, direct DB writes for budget allocation, etc. (The reference portions only — the eight normative cross-plane operations listed under §MUST still apply, and a substituted webhook-provisioning mechanism MUST still uphold the §MUST webhook subscription invariants: no persisted subscription may violate selector-presence or the tenant-owned tenant-accessible-selectors rule.)
 - Skip `audit_log` entirely. Not required by the protocol.
 - Expose additional endpoints beyond those specified, as long as they use a non-`/v1` path prefix or a vendor-namespaced extension path (e.g., `/v1/x-runcycles/...`).
 - Emit **CyclesEvidence**: populate the optional `cycles_evidence` ref (`CyclesEvidenceRef`) on decide / reserve / commit / release / error responses, serve `GET /v1/evidence/{id}` (`getEvidence`), and optionally publish the signer JWK Set at `GET /v1/.well-known/cycles-jwks.json` (`getEvidenceJwks`). These are additive and optional in `cycles-protocol-v0.yaml`; **emitting is not required for conformance**. The signed envelope they reference is specified normatively in the companion [`cycles-evidence-v0.2.yaml`](cycles-evidence-v0.2.yaml) — so an envelope a server **does** emit MUST conform to it (including, where the server publishes a JWK Set, the signer-key authority-resolution rules). A client that ignores `cycles_evidence` is fully conformant.

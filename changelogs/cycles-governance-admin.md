@@ -6,6 +6,188 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.41 — 2026-07-11
+
+Corrects three issues in v0.1.25.40 (all reviewer findings against merged main).
+
+- **Implementation-status honesty (P1) — status lives in the docs, not the
+  contract.** v0.1.25.40 said the admin-plane category boundary was "fixed in
+  parallel" and the reference-servers-"implement-the-baseline-today" claims
+  implied conformance that does not exist: the boundary is NOT shipped — latest
+  admin release is cycles-server-admin v0.1.25.50 (without it) and the
+  implementation is in OPEN, UNRELEASED PR #210. Per this spec's AUTHORING
+  CONVENTION (impl-version markers do NOT belong in normative contract prose),
+  the volatile status — release version, PR number, date, TODO — is kept OUT of
+  the canonical yaml. A full case-insensitive sweep of the canonical yaml
+  removed EVERY such marker tied to implementation status: the info.summary
+  chronicle's "PR #210 / unreleased" caveat, the SPEC FAMILY CONTEXT
+  implementation claim, the v0.1.26 "reference servers do not implement it yet"
+  claim, and a dated "reference servers have emitted this … in revision
+  2026-07-04" note on the Event.actor.type prose. None remain (verified
+  zero-survivor; the residual "PENDING" strings in the yaml are the
+  WebhookDelivery status enum, unrelated). info.summary and SPEC FAMILY CONTEXT
+  now make no implementation-status claims and defer to CONFORMANCE.md and the
+  changelog. The pending caveat now lives in its proper home,
+  CONFORMANCE.md's new **§Reference-implementation status** section (and this
+  entry): the admin-plane half of WEBHOOK SUBSCRIPTION INVARIANT 2 (document
+  revision 0.1.25.40/.41) is normatively defined but its reference
+  implementation is PENDING — prepared in cycles-server-admin PR #210,
+  unreleased as of 2026-07-11; latest admin release v0.1.25.50 does not enforce
+  it. INVARIANT 1 (.39) and the tenant self-service half of INVARIANT 2 (.38)
+  ARE implemented. CONFORMANCE.md:5, README, and the spec-index conformance
+  notes that claimed the baseline "implemented today" now carry the scoped
+  exception. TODO (in CONFORMANCE.md/changelog): drop the caveat when #210
+  releases. (This does NOT un-claim the general baseline — only the .40/.41
+  admin-plane enforcement.)
+- **Boundary is now on the conformance surface (P1).** The two admin webhook
+  operations are `x-conformance: reference`, so the "NORMATIVE" boundary added
+  in .40 was outside the conformance surface — a server could claim
+  conformance while ignoring it. Rather than promote the two ops to
+  `x-conformance: normative` (which would force the reference endpoint shape on
+  servers that the §MAY clause explicitly lets substitute their provisioning
+  mechanism), this revision defines a single cross-plane
+  **WEBHOOK SUBSCRIPTION INVARIANTS** block (info.description) — a property of
+  a persisted subscription's STORED STATE, binding regardless of any
+  operation's x-conformance label or which provisioning mechanism a server
+  exposes:
+    * INVARIANT 1 (selector presence, from .39) and
+    * INVARIANT 2 (tenant-owned subscriptions carry only tenant-accessible
+      selectors — unifying the .38 tenant self-service half and the .40 admin
+      write-path half into ONE rule that holds "by ANY provisioning mechanism:
+      tenant self-service, admin plane, admin-on-behalf-of, or future").
+  Cross-plane normative invariants are added as a FIRST-CLASS category of the
+  normative surface in the formal source model — CONFORMANCE.md's
+  authoritative-source rule (new item 3), its §MUST section, files table,
+  section header, summary, and transitional note; the cycles-spec-index.yaml
+  publication_model_rationale + governance conformance_note; and README's
+  Mixed-tier row, conformance summary, and reference-server note — alongside
+  named schemas and `x-conformance: normative` operations, so no
+  normative-surface enumeration excludes them (verified by sweep, zero
+  survivors). Two accounting fixes fell out of that sweep: (a) the
+  authoritative-source rule previously implied schemas carry
+  `x-conformance: normative` LABELS, but no schema in this document is labeled
+  — schemas are designated normative by ENUMERATION in CONFORMANCE.md's
+  Normative-schemas list (only operations carry the label); the rule now says
+  so; (b) the publication_model_rationale schema list omitted
+  `WebhookRetryPolicy` (present in the other enumerations) — now aligned.
+  The §MAY "replace the reference provisioning mechanism" allowance is
+  tightened to state a substituted mechanism MUST still uphold these
+  invariants. The two admin endpoints' boundary blocks point at the invariant.
+  Chosen over per-operation promotion because the boundary is a cross-cutting
+  security property of the subscription DATA, not of a specific endpoint, and
+  must bind even when webhook provisioning is done by an alternative mechanism.
+- **Invariant is provisioning-neutral (violation handling).** The invariant
+  binds "any provisioning mechanism" but the rules named HTTP 400
+  INVALID_REQUEST, which a non-HTTP provisioner (GitOps, direct store write,
+  CLI) cannot literally return. A VIOLATION HANDLING clause now states the
+  binding requirement generically — every provisioning mechanism MUST prevent
+  a violating subscription from being PERSISTED and report an equivalent
+  validation failure — while the HTTP reference surfaces surface it
+  specifically as 400 INVALID_REQUEST.
+- **INVARIANT 2 webhook-test carve-out (NORMATIVE).** The reference admin
+  implementation (cycles-server-admin #210) surfaced that the `/test`
+  operations (`testTenantWebhook` / `testWebhookSubscription`) POST a synthetic
+  `system.webhook_test` connectivity event directly to a subscription's own
+  endpoint — so an ABSOLUTE reading of INVARIANT 2 would forbid testing any
+  tenant-owned subscription (`system.*` is admin-only), a spec-vs-impl mismatch.
+  Added a SCOPE clause to INVARIANT 2: it governs delivery of governance EVENTS
+  (from the event stream) to a subscription and does NOT apply to the
+  owner-triggered test probe — a point-to-point, owner-requested connectivity
+  check that bypasses the dispatch queue and carries no governance telemetry, so
+  a tenant-owned subscription MAY receive its own `system.webhook_test` probe
+  WITHOUT adding `system` to its stored selectors (which still MUST satisfy
+  INVARIANT 2). The carve-out is limited to that synthetic test event on the
+  /test operations; no real `system.*` / `api_key.*` / `policy.*` / `webhook.*`
+  governance event may reach a tenant-owned subscription. Verified the event
+  type against source (`SYSTEM_WEBHOOK_TEST` = wire `system.webhook_test`,
+  category SYSTEM). Both /test operation descriptions and the CONFORMANCE.md
+  invariant bullet carry the exception; it rides through the F2 merge injection
+  into the merged admin artifact.
+- **replayEvents completeness — ALL-OR-NARROW SELECTION, BEST-EFFORT ENQUEUE
+  (NORMATIVE).** Surfaced by the cycles-server-admin #210 replay work. On a 202
+  accepted response the server has SELECTED every deliverable event in the
+  [from, to] window; selection is COMPLETE for the window (never a partial
+  selection with an implied continuation) — all-or-narrow: the selection is
+  complete, or the request is rejected 400 per the `max_events` / SCAN LIMIT
+  rules. There is NO continuation position in the API: the accepted response
+  (`replay_id` / `events_queued` / `estimated_completion_seconds`) carries no
+  cursor and `max_events` is NOT a resumable page cursor. Selection rules: a
+  window containing MORE than `max_events` deliverable events MUST be rejected
+  with 400 INVALID_REQUEST (caller narrows from/to or raises `max_events` up to
+  the 1000 cap); a window exceeding the server's SCAN LIMIT MUST likewise be
+  rejected 400 (caller narrows from/to). The scan-limit VALUE stays
+  server-defined; the normative point is the BEHAVIOR: complete-selection-or-400.
+  ENQUEUE is best-effort (narrowed from the earlier "every event MUST be
+  delivered on success" overclaim, which the reference impl cannot guarantee —
+  it enqueues per event and returns a 202 with a partial `events_queued` on a
+  transient backend failure): `events_queued` reports deliveries successfully
+  ENQUEUED and MAY be fewer than the number selected — due to a transient
+  backend failure OR an intended reason (the subscription concurrently
+  deactivated, or an event filtered by a delivery-time guard, between selection
+  and enqueue); operators SHOULD treat an unexpectedly low `events_queued` as
+  worth investigating, though it may be an intended lifecycle/guard outcome, not
+  backend degradation. Replay is NOT idempotent — each
+  replay ATTEMPTS to enqueue every selected event as a fresh WebhookDelivery, so
+  retrying after a partial enqueue MAY duplicate the events that were
+  SUCCESSFULLY enqueued on the prior attempt. Honest
+  limitation noted: with no continuation position, more than `max_events` (up to
+  the 1000 cap) deliverable events at a SINGLE timestamp can't be narrowed and
+  must be covered by raising `max_events`; beyond the cap at one timestamp is a
+  documented limit (effectively unreachable for governance events). No schema
+  change — replayEvents already declared a 400 "Invalid replay request"
+  (ErrorResponse); this documents the existing-but-unspecified semantic, extends
+  the LIMITS block, and matches the 400 response + `events_queued` descriptions.
+  (Corrects two earlier drafts of this clause: one wrongly framed `max_events`
+  as a resumable pagination cursor — replayEvents has no continuation position,
+  so "advance `from` to continue" was unusable — and one overclaimed atomic
+  complete DELIVERY on success.)
+- **replayEvents: removed the impossible `source: "replay"` claim.** The
+  BEHAVIOR block said each delivery is "a new WebhookDelivery with source
+  'replay'", but the `WebhookDelivery` schema is `additionalProperties: false`
+  with no `source` property (and the reference model has no such field) — the
+  claim was unsatisfiable. Reworded to "each replayed event is tracked as a new
+  WebhookDelivery" (no `source`). Adding replay-vs-live provenance would be a
+  separate schema + storage change, out of scope here; noted as possible future
+  work, not done in this revision.
+- **Merged artifact preserves the invariant (tooling contract).** `scripts/
+  merge_specs.py` substitutes its own info.description when generating the
+  merged artifacts, which dropped the WEBHOOK SUBSCRIPTION INVARIANTS block and
+  left the admin endpoints' "see INVARIANT 2 (info.description)" references
+  dangling in `merged/cycles-openapi-admin-merged.yaml` (the file validators
+  and codegen consume). The merge script now lifts that block verbatim from the
+  governance base's info.description into the merged admin artifact's
+  info.description. The lift fails LOUDLY on ANY marker anomaly — missing start
+  marker, missing END marker, or an end-before-start/empty extraction — so a
+  rename or removal of EITHER marker breaks the merge (and CI's merge-check)
+  instead of silently dropping OR truncating a normative contract; an
+  in-process `_self_test()` exercises all those failure cases on every merge
+  run. Regenerated byte-stable (md5 identical across two runs); the invariant
+  block and both endpoint references are present and resolve in the merged
+  admin artifact; the runtime merged artifact carries no webhook invariant
+  reference and is unaffected.
+- **Migration recipe made submittable (P2).** The .40 recipe told operators to
+  create a `__system__` subscription with only `event_categories` set, but
+  `WebhookCreateRequest` still requires `event_types` (minItems:1, kept on
+  create in .39) — so that create is rejected. Corrected: create the
+  `__system__` subscription with `event_types` listing the admin event types to
+  monitor (e.g. `["api_key.created","api_key.revoked"]`), which satisfies
+  minItems:1 directly; no `event_categories` needed. For category-level
+  matching, create with at least one event_type first, then PATCH `event_types`
+  to `[]` with `event_categories` set (the .39 create/update selector
+  asymmetry). Both the endpoint prose and the changelog recipe are updated.
+- Also bumps the info.summary / SPEC FAMILY CONTEXT document-revision
+  self-references to 0.1.25.41 and extends the summary chronicle, and updates
+  README's stale "Governance base: v0.1.25.29" header to v0.1.25.41.
+
+  **Compatibility:** Prose/normative-surface + tooling (merge script) only — no
+  schema shape, operation, or status-code change. This revision does NOT add a
+  new wire constraint beyond what .38/.39/.40 already defined; it makes the
+  existing boundary conformance-binding and provisioning-neutral, ensures it
+  survives into the generated merged artifact, corrects false
+  implementation-status claims (moving the volatile pending status out of the
+  canonical contract into CONFORMANCE.md/changelog), and fixes an unsubmittable
+  operator recipe. semantic_base stays 0.1.25.9.
+
 ## v0.1.25.40 — 2026-07-11
 
 - **Tenant-accessible category boundary extended to the ADMIN webhook write
@@ -35,8 +217,11 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
   carriers at the root. Confirmed against the reference admin server:
   `WebhookAdminController.create` / `update` applied NO category validation,
   so the admin write path (`POST /v1/admin/webhooks?tenant_id=X` and its
-  PATCH) could place admin-only categories on tenant X's row; fixed in
-  parallel in cycles-server-admin. A provenance/delivery-filtering model
+  PATCH) could place admin-only categories on tenant X's row. Reference
+  implementation is PENDING (corrected in v0.1.25.41 — see that entry): it is
+  prepared in cycles-server-admin PR #210 and unreleased as of 2026-07-11;
+  the latest admin release v0.1.25.50 does NOT enforce this boundary. A
+  provenance/delivery-filtering model
   (delivering admin-only telemetry to tenant endpoints with provenance
   tagging) was considered and DECLINED — no legitimate need to deliver
   admin-only governance telemetry to a tenant-controlled endpoint.
@@ -53,10 +238,15 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
   URL + signing secret. To monitor admin-only events (api_key / policy /
   webhook / system), use a `__system__`-owned subscription (`POST
   /v1/admin/webhooks` with NO tenant_id, or tenant_id="__system__") — which is
-  operator-owned, so admin categories are permitted — with `event_categories`
-  set to the admin classes; it receives ALL tenants' admin events (a
-  `__system__` subscription is in the dispatch union for every tenant), and the
-  operator filters to a specific tenant CLIENT-SIDE on the envelope `tenant_id`.
+  operator-owned, so admin selectors are permitted — with `event_types` listing
+  the admin event types you want (e.g. `["api_key.created","api_key.revoked"]`),
+  which satisfies the create-time `event_types` minItems:1 requirement directly
+  (corrected in v0.1.25.41 — the original .40 recipe set only `event_categories`,
+  which a create rejects; for category-level matching, create with ≥1 event_type
+  then PATCH `event_types` to `[]` with `event_categories` set). It receives ALL
+  tenants' admin events (a `__system__` subscription is in the dispatch union for
+  every tenant), and the operator filters to a specific tenant CLIENT-SIDE on the
+  envelope `tenant_id`.
   Note: `scope_filter` CANNOT select a single tenant's admin telemetry
   server-side — most admin lifecycle events are emitted null-scoped (verified in
   the reference server: `api_key.*`, `webhook.*`, and the `system.*` webhook-test
