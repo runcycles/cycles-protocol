@@ -121,8 +121,12 @@ Corrects three issues in v0.1.25.40 (all reviewer findings against merged main).
   delivered on success" overclaim, which the reference impl cannot guarantee —
   it enqueues per event and returns a 202 with a partial `events_queued` on a
   transient backend failure): `events_queued` reports deliveries successfully
-  ENQUEUED and MAY be fewer than the number selected; operators SHOULD treat a
-  low `events_queued` as a degraded outcome. Replay is NOT idempotent — each
+  ENQUEUED and MAY be fewer than the number selected — due to a transient
+  backend failure OR an intended reason (the subscription concurrently
+  deactivated, or an event filtered by a delivery-time guard, between selection
+  and enqueue); operators SHOULD treat an unexpectedly low `events_queued` as
+  worth investigating, though it may be an intended lifecycle/guard outcome, not
+  backend degradation. Replay is NOT idempotent — each
   replay ATTEMPTS to enqueue every selected event as a fresh WebhookDelivery, so
   retrying after a partial enqueue MAY duplicate the events that were
   SUCCESSFULLY enqueued on the prior attempt. Honest

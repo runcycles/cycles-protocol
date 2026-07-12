@@ -7125,11 +7125,16 @@ paths:
         page cursor.
           Enqueue is BEST-EFFORT: the server enqueues the selected events for
           delivery best-effort and `events_queued` reports the number of
-          deliveries successfully ENQUEUED. On a transient backend failure
-          `events_queued` MAY be fewer than the number of events selected — the
-          strong guarantee is the COMPLETE SELECTION (or a 400), not an atomic
-          all-or-nothing enqueue. Operators SHOULD treat an `events_queued`
-          below the expected count as a degraded outcome to investigate.
+          deliveries successfully ENQUEUED, which MAY be fewer than the number
+          of events selected — because of a transient backend failure, OR for an
+          intended reason: the subscription was concurrently deactivated
+          (paused / disabled / deleted), or an event was filtered by a
+          delivery-time guard (e.g. the ownership boundary re-checked at
+          dispatch), between selection and enqueue. The strong guarantee is the
+          COMPLETE SELECTION (or a 400), not an atomic all-or-nothing enqueue.
+          Operators SHOULD treat an unexpectedly low `events_queued` as worth
+          investigating — though it may be an intended lifecycle/guard outcome
+          rather than backend degradation.
           Replay is NOT idempotent: each replay ATTEMPTS to enqueue every
           selected event as a fresh WebhookDelivery, so retrying after a partial
           enqueue MAY duplicate the events that were SUCCESSFULLY enqueued on the
@@ -7205,10 +7210,12 @@ paths:
                     type: integer
                     description: >-
                       Number of deliveries successfully ENQUEUED. Enqueue is
-                      best-effort: on a transient backend failure this MAY be
-                      fewer than the number of events selected for the window
-                      (a degraded outcome to investigate). See the operation's
-                      COMPLETENESS section.
+                      best-effort: this MAY be fewer than the number of events
+                      selected for the window — due to a transient backend
+                      failure, or an intended reason (the subscription was
+                      concurrently deactivated, or an event was filtered by a
+                      delivery-time guard, between selection and enqueue). See
+                      the operation's COMPLETENESS section.
                   estimated_completion_seconds:
                     type: integer
         '401':
