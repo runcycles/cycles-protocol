@@ -7550,25 +7550,37 @@ paths:
       summary: Replay events to a webhook subscription
       description: |-
         Re-delivers historical events to the subscription's endpoint. Useful for recovering from outages or backfilling a new subscription.
-        BEHAVIOR: - Events are delivered in chronological order. - Each delivery is tracked as a new WebhookDelivery with source "replay". - Replay respects the subscription's retry policy. - Concurrent replays to the same subscription are NOT allowed.
+        BEHAVIOR: - Events are delivered in chronological order. - Each replayed event is tracked as a new WebhookDelivery. - Replay respects the subscription's retry policy. - Concurrent replays to the same subscription are NOT allowed.
         LIMITS: - Maximum 1000 events per replay request (the `max_events` cap). - Use from/to to control the replay window.
-        COMPLETENESS — ALL-OR-NARROW (NORMATIVE): a successful replay delivers EVERY deliverable event in the [from, to] window. It is COMPLETE for that window — never a partial with an implied continuation. There is NO continuation position in the API: the accepted response (`replay_id` / `events_queued` / `estimated_completion_seconds`) carries no cursor or last-replayed marker, and `max_events` is NOT a resumable page cursor. Consequently: - If the window contains MORE than `max_events` deliverable events, the
+        COMPLETENESS — ALL-OR-NARROW SELECTION, BEST-EFFORT ENQUEUE (NORMATIVE): on a 202 accepted response the server has SELECTED every deliverable event in the [from, to] window — selection is COMPLETE for the window, never a partial selection with an implied continuation. Selection completeness is all-or-narrow: the selection is complete, or the request is rejected 400 per the `max_events` / SCAN LIMIT rules below. There is NO continuation position in the API: the accepted response (`replay_id` / `events_queued` / `estimated_completion_seconds`) carries no cursor or last-replayed marker, and `max_events` is NOT a resumable page cursor.
+          Enqueue is BEST-EFFORT: the server enqueues the selected events for
+          delivery best-effort and `events_queued` reports the number of
+          deliveries successfully ENQUEUED. On a transient backend failure
+          `events_queued` MAY be fewer than the number of events selected — the
+          strong guarantee is the COMPLETE SELECTION (or a 400), not an atomic
+          all-or-nothing enqueue. Operators SHOULD treat an `events_queued`
+          below the expected count as a degraded outcome to investigate.
+          Replay is NOT idempotent: each replay creates fresh WebhookDeliveries
+          and re-delivers every matching event, so retrying after a partial
+          enqueue MAY duplicate already-enqueued events.
+        Selection rules (all-or-narrow): - If the window contains MORE than `max_events` deliverable events, the
           server MUST reject the request with 400 INVALID_REQUEST (no partial
-          replay). The caller narrows the from/to range, or raises `max_events`
-          (up to the 1000 cap), so the whole window fits in one request.
+          selection). The caller narrows the from/to range, or raises
+          `max_events` (up to the 1000 cap), so the whole window fits in one
+          request.
         - If the window exceeds the server's SCAN LIMIT (more candidate events
           than the server will scan while evaluating the request), the server
           MUST likewise reject with 400 INVALID_REQUEST. The caller narrows the
           from/to range. The scan-limit VALUE is server-defined
           (implementation-specific; a reference server documents its own limit);
-          the normative point is the BEHAVIOR — complete-or-400, never a silent
-          or implied-continuation partial.
+          the normative point is the BEHAVIOR — complete-selection-or-400, never
+          a silently-truncated or implied-continuation selection.
         - Practical limitation (honest note): because there is no continuation
           position, a set of MORE than `max_events` (up to the 1000 cap)
           deliverable events sharing a SINGLE timestamp cannot be narrowed by
           from/to to fit and must be covered by raising `max_events`; a set
           larger than the 1000 cap at one timestamp is beyond what a single
-          replay can deliver. For governance events this is effectively
+          replay can select. For governance events this is effectively
           unreachable.
       security:
       - AdminKeyAuth: []
@@ -7618,7 +7630,10 @@ paths:
                     description: Unique ID for this replay operation
                   events_queued:
                     type: integer
-                    description: Number of events queued for replay
+                    description: 'Number of deliveries successfully ENQUEUED. Enqueue is best-effort:
+                      on a transient backend failure this MAY be fewer than the number of events selected
+                      for the window (a degraded outcome to investigate). See the operation''s COMPLETENESS
+                      section.'
                   estimated_completion_seconds:
                     type: integer
         '401':
@@ -7629,10 +7644,11 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '400':
           description: 'Invalid replay request — including error=INVALID_REQUEST when the [from, to] window
-            contains MORE than `max_events` deliverable events, or exceeds the server''s scan limit: a
-            replay is all-or-narrow (complete for the window or rejected), so the caller narrows the from/to
-            range or raises `max_events` up to the 1000 cap (see LIMITS → COMPLETENESS). There is no partial
-            replay and no continuation cursor.'
+            contains MORE than `max_events` deliverable events, or exceeds the server''s scan limit: event
+            SELECTION is all-or-narrow (the window is selected completely or the request is rejected),
+            so the caller narrows the from/to range or raises `max_events` up to the 1000 cap (see LIMITS
+            → COMPLETENESS). There is no partial selection and no continuation cursor. (Enqueue of the
+            selected events is best-effort — see `events_queued`.)'
           content:
             application/json:
               schema:

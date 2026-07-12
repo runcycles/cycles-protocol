@@ -103,29 +103,47 @@ Corrects three issues in v0.1.25.40 (all reviewer findings against merged main).
   category SYSTEM). Both /test operation descriptions and the CONFORMANCE.md
   invariant bullet carry the exception; it rides through the F2 merge injection
   into the merged admin artifact.
-- **replayEvents completeness — ALL-OR-NARROW (NORMATIVE).** Surfaced by the
-  cycles-server-admin #210 replay work. A successful replay delivers EVERY
-  deliverable event in the [from, to] window and is COMPLETE for that window —
-  never a partial with an implied continuation. There is NO continuation
-  position in the API: the accepted response (`replay_id` / `events_queued` /
-  `estimated_completion_seconds`) carries no cursor and `max_events` is NOT a
-  resumable page cursor. So: a window containing MORE than `max_events`
-  deliverable events MUST be rejected with 400 INVALID_REQUEST (caller narrows
-  from/to or raises `max_events` up to the 1000 cap); a window exceeding the
-  server's SCAN LIMIT MUST likewise be rejected 400 (caller narrows from/to).
-  The scan-limit VALUE stays server-defined (implementation-specific; reference
-  servers document their own limit) — the normative point is the BEHAVIOR:
-  complete-or-400, never a silent or implied-continuation partial. Honest
-  limitation noted: with no continuation position, more than `max_events` (up
-  to the 1000 cap) deliverable events at a SINGLE timestamp can't be narrowed
-  and must be covered by raising `max_events`; beyond the cap at one timestamp
-  is a documented limit (effectively unreachable for governance events).
-  No schema change — replayEvents already declared a 400 "Invalid replay
-  request" (ErrorResponse); this documents the existing-but-unspecified
-  semantic, extends the LIMITS block, and matches the 400 response description.
-  (Corrects the earlier draft of this clause, which wrongly framed `max_events`
+- **replayEvents completeness — ALL-OR-NARROW SELECTION, BEST-EFFORT ENQUEUE
+  (NORMATIVE).** Surfaced by the cycles-server-admin #210 replay work. On a 202
+  accepted response the server has SELECTED every deliverable event in the
+  [from, to] window; selection is COMPLETE for the window (never a partial
+  selection with an implied continuation) — all-or-narrow: the selection is
+  complete, or the request is rejected 400 per the `max_events` / SCAN LIMIT
+  rules. There is NO continuation position in the API: the accepted response
+  (`replay_id` / `events_queued` / `estimated_completion_seconds`) carries no
+  cursor and `max_events` is NOT a resumable page cursor. Selection rules: a
+  window containing MORE than `max_events` deliverable events MUST be rejected
+  with 400 INVALID_REQUEST (caller narrows from/to or raises `max_events` up to
+  the 1000 cap); a window exceeding the server's SCAN LIMIT MUST likewise be
+  rejected 400 (caller narrows from/to). The scan-limit VALUE stays
+  server-defined; the normative point is the BEHAVIOR: complete-selection-or-400.
+  ENQUEUE is best-effort (narrowed from the earlier "every event MUST be
+  delivered on success" overclaim, which the reference impl cannot guarantee —
+  it enqueues per event and returns a 202 with a partial `events_queued` on a
+  transient backend failure): `events_queued` reports deliveries successfully
+  ENQUEUED and MAY be fewer than the number selected; operators SHOULD treat a
+  low `events_queued` as a degraded outcome. Replay is NOT idempotent — each
+  replay creates fresh WebhookDeliveries and re-delivers matching events, so
+  retrying after a partial enqueue MAY duplicate already-enqueued events. Honest
+  limitation noted: with no continuation position, more than `max_events` (up to
+  the 1000 cap) deliverable events at a SINGLE timestamp can't be narrowed and
+  must be covered by raising `max_events`; beyond the cap at one timestamp is a
+  documented limit (effectively unreachable for governance events). No schema
+  change — replayEvents already declared a 400 "Invalid replay request"
+  (ErrorResponse); this documents the existing-but-unspecified semantic, extends
+  the LIMITS block, and matches the 400 response + `events_queued` descriptions.
+  (Corrects two earlier drafts of this clause: one wrongly framed `max_events`
   as a resumable pagination cursor — replayEvents has no continuation position,
-  so "advance `from` to continue" was unusable.)
+  so "advance `from` to continue" was unusable — and one overclaimed atomic
+  complete DELIVERY on success.)
+- **replayEvents: removed the impossible `source: "replay"` claim.** The
+  BEHAVIOR block said each delivery is "a new WebhookDelivery with source
+  'replay'", but the `WebhookDelivery` schema is `additionalProperties: false`
+  with no `source` property (and the reference model has no such field) — the
+  claim was unsatisfiable. Reworded to "each replayed event is tracked as a new
+  WebhookDelivery" (no `source`). Adding replay-vs-live provenance would be a
+  separate schema + storage change, out of scope here; noted as possible future
+  work, not done in this revision.
 - **Merged artifact preserves the invariant (tooling contract).** `scripts/
   merge_specs.py` substitutes its own info.description when generating the
   merged artifacts, which dropped the WEBHOOK SUBSCRIPTION INVARIANTS block and
