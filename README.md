@@ -92,13 +92,15 @@ Cycles is **synchronous and blocking by design**: the reserve call returns `ALLO
 
 Cycles is **not a proxy**. It does not sit in the data path or see request/response payloads. It only tracks cost metadata (who, what, how much). The agent is responsible for calling the downstream API and reporting actual cost on commit.
 
+**Payment-rail terminology boundary:** a Cycles reservation holds spending authority in a budget ledger; it does not hold funds on a card, bank, or blockchain payment rail. A Cycles commit finalizes recorded economic exposure; it does not capture or settle a payment. A Cycles release returns unused budget authority; it does not void or refund a payment. Integrations that move money must execute and reconcile those payment operations separately.
+
 ## How it works
 
 ```
-1. Reserve     Lock estimated cost before the action runs.
+1. Reserve     Lock estimated budget authority before the action runs.
 2. Execute     Call the LLM / tool / API.
 3. Commit      Record actual cost; unused budget is released automatically.
-4. Release     Or cancel — full budget is returned, no charge.
+4. Release     Or cancel — full budget authority is returned; no exposure is committed.
 ```
 
 **Tiny example:**
