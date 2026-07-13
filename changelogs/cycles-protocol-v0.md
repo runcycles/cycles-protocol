@@ -6,6 +6,23 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.15 — 2026-07-13
+
+_(revision 2026-07-13 — distinguish Cycles budget authority from payment-rail operations)_
+
+- **Payment-rail terminology boundary — NORMATIVE.** A Cycles reservation holds
+  spending authority in the budget ledger, not funds on a card, bank, blockchain,
+  or other payment rail. A Cycles commit finalizes recorded economic exposure; it
+  does not authorize, capture, charge, or settle a rail payment. A Cycles release
+  returns unused budget authority; it does not void or refund a payment.
+- Implementations that move money MUST execute and reconcile those payment-rail
+  operations separately and MUST NOT treat a Cycles lifecycle transition as proof
+  that funds moved or were reversed.
+- README lifecycle wording now uses "budget authority" and "economic exposure" to
+  keep the public execution model aligned with the normative boundary.
+- Documentation-only semantic clarification; no endpoint, schema, or wire-format
+  change. `semantic_base` remains 0.1.25.
+
 ## v0.1.25.14 — 2026-07-11
 
 _(revision 2026-07-11 — extend the closed-tenant 409 binding to POST /v1/events)_

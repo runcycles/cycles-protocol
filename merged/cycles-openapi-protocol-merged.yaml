@@ -4,7 +4,7 @@
 # This is the pre-built runtime-plane merged artifact for Cycles v0.1.26.
 # To regenerate: python scripts/merge_specs.py
 # Sources:
-#   - cycles-protocol-v0.yaml (v0.1.25.14, runtime base)
+#   - cycles-protocol-v0.yaml (v0.1.25.15, runtime base)
 #   - cycles-protocol-extensions-v0.1.26.yaml (v0.1.27, runtime extension)
 #   - cycles-action-kinds-v0.1.26.yaml (v0.1.27, action kind registry)
 # Canonical sources live at the paths above. Edit source files, regenerate.
@@ -25,7 +25,7 @@ info:
       - Action kind registry (62 built-in kinds) + quota counter endpoint + reset
 
     Source specs:
-      - cycles-protocol-v0.yaml (runtime base v0.1.25.14)
+      - cycles-protocol-v0.yaml (runtime base v0.1.25.15)
       - cycles-protocol-extensions-v0.1.26.yaml (runtime extension v0.1.27)
       - cycles-action-kinds-v0.1.26.yaml (action kinds v0.1.27)
 

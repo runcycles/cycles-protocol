@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cycles Budget Authority API
-  version: 0.1.25.14
+  version: 0.1.25.15
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -22,6 +22,15 @@ info:
         Implementations MAY provide these via an operator/admin plane or a separate API; future versions may standardize them.
       - A reservation lifecycle is denominated in exactly one unit (single-unit reserve/commit/release).
         Multi-unit atomic reservation/settlement is a v1+ concern.
+
+    PAYMENT-RAIL TERMINOLOGY BOUNDARY (NORMATIVE):
+      - A Cycles reservation holds spending authority in a budget ledger; it does not hold funds
+        on a card, bank, blockchain, or other payment rail.
+      - A Cycles commit finalizes recorded economic exposure; it does not authorize, capture,
+        charge, or settle a payment on a payment rail.
+      - A Cycles release returns unused budget authority; it does not void or refund a payment.
+      - Implementations that move money MUST execute and reconcile payment-rail operations separately
+        and MUST NOT represent a Cycles lifecycle transition as proof that funds moved or were reversed.
 
     AUTH & TENANCY (NORMATIVE):
       - Requests are authenticated via X-Cycles-API-Key, EXCEPT endpoints that
