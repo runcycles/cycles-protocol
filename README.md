@@ -376,8 +376,8 @@ Controls what happens when actual spend exceeds the reserved estimate at commit 
 
 | Policy | Behavior |
 |--------|----------|
-| `REJECT` (default) | Reject the commit. SDK should add 10-20% estimation buffer. |
-| `ALLOW_IF_AVAILABLE` | Commit succeeds only if the delta fits in remaining budget. Atomic check-and-charge. |
+| `REJECT` | Reject the commit. SDK should add 10-20% estimation buffer. |
+| `ALLOW_IF_AVAILABLE` (default) | Commit always succeeds — the action already happened. If remaining budget covers the delta, charge it atomically across all derived scopes; otherwise cap the delta to available remaining (floor 0) and set `is_over_limit=true` on scopes that couldn't cover it, blocking future reservations until reconciled. Never creates debt. |
 | `ALLOW_WITH_OVERDRAFT` | If remaining budget covers the delta, commit normally. Otherwise, commit succeeds if `(current_debt + delta) <= overdraft_limit`, creating debt; remaining can go negative. |
 
 The same policies apply to `/events`.
@@ -390,7 +390,7 @@ When `overage_policy=ALLOW_WITH_OVERDRAFT` is used, the protocol supports contro
 
 - **`debt`** — actual consumption that occurred when insufficient budget existed. Must be repaid via out-of-band funding operations before new reservations are allowed.
 - **`overdraft_limit`** — maximum debt permitted per scope. If absent or 0, no overdraft is allowed.
-- **`is_over_limit`** — set to `true` when `debt > overdraft_limit` (can happen due to concurrent commits). Blocks **all** new reservations on that scope until reconciled.
+- **`is_over_limit`** — set to `true` when `debt > overdraft_limit` (can happen due to concurrent commits), or when an `ALLOW_IF_AVAILABLE` commit or event capped its charge because the full delta didn't fit. Blocks **all** new reservations on that scope until reconciled.
 
 ### Concurrency semantics
 
@@ -551,7 +551,7 @@ List endpoints (`GET /v1/reservations`, `GET /v1/balances`) support cursor-based
 | 401 | `UNAUTHORIZED` | Missing or invalid API key |
 | 403 | `FORBIDDEN` | Tenant mismatch or ownership violation |
 | 404 | `NOT_FOUND` | Reservation never existed |
-| 409 | `BUDGET_EXCEEDED` | Insufficient budget with `REJECT` or `ALLOW_IF_AVAILABLE` |
+| 409 | `BUDGET_EXCEEDED` | Reserve: insufficient remaining budget (any policy). Commit/event: actual exceeds remaining with `overage_policy=REJECT` |
 | 409 | `BUDGET_FROZEN` | Budget scope is frozen; operations blocked until unfrozen |
 | 409 | `BUDGET_CLOSED` | Budget scope is permanently closed |
 | 409 | `RESERVATION_FINALIZED` | Reservation already committed or released |
