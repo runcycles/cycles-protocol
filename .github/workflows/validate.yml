@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   validate:
-    name: Lint sources, check version and merge drift, lint merged artifacts
+    name: Lint sources, check merge drift, lint merged artifacts
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
