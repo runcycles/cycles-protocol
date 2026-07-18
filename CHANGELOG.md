@@ -11,6 +11,10 @@ about:
 - Added `make spec-index-check` to compare every indexed document version and
   current-version summary pin with the referenced spec's `info.version`, and
   wired the check into the OpenAPI validation workflow so future drift fails CI.
+- Added `cycles-evidence-v0.2.yaml` to the canonical publication summary and
+  the spec changelog index so both inventories cover every indexed companion,
+  and extended `make spec-index-check` to prevent the publication summary from
+  drifting away from `documents` again.
 
 ## Spec changelogs
 
@@ -21,6 +25,7 @@ about:
 | `cycles-action-kinds-v0.1.26.yaml` (action kind registry) | [changelogs/cycles-action-kinds.md](changelogs/cycles-action-kinds.md) |
 | `cycles-protocol-extensions-v0.1.26.yaml` (runtime extension) | [changelogs/cycles-protocol-extensions.md](changelogs/cycles-protocol-extensions.md) |
 | `cycles-governance-extensions-v0.1.26.yaml` (governance extension) | [changelogs/cycles-governance-extensions.md](changelogs/cycles-governance-extensions.md) |
+| `cycles-evidence-v0.2.yaml` (evidence envelope) | [changelogs/cycles-evidence-v0.2.md](changelogs/cycles-evidence-v0.2.md) |
 
 ## Format
 

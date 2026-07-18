@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Validate cycles-spec-index.yaml version pins against canonical specs.
+"""Validate cycles-spec-index.yaml against its canonical specs.
 
 The OpenAPI documents are authoritative. For every document in the index, this
 check compares both the document-level ``version`` and its duplicate
 ``spec_family.current_versions`` pin with the referenced spec's
-``info.version``.
+``info.version``. It also requires ``publication_model_summary`` to enumerate
+the same canonical source files as ``documents``.
 
 Exit code 0 on success, 1 on any validation error.
 
@@ -177,11 +178,54 @@ def validate() -> list[str]:
             "an indexed document"
         )
 
+    publication_summary = index.get("publication_model_summary")
+    if not isinstance(publication_summary, dict):
+        errors.append("cycles-spec-index.yaml: publication_model_summary must be a mapping")
+        return errors
+
+    canonical_sources = publication_summary.get("canonical_sources")
+    if not isinstance(canonical_sources, list):
+        errors.append(
+            "cycles-spec-index.yaml: "
+            "publication_model_summary.canonical_sources must be a list"
+        )
+        return errors
+
+    canonical_source_set: set[str] = set()
+    duplicate_canonical_sources: set[str] = set()
+    for position, source in enumerate(canonical_sources, start=1):
+        if not isinstance(source, str) or not source:
+            errors.append(
+                "publication_model_summary.canonical_sources"
+                f"[{position}]: entry must be a non-empty string"
+            )
+            continue
+        if source in canonical_source_set:
+            duplicate_canonical_sources.add(source)
+        canonical_source_set.add(source)
+
+    for source in sorted(duplicate_canonical_sources):
+        errors.append(
+            "publication_model_summary.canonical_sources contains duplicate "
+            f"entry: {source}"
+        )
+
+    for filename in sorted(seen_files - canonical_source_set):
+        errors.append(
+            f"publication_model_summary.canonical_sources is missing indexed "
+            f"document: {filename}"
+        )
+    for filename in sorted(canonical_source_set - seen_files):
+        errors.append(
+            f"publication_model_summary.canonical_sources contains unindexed "
+            f"document: {filename}"
+        )
+
     return errors
 
 
 def main() -> int:
-    print("Validating spec-index version pins...")
+    print("Validating spec-index consistency...")
     errors = validate()
     if errors:
         for error in errors:
@@ -190,7 +234,8 @@ def main() -> int:
         return 1
 
     print("  OK: all document and current-version pins match spec info.version")
-    print("\nAll spec-index version pins are current.")
+    print("  OK: canonical publication summary matches indexed documents")
+    print("\nSpec-index consistency checks passed.")
     return 0
 
 
