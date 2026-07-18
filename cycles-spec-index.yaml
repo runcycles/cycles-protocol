@@ -17,8 +17,8 @@
 #                        semantic_base are guaranteed wire-compatible. Bump
 #                        only on breaking changes to the wire contract.
 #   `semantic_base` is OPTIONAL and only declared on documents whose editorial
-#   revision has drifted past their frozen wire baseline (e.g. governance_base
-#   editorial 0.1.25.16 on semantic_base 0.1.25.9).
+#   revision has advanced past their frozen wire baseline (for example, an
+#   additive editorial revision can retain its prior semantic_base).
 #
 # AUTHORING CONVENTION:
 #   Specs describe a protocol contract, not a server implementation.
@@ -68,15 +68,15 @@ spec_family:
     isolation; SDK generators and validator pipelines need a merged artifact.
     The merge_recipes section below defines how to produce those artifacts.
   current_versions:
-    base_runtime: "0.1.25.14"             # closed-tenant 409 TENANT_CLOSED binding extended to POST /v1/events (persisting debit)
-    base_runtime_semantic_base: "0.1.25"  # frozen wire baseline — evidence revisions are additive, 0.1.25 clients stay compatible
+    base_runtime: "0.1.25.15"             # payment-rail terminology boundary clarification; no wire-format change
+    base_runtime_semantic_base: "0.1.25"  # frozen wire baseline — runtime 0.1.25.15 is documentation-only
     base_governance: "0.1.25.41"          # unify webhook selector boundary into a cross-plane conformance INVARIANT + conformance-status tracking + migration recipe fix
     base_governance_semantic_base: "0.1.25.9"  # frozen wire baseline
     extension_runtime: "0.1.27"           # ErrorCodeExtension base-list refresh (+ LIMIT_EXCEEDED, TENANT_CLOSED) against runtime 0.1.25.13
-    extension_governance: "0.1.27"        # trace_id on redeclared ErrorResponse
-    action_kinds: "0.1.27"                # trace_id on redeclared ErrorResponse
+    extension_governance: "0.1.27"        # trace_id plus response correlation headers
+    action_kinds: "0.1.27"                # trace_id plus X-Cycles-Trace-Id response headers
     evidence_envelope: "0.2.1"            # ErrorResponseMirror re-cut against canonical ErrorCode 0.1.25.13 (+ LIMIT_EXCEEDED, TENANT_CLOSED)
-    spec_index: "0.1.41"                  # base_governance webhook subscription cross-plane conformance invariant → 0.1.25.41
+    spec_index: "0.1.42"                  # reconcile runtime 0.1.25.15 pins and add automated version-sync validation
 
 # ---------------------------------------------------------------------------
 # CANONICAL DOCUMENTS
@@ -91,8 +91,8 @@ documents:
 
   - id: runtime_base
     file: cycles-protocol-v0.yaml
-    version: "0.1.25.14"         # closed-tenant 409 TENANT_CLOSED binding extended to POST /v1/events (persisting debit)
-    semantic_base: "0.1.25"      # frozen wire baseline — evidence fields are additive/optional
+    version: "0.1.25.15"         # payment-rail terminology boundary clarification; no wire-format change
+    semantic_base: "0.1.25"      # frozen wire baseline — runtime 0.1.25.15 is documentation-only
     role: base
     conformance: normative
     title: Cycles Budget Authority API
@@ -150,7 +150,7 @@ documents:
 
   - id: action_kinds
     file: cycles-action-kinds-v0.1.26.yaml
-    version: "0.1.27"          # trace_id on redeclared ErrorResponse
+    version: "0.1.27"          # trace_id plus X-Cycles-Trace-Id response headers
     role: companion
     conformance: normative
     conformance_status: upcoming
@@ -236,7 +236,7 @@ documents:
 
   - id: governance_extension
     file: cycles-governance-extensions-v0.1.26.yaml
-    version: "0.1.27"          # trace_id on redeclared ErrorResponse
+    version: "0.1.27"          # trace_id plus response correlation headers
     role: extension
     extends: governance_base
     conformance: normative

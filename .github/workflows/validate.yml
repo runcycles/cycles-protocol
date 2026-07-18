@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   validate:
-    name: Lint sources, check merge drift, lint merged artifacts
+    name: Lint sources, check version and merge drift, lint merged artifacts
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -33,7 +33,7 @@ jobs:
       - name: Install Python dependencies (PyYAML)
         run: pip install PyYAML
 
-      # Step 1: Lint all 5 canonical source specs.
+      # Step 1: Lint all 6 canonical source specs.
       # Catches YAML/OpenAPI errors in any source file before merge.
       - name: Lint all source specs
         run: make lint-sources
@@ -59,3 +59,9 @@ jobs:
       # forgot to add a changelog entry."
       - name: Verify changelog pointers stay in sync with spec versions
         run: make changelog-check
+
+      # Step 5: Composition-index version sync check.
+      # Both version pins for every indexed document must match the canonical
+      # source spec's info.version. The source specs are always authoritative.
+      - name: Verify composition index versions match source specs
+        run: make spec-index-check

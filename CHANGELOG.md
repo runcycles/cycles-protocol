@@ -3,6 +3,15 @@
 Each spec in the suite maintains its own changelog. Pick the spec you care
 about:
 
+## Repository maintenance — 2026-07-18
+
+- Reconciled both `cycles-spec-index.yaml` runtime version pins with the
+  authoritative `cycles-protocol-v0.yaml` `info.version` (`0.1.25.15`) and
+  refreshed the associated revision annotations without changing any spec.
+- Added `make spec-index-check` to compare every indexed document version and
+  current-version summary pin with the referenced spec's `info.version`, and
+  wired the check into the OpenAPI validation workflow so future drift fails CI.
+
 | Spec | Changelog |
 |---|---|
 | `cycles-protocol-v0.yaml` (runtime base) | [changelogs/cycles-protocol-v0.md](changelogs/cycles-protocol-v0.md) |
