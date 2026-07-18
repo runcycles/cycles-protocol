@@ -76,7 +76,7 @@ spec_family:
     extension_governance: "0.1.27"        # trace_id plus response correlation headers
     action_kinds: "0.1.27"                # trace_id plus X-Cycles-Trace-Id response headers
     evidence_envelope: "0.2.1"            # ErrorResponseMirror re-cut against canonical ErrorCode 0.1.25.13 (+ LIMIT_EXCEEDED, TENANT_CLOSED)
-    spec_index: "0.1.42"                  # reconcile runtime 0.1.25.15 pins and add automated version-sync validation
+    spec_index: "0.1.43"                  # include evidence envelope in the canonical publication summary
 
 # ---------------------------------------------------------------------------
 # CANONICAL DOCUMENTS
@@ -451,6 +451,7 @@ publication_model_summary:
     - cycles-action-kinds-v0.1.26.yaml     # registry + quota primitives
     - cycles-protocol-extensions-v0.1.26.yaml  # runtime extension
     - cycles-governance-extensions-v0.1.26.yaml  # governance extension
+    - cycles-evidence-v0.2.yaml             # evidence envelope companion
 
   pre_built_artifacts:
     # These files ARE pre-built and committed in each v0.1.26 release:

@@ -60,8 +60,8 @@ jobs:
       - name: Verify changelog pointers stay in sync with spec versions
         run: make changelog-check
 
-      # Step 5: Composition-index version sync check.
-      # Both version pins for every indexed document must match the canonical
-      # source spec's info.version. The source specs are always authoritative.
-      - name: Verify composition index versions match source specs
+      # Step 5: Composition-index sync check.
+      # Version pins must match each source spec's info.version, and the
+      # canonical publication summary must enumerate every indexed document.
+      - name: Verify composition index matches source specs
         run: make spec-index-check

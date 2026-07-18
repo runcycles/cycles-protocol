@@ -47,7 +47,7 @@ validate: lint-all merge-check changelog-check spec-index-check
 changelog-check:
 	python scripts/validate_changelogs.py
 
-## Verify both version pins for every indexed spec match its info.version.
+## Verify indexed spec versions and the canonical publication inventory.
 spec-index-check:
 	python scripts/validate_spec_index_versions.py
 
