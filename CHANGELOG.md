@@ -12,6 +12,8 @@ about:
   current-version summary pin with the referenced spec's `info.version`, and
   wired the check into the OpenAPI validation workflow so future drift fails CI.
 
+## Spec changelogs
+
 | Spec | Changelog |
 |---|---|
 | `cycles-protocol-v0.yaml` (runtime base) | [changelogs/cycles-protocol-v0.md](changelogs/cycles-protocol-v0.md) |

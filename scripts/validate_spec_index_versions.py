@@ -22,9 +22,9 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INDEX_PATH = REPO_ROOT / "cycles-spec-index.yaml"
 
-# ``current_versions`` predates the document IDs and uses the opposite word
-# order for base and extension specs. Keep that relationship explicit so both
-# duplicate pins are checked and a newly indexed document cannot bypass CI.
+# ``current_versions`` uses the opposite word order from the document IDs for
+# base and extension specs. Keep that relationship explicit so both duplicate
+# pins are checked and a newly indexed document cannot bypass CI.
 CURRENT_VERSION_KEY_BY_DOCUMENT_ID = {
     "runtime_base": "base_runtime",
     "governance_base": "base_governance",
