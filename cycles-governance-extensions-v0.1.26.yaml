@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cycles Governance Extensions — Admin Plane
-  version: 0.1.27
+  version: 0.1.28
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -685,6 +685,7 @@ paths:
                       type: string
                     priority:
                       type: integer
+                      minimum: 0
                     caps:
                       type: object
                     commit_overage_policy:
