@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.41
+  version: 0.1.25.42
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Stable governance base — document revision 0.1.25.41; semantic base
+    Stable governance base — document revision 0.1.25.42; semantic base
     frozen at 0.1.25.9. This file is self-sufficient for the current
     v0.1.25 conformance target (it adds a
     normative tenant-close cascade contract at
@@ -48,7 +48,9 @@ info:
     halves into a single normative cross-plane WEBHOOK SUBSCRIPTION
     INVARIANT (tenant-owned subscriptions carry only tenant-accessible
     selectors, by any provisioning mechanism) on the conformance surface,
-    and fixes the #209 operator migration recipe to be submittable)
+    and fixes the #209 operator migration recipe to be submittable;
+    document revision 0.1.25.42 makes the non-negative Policy priority
+    invariant consistent across create, update, and response schemas)
     and also serves as the base for the upcoming v0.1.26
     spec family. Covers tenant management, authentication, and runtime
     enforcement. NOTE: This file alone is NOT sufficient for the
@@ -326,7 +328,7 @@ info:
       target. Reference-implementation status is tracked in CONFORMANCE.md
       and the changelog, not in this contract prose (see AUTHORING
       CONVENTION). Document revision
-      0.1.25.41; semantic base frozen at 0.1.25.9
+      0.1.25.42; semantic base frozen at 0.1.25.9
       (see cycles-spec-index.yaml for the versioning model).
 
       The upcoming v0.1.26 target adds new capabilities (action quotas,
@@ -1179,6 +1181,7 @@ components:
           type: string
         priority:
           type: integer
+          minimum: 0
           default: 0
         caps:
           $ref: '#/components/schemas/Caps'
@@ -5370,7 +5373,7 @@ paths:
               properties:
                 name: {type: string}
                 description: {type: string}
-                priority: {type: integer}
+                priority: {type: integer, minimum: 0}
                 caps: {$ref: '#/components/schemas/Caps'}
                 commit_overage_policy: {$ref: '#/components/schemas/CommitOveragePolicy'}
                 reservation_ttl_override: {$ref: '#/components/schemas/ReservationTtlOverride'}

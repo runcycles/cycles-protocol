@@ -6,6 +6,17 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.28 — 2026-07-20
+
+- Aligns the extension's portable restatement of the base `updatePolicy`
+  fields with governance base revision `0.1.25.42`: `priority` now carries
+  `minimum: 0`. The merged artifact already composes the base constraint via
+  `allOf`; this revision ensures tooling that reads the extension document in
+  isolation sees the same non-negative invariant.
+- No extension field or runtime behavior changes. Zero and positive priorities
+  remain valid; negative priorities could not produce a base-schema-conformant
+  `Policy` response.
+
 ## v0.1.27 — 2026-04-18
 
 - Cross-surface correlation — adds `trace_id` (W3C Trace Context-

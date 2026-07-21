@@ -6,6 +6,21 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.42 — 2026-07-20
+
+- **Policy priority contract aligned.** `Policy.priority` has always declared
+  `minimum: 0`, but `PolicyCreateRequest.priority` and the inline
+  `updatePolicy` PATCH body previously accepted any integer. A negative write
+  could therefore produce a persisted `Policy` that violated its own response
+  schema. Both write schemas now declare `minimum: 0`; omitted priority still
+  defaults to `0`, and zero or positive integers are unchanged.
+- **Violation behavior.** The existing `400 INVALID_REQUEST` response covers a
+  negative priority on create or update. This is an intentional validation
+  tightening for values that could not produce a schema-conformant resource;
+  it adds no field, status code, or representation change. The governance
+  semantic base remains `0.1.25.9` because the correction enforces the
+  pre-existing `Policy.priority` domain invariant.
+
 ## v0.1.25.41 — 2026-07-11
 
 Corrects three issues in v0.1.25.40 (all reviewer findings against merged main).
