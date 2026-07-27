@@ -41,10 +41,22 @@ _(revision 2026-07-27 — heartbeat guidance for extendReservation / extend_by_m
   unchanged by schedule. Under maximum-lead clamping it may legitimately
   measure a grant near or equal to zero — a regime signal, not an error.
 - Cadence is split BY REGIME, distinguished by comparing each measured grant
-  to the elapsed time since the previous successful extension: (a) grant ≫
-  elapsed (normal, or per-extend grant clamp) — beat at ~grant/2, sensibly
-  bounded; tightening here is correct. (b) grant ≈ elapsed or grant ≤ 0
-  (maximum-lead clamp) — successive `expires_at_ms` differences measure
+  to the elapsed time since the previous successful extension. Regime
+  detection uses a BAND test, not an upper bound alone: maximum-lead clamping
+  is indicated when the grant sits inside a band around elapsed (e.g.
+  0.75×elapsed ≤ grant ≤ 1.25×elapsed) or when grant ≤ 0 (always clamping);
+  grant ≥ ~0.9×requested ttl_ms always indicates the normal regime. The
+  band's lower edge is load-bearing: after a lead_min skip the next grant
+  arrives across a doubled gap, so a genuine per-extend-grant-clamped server
+  beating at grant/2 measures grant ≈ elapsed exactly — an upper-bound-only
+  test would misclassify it as lead-clamped and the held cadence would
+  self-sustain while the lease decays to a lapse. A genuine maximum-lead
+  clamp tracks ANY inter-success gap (ratio ≈ 1 at every cadence), while a
+  real small grant across a skip-doubled gap matches the band at most once,
+  so misclassification is transient, never sticky. (a) Normal or per-extend
+  grant clamp (positive, outside the band) — beat at ~grant/2, sensibly
+  bounded; tightening here is correct. (b) Maximum-lead clamp (inside the
+  band, or ≤ 0) — successive `expires_at_ms` differences measure
   elapsed time between calls, not lease size, so grant-derived cadence is a
   feedback loop that collapses toward any floor and burns the extension
   budget (default 10) in seconds; NO cadence signal exists in the current

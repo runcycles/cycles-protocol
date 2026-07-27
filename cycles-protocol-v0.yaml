@@ -2515,14 +2515,27 @@ paths:
           signal, not an error.
         - Cadence SHOULD be chosen PER REGIME, distinguished by comparing each measured grant to the
           monotonic elapsed time since the previous successful extension (for the first extension,
-          since the reserve response):
-          (a) grant ≫ elapsed — normal operation, or per-extend GRANT clamping: the grant measures
-          real lease. Beat at approximately grant/2 (bounded sensibly, e.g. no shorter than 1s). A
-          grant clamp tightening the cadence here is CORRECT — a smaller grant is a genuinely smaller
-          lease.
-          (b) grant ≈ elapsed, or grant ≤ 0 — MAXIMUM-LEAD clamping: the server re-anchors expiry to
-          now + L on every call, so successive expires_at_ms differences measure the elapsed time
-          BETWEEN calls, not the lease size — each "grant" merely echoes the client's own call
+          since the reserve response). Regime detection SHOULD test that the grant sits INSIDE a band
+          around elapsed — e.g. 0.75×elapsed ≤ grant ≤ 1.25×elapsed — not an upper bound alone; in
+          addition, grant ≤ 0 ALWAYS indicates maximum-lead clamping, and grant ≥ ~0.9×requested
+          ttl_ms ALWAYS indicates the normal regime. The band's LOWER edge is load-bearing: after a
+          lead_min skip, the next measured grant arrives across a DOUBLED gap, so a genuine
+          per-extend-GRANT-clamped server beating at grant/2 measures grant ≈ elapsed EXACTLY at that
+          instant. An upper-bound-only test (grant ≤ ~1.25×elapsed) would misclassify it as
+          lead-clamped, and the held cadence would then self-sustain — at the held cadence the ratio
+          stays ≤ 1.25 forever — while the lease decays to a lapse, contradicting rule (a) below that
+          grant-clamped leases keep tightening. The band discriminates because a genuine maximum-lead
+          clamp tracks ANY inter-success gap (grant/elapsed ≈ 1 at every cadence), whereas a real
+          small grant seen across a skip-doubled gap matches the band at most once: at the held
+          cadence its grant/elapsed ratio falls below the lower edge and cadence re-tightens. With
+          the band test, misclassification is transient, never sticky.
+          (a) Grant classified NORMAL or per-extend GRANT clamping (positive and outside the band):
+          the grant measures real lease. Beat at approximately grant/2 (bounded sensibly, e.g. no
+          shorter than 1s). A grant clamp tightening the cadence here is CORRECT — a smaller grant is
+          a genuinely smaller lease.
+          (b) Grant classified MAXIMUM-LEAD clamping (inside the band, or ≤ 0): the server re-anchors
+          expiry to now + L on every call, so successive expires_at_ms differences measure the elapsed
+          time BETWEEN calls, not the lease size — each "grant" merely echoes the client's own call
           spacing. Deriving cadence from it is a feedback loop that collapses toward any cadence floor
           and burns the server-side extension budget (default 10) in seconds. In this regime NO
           cadence signal exists in the current wire contract: clients SHOULD hold a fixed bounded
