@@ -2977,9 +2977,20 @@ paths:
           extension limits) that a crashed client can leave holding budget, working against the same
           zombie-reservation rationale as the grace_period_ms ceiling — and it consumes any server-side
           extension budget (MAX_EXTENSIONS_EXCEEDED) twice as fast as necessary.
-        - Keep-alive clients SHOULD size extensions so the remaining lifetime stays within approximately
-          [ttl/2, 1.5×ttl] — e.g. extend by ttl_ms on every SECOND beat of a ttl/2 cadence, or extend by the
-          beat interval on every beat — rather than extending by ttl_ms unconditionally per beat.
+        - Keep-alive clients SHOULD instead maintain a lead estimate derived from the AUTHORITATIVE returned
+          expires_at_ms, using only server-frame differences plus client-monotonic elapsed time — never a
+          client-wall-clock vs server-wall-clock comparison — so the estimate is clock-skew-free:
+          lead ≈ (latest_returned_expires_at_ms − initial_expires_at_ms) + ttl_ms − monotonic_elapsed_since_reservation.
+        - Beat at approximately ttl/2; on each beat, extend by ttl_ms when lead < 1.5×ttl_ms, otherwise skip.
+          On the success path this keeps the lead within approximately [ttl, 2×ttl]; a transient extend
+          failure leaves at least ttl of margin for retries; and the pattern self-corrects for scheduling
+          slippage AND for server-side clamping, because the returned expires_at_ms reflects any clamp.
+        - A blind alternate-beat cadence (extend on every SECOND beat WITHOUT lead tracking) leaves zero
+          margin after any single failed beat — at steady state the retry lands at the expiry instant — and
+          cannot keep up when the beat interval exceeds ttl/2.
+        - On RESERVATION_EXPIRED, RESERVATION_FINALIZED, or MAX_EXTENSIONS_EXCEEDED the heartbeat SHOULD
+          stop — these conditions are permanent for the reservation. A retried extend SHOULD reuse the same
+          idempotency_key so a lost-response extend is not applied twice.
         - Servers MAY additionally clamp the effective new expiry to a policy maximum lead beyond server time;
           the returned expires_at_ms is authoritative.
       parameters:

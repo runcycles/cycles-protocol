@@ -19,11 +19,24 @@ _(revision 2026-07-27 — heartbeat guidance for extendReservation / extend_by_m
   any server-side extension budget (MAX_EXTENSIONS_EXCEEDED) twice as fast as
   necessary. All four official SDKs independently wrote this bug; the spec now
   warns the next implementer.
-- Keep-alive clients SHOULD size extensions so remaining lifetime stays within
-  approximately [ttl/2, 1.5×ttl] — e.g. extend by `ttl_ms` on every second
-  beat of a ttl/2 cadence, or extend by the beat interval on every beat —
-  rather than extending by `ttl_ms` unconditionally per beat. Servers MAY
-  additionally clamp the effective new expiry to a policy maximum lead.
+- Keep-alive clients SHOULD maintain a lead estimate derived from the
+  authoritative returned `expires_at_ms`, using only server-frame differences
+  plus client-monotonic elapsed time (clock-skew-free — never client wall-clock
+  vs server wall-clock): lead ≈ (latest_returned_expires_at_ms −
+  initial_expires_at_ms) + ttl_ms − monotonic_elapsed_since_reservation.
+  Beat at ~ttl/2; extend by `ttl_ms` when lead < 1.5×ttl_ms, skip otherwise.
+  This keeps the lead within approximately [ttl, 2×ttl] on the success path,
+  tolerates transient extend failures (retries occur with ≥ ttl of margin),
+  and self-corrects for scheduling slippage and for server-side clamping
+  (the returned `expires_at_ms` reflects any clamp).
+- Warns that a blind alternate-beat cadence without lead tracking leaves zero
+  margin after any single failed beat (at steady state the retry lands at the
+  expiry instant) and cannot keep up when the beat interval exceeds ttl/2.
+- On RESERVATION_EXPIRED, RESERVATION_FINALIZED, or MAX_EXTENSIONS_EXCEEDED
+  the heartbeat SHOULD stop (permanent conditions); a retried extend SHOULD
+  reuse the same `idempotency_key` so a lost-response extend is not applied
+  twice. Servers MAY additionally clamp the effective new expiry to a policy
+  maximum lead.
 - `ReservationExtendRequest.extend_by_ms` description gains a short pointer to
   the operation-level HEARTBEAT GUIDANCE.
 - Description-text change only; no endpoint, schema, or wire-format change.
