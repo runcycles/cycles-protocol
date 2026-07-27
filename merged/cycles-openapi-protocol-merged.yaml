@@ -2977,20 +2977,33 @@ paths:
           extension limits) that a crashed client can leave holding budget, working against the same
           zombie-reservation rationale as the grace_period_ms ceiling — and it consumes any server-side
           extension budget (MAX_EXTENSIONS_EXCEEDED) twice as fast as necessary.
+        - Servers MAY cap the granted TTL below the requested ttl_ms by tenant policy (e.g. a
+          max_reservation_ttl_ms ceiling in deployments with a governance plane: a 24h request may be
+          silently capped to 1h), and the reservation create response carries neither the effective TTL nor
+          a server-time anchor. Clients SHOULD therefore derive the effective TTL from the create response
+          as effective_ttl_ms ≈ expires_at_ms − (HTTP Date response header, in ms) — both values are
+          server-frame, so the estimate remains clock-skew-free, and the ±1s resolution of Date is
+          negligible — clamped to [1000, requested ttl_ms], and use effective_ttl_ms wherever ttl_ms appears
+          in this guidance (beat interval, lead seed, extension amount, and skip threshold): seeding the
+          schedule from a capped request would place the first beat hours late. (A first-class
+          effective_ttl_ms or server-time response field is a candidate additive future improvement.)
         - Keep-alive clients SHOULD instead maintain a lead estimate derived from the AUTHORITATIVE returned
           expires_at_ms, using only server-frame differences plus client-monotonic elapsed time — never a
           client-wall-clock vs server-wall-clock comparison — so the estimate is clock-skew-free:
-          lead ≈ (latest_returned_expires_at_ms − initial_expires_at_ms) + ttl_ms − monotonic_elapsed_since_reservation.
-        - Beat at approximately ttl/2; on each beat, extend by ttl_ms when lead < 1.5×ttl_ms, otherwise skip.
-          On the success path this keeps the lead within approximately [ttl, 2×ttl]; a transient extend
-          failure leaves at least ttl of margin for retries; and the pattern self-corrects for scheduling
-          slippage AND for server-side clamping, because the returned expires_at_ms reflects any clamp.
+          lead ≈ (latest_returned_expires_at_ms − initial_expires_at_ms) + effective_ttl_ms − monotonic_elapsed_since_reservation.
+        - Beat at approximately effective_ttl_ms/2; on each beat, extend by effective_ttl_ms when
+          lead < 1.5×effective_ttl_ms, otherwise skip. On the success path this keeps the lead within
+          approximately [ttl, 2×ttl]; after the FIRST successful extension a transient extend failure leaves
+          at least a full TTL of margin for retries (the first extend attempt inherently has only ~ttl/2 of
+          margin); and the pattern self-corrects for scheduling slippage AND for server-side clamping,
+          because the returned expires_at_ms reflects any clamp.
         - A blind alternate-beat cadence (extend on every SECOND beat WITHOUT lead tracking) leaves zero
           margin after any single failed beat — at steady state the retry lands at the expiry instant — and
           cannot keep up when the beat interval exceeds ttl/2.
-        - On RESERVATION_EXPIRED, RESERVATION_FINALIZED, or MAX_EXTENSIONS_EXCEEDED the heartbeat SHOULD
-          stop — these conditions are permanent for the reservation. A retried extend SHOULD reuse the same
-          idempotency_key so a lost-response extend is not applied twice.
+        - On RESERVATION_EXPIRED, RESERVATION_FINALIZED, MAX_EXTENSIONS_EXCEEDED, TENANT_CLOSED (tenant
+          closure is irreversible), or NOT_FOUND the heartbeat SHOULD stop — these conditions are permanent
+          for the reservation. A retried extend SHOULD reuse the same idempotency_key so a lost-response
+          extend is not applied twice.
         - Servers MAY additionally clamp the effective new expiry to a policy maximum lead beyond server time;
           the returned expires_at_ms is authoritative.
       parameters:
