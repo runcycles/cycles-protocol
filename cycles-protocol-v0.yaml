@@ -477,6 +477,20 @@ components:
       description: Effective tenant identifier derived from auth context (optional in v0)
       schema:
         type: string
+    Date:
+      description: >-
+        Standard HTTP origination timestamp (RFC 9110 §6.6.1, IMF-fixdate per
+        §5.6.7). Declared here — OPTIONAL — because the HEARTBEAT GUIDANCE on
+        extendReservation references it as a cadence hint for sizing the
+        first-beat delay. It MUST NOT be treated as load-bearing for lease
+        correctness: Date has whole-second resolution, is a best-effort
+        timestamp that may be generated at any point during message origination
+        or replaced by intermediaries, and a server may derive `expires_at_ms`
+        and Date from DIFFERENT clocks (e.g. a data store's clock vs the HTTP
+        container's), so `expires_at_ms − Date` is an estimate, not a
+        same-frame measurement.
+      schema:
+        type: string
 
   parameters:
     IdempotencyKeyHeader:
@@ -1900,6 +1914,7 @@ paths:
             X-Request-Id: {$ref: '#/components/headers/X-Request-Id'}
             X-Cycles-Trace-Id: {$ref: '#/components/headers/X-Cycles-Trace-Id'}
             X-Cycles-Tenant: {$ref: '#/components/headers/X-Cycles-Tenant'}
+            Date: {$ref: '#/components/headers/Date'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ReservationCreateResponse'}
@@ -2472,33 +2487,47 @@ paths:
           extension budget (MAX_EXTENSIONS_EXCEEDED) twice as fast as necessary.
         - Servers MAY cap the granted TTL below the requested ttl_ms by tenant policy (e.g. a
           max_reservation_ttl_ms ceiling in deployments with a governance plane: a 24h request may be
-          silently capped to 1h), and the reservation create response carries neither the effective TTL nor
-          a server-time anchor. Clients SHOULD therefore derive the effective TTL from the create response
-          as effective_ttl_ms ≈ expires_at_ms − (HTTP Date response header, in ms) — both values are
-          server-frame, so the estimate remains clock-skew-free, and the ±1s resolution of Date is
-          negligible — clamped to [1000, requested ttl_ms], and use effective_ttl_ms wherever ttl_ms appears
-          in this guidance (beat interval, lead seed, extension amount, and skip threshold): seeding the
-          schedule from a capped request would place the first beat hours late. (A first-class
-          effective_ttl_ms or server-time response field is a candidate additive future improvement.)
-        - Keep-alive clients SHOULD instead maintain a lead estimate derived from the AUTHORITATIVE returned
-          expires_at_ms, using only server-frame differences plus client-monotonic elapsed time — never a
-          client-wall-clock vs server-wall-clock comparison — so the estimate is clock-skew-free:
-          lead ≈ (latest_returned_expires_at_ms − initial_expires_at_ms) + effective_ttl_ms − monotonic_elapsed_since_reservation.
-        - Beat at approximately effective_ttl_ms/2; on each beat, extend by effective_ttl_ms when
-          lead < 1.5×effective_ttl_ms, otherwise skip. On the success path this keeps the lead within
-          approximately [ttl, 2×ttl]; after the FIRST successful extension a transient extend failure leaves
-          at least a full TTL of margin for retries (the first extend attempt inherently has only ~ttl/2 of
-          margin); and the pattern self-corrects for scheduling slippage AND for server-side clamping,
-          because the returned expires_at_ms reflects any clamp.
+          silently capped to 1h), and MAY clamp the effective new expiry of an extension to a policy
+          maximum lead beyond server time. The returned expires_at_ms is AUTHORITATIVE in both cases —
+          but the create response exposes neither the effective TTL nor a server-time anchor, so a client
+          cannot compute its true initial lead from the create response alone.
+        - Keep-alive clients SHOULD therefore maintain a conservative LOWER BOUND on their lead, built
+          entirely from same-frame differences (no cross-clock arithmetic anywhere):
+          lead_min = (sum of measured grants) − monotonic_elapsed_since_reserve_response, starting at 0
+          at the reserve response, where each measured grant is the difference between successive
+          returned expires_at_ms values (reserve response, then each extend response — the SAME server
+          frame, so differencing them is legitimate). lead_min never overstates the true lead: it
+          ignores the unknown initial effective TTL, and measuring elapsed time from receipt of each
+          response makes request latency count against the bound, never for it.
+        - Because lead_min starts at 0, the FIRST extension SHOULD fire early, after a small bounded
+          delay — e.g. min(requested ttl_ms/2, 30s, half the optional Date-derived estimate below when
+          available). This both establishes real measured margin and reveals the actual per-extend
+          grant. Extend by the requested ttl_ms; the server MAY clamp; the measured grant is
+          authoritative.
+        - Subsequent cadence SHOULD derive from the measured grant: beat at approximately
+          last_grant/2 (bounded sensibly, e.g. no shorter than 1s), so a server clamp automatically
+          tightens the beat. Skip a beat when lead_min ≥ 1.5×last_grant.
+        - The HTTP Date response header MAY serve as an OPTIONAL cadence hint for sizing the first-beat
+          delay only (estimate ≈ expires_at_ms − Date, in ms). It MUST NOT be load-bearing for
+          correctness and MUST NOT be clamped upward: per RFC 9110 §6.6.1/§5.6.7, Date is a
+          whole-second, best-effort origination timestamp that may be generated at any point during
+          message origination or replaced by intermediaries — and a server may derive expires_at_ms and
+          Date from DIFFERENT clocks (e.g. a data store's clock vs the HTTP container's), so the two
+          values are not guaranteed to share a frame.
+        - Invariants (replacing any fixed-margin promise): extend attempts occur while lead_min ≥ the
+          beat interval whenever grants keep pace with elapsed time; total protected runtime equals the
+          initial effective TTL plus the sum of granted extensions, regardless of schedule; a failed
+          attempt consumes lead_min and SHOULD be retried at the current cadence with the SAME
+          idempotency_key so a lost-response extend is not applied twice.
         - A blind alternate-beat cadence (extend on every SECOND beat WITHOUT lead tracking) leaves zero
           margin after any single failed beat — at steady state the retry lands at the expiry instant — and
           cannot keep up when the beat interval exceeds ttl/2.
         - On RESERVATION_EXPIRED, RESERVATION_FINALIZED, MAX_EXTENSIONS_EXCEEDED, TENANT_CLOSED (tenant
           closure is irreversible), or NOT_FOUND the heartbeat SHOULD stop — these conditions are permanent
-          for the reservation. A retried extend SHOULD reuse the same idempotency_key so a lost-response
-          extend is not applied twice.
-        - Servers MAY additionally clamp the effective new expiry to a policy maximum lead beyond server time;
-          the returned expires_at_ms is authoritative.
+          for the reservation.
+        - A future revision SHOULD add an explicit effective-TTL (or server-time) field to
+          ReservationCreateResponse — the only complete fix for the first-beat window, since no
+          header-derived estimate can be made both safe and tight.
       parameters:
         - $ref: '#/components/parameters/ReservationId'
         - $ref: '#/components/parameters/IdempotencyKeyHeader'
@@ -2515,6 +2544,7 @@ paths:
             X-Request-Id: {$ref: '#/components/headers/X-Request-Id'}
             X-Cycles-Trace-Id: {$ref: '#/components/headers/X-Cycles-Trace-Id'}
             X-Cycles-Tenant: {$ref: '#/components/headers/X-Cycles-Tenant'}
+            Date: {$ref: '#/components/headers/Date'}
           content:
             application/json:
               schema:

@@ -20,37 +20,52 @@ _(revision 2026-07-27 — heartbeat guidance for extendReservation / extend_by_m
   necessary. All four official SDKs independently wrote this bug; the spec now
   warns the next implementer.
 - Servers MAY cap the granted TTL below the requested `ttl_ms` by tenant
-  policy (e.g. `max_reservation_ttl_ms`), and the create response carries
-  neither the effective TTL nor a server-time anchor. Clients SHOULD derive
-  effective_ttl_ms ≈ `expires_at_ms` − HTTP `Date` response header (both
-  server-frame — clock-skew-free; ±1s resolution negligible), clamped to
-  [1000, requested ttl_ms], and use it for the beat interval, lead seed,
-  extension amount, and skip threshold. A first-class `effective_ttl_ms` (or
-  server-time) response field is noted as a candidate additive improvement.
-- Keep-alive clients SHOULD maintain a lead estimate derived from the
-  authoritative returned `expires_at_ms`, using only server-frame differences
-  plus client-monotonic elapsed time (clock-skew-free — never client wall-clock
-  vs server wall-clock): lead ≈ (latest_returned_expires_at_ms −
-  initial_expires_at_ms) + effective_ttl_ms −
-  monotonic_elapsed_since_reservation. Beat at ~effective_ttl_ms/2; extend by
-  effective_ttl_ms when lead < 1.5×effective_ttl_ms, skip otherwise. This
-  keeps the lead within approximately [ttl, 2×ttl] on the success path; after
-  the first successful extension, transient extend failures retry with ≥ ttl
-  of margin (the first extend attempt inherently has only ~ttl/2); and the
-  pattern self-corrects for scheduling slippage and for server-side clamping
-  (the returned `expires_at_ms` reflects any clamp).
+  policy (e.g. `max_reservation_ttl_ms`) and MAY clamp the effective new
+  expiry of an extension to a policy maximum lead; the returned
+  `expires_at_ms` is authoritative in both cases. Because the create response
+  exposes neither the effective TTL nor a server-time anchor, keep-alive
+  clients SHOULD maintain a conservative LOWER BOUND on their lead built
+  entirely from same-frame differences (no cross-clock arithmetic anywhere):
+  lead_min = Σ measured grants − client-monotonic elapsed since the reserve
+  response, starting at 0, where each grant is the difference between
+  successive returned `expires_at_ms` values (reserve response, then each
+  extend response — the same server frame). lead_min never overstates the
+  true lead and is latency-conservative.
+- Because lead_min starts at 0, the first extension SHOULD fire early after a
+  small bounded delay (e.g. min(requested ttl_ms/2, 30s, half the optional
+  `Date`-derived estimate when available)), establishing real measured margin
+  and revealing the actual per-extend grant. Subsequent cadence derives from
+  the measured grant (~last_grant/2, sensibly bounded), so server clamps
+  automatically tighten the beat; skip when lead_min ≥ 1.5×last_grant.
+- The HTTP `Date` response header is reframed as an OPTIONAL cadence hint for
+  the first-beat delay only — never load-bearing for correctness, never
+  clamped upward: per RFC 9110 §6.6.1/§5.6.7 it is a whole-second,
+  best-effort origination timestamp that may be generated at any point during
+  origination or replaced by intermediaries, and a server may derive
+  `expires_at_ms` and `Date` from DIFFERENT clocks. `Date` is now DECLARED as
+  a documented optional response header on the createReservation and
+  extendReservation 200 responses (documentation of standard HTTP behavior —
+  no wire change).
+- Fixed-margin promises are replaced by invariants: extend attempts occur
+  while lead_min ≥ the beat interval whenever grants keep pace with elapsed
+  time; total protected runtime equals the initial effective TTL plus the sum
+  of grants regardless of schedule; a failed attempt consumes lead_min and is
+  retried at the current cadence with the SAME `idempotency_key` so a
+  lost-response extend is not applied twice.
 - Warns that a blind alternate-beat cadence without lead tracking leaves zero
   margin after any single failed beat (at steady state the retry lands at the
   expiry instant) and cannot keep up when the beat interval exceeds ttl/2.
 - On RESERVATION_EXPIRED, RESERVATION_FINALIZED, MAX_EXTENSIONS_EXCEEDED,
   TENANT_CLOSED (closure is irreversible), or NOT_FOUND the heartbeat SHOULD
-  stop (permanent conditions); a retried extend SHOULD reuse the same
-  `idempotency_key` so a lost-response extend is not applied twice. Servers
-  MAY additionally clamp the effective new expiry to a policy maximum lead.
+  stop (permanent conditions).
+- A future revision SHOULD add an explicit effective-TTL (or server-time)
+  field to `ReservationCreateResponse` — the only complete fix for the
+  first-beat window, since no header-derived estimate can be made both safe
+  and tight.
 - `ReservationExtendRequest.extend_by_ms` description gains a short pointer to
   the operation-level HEARTBEAT GUIDANCE.
-- Description-text change only; no endpoint, schema, or wire-format change.
-  `semantic_base` remains 0.1.25.
+- Description-text and response-header documentation change only; no
+  endpoint, schema, or wire-format change. `semantic_base` remains 0.1.25.
 
 ## v0.1.25.15 — 2026-07-13
 
