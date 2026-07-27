@@ -6,6 +6,29 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.16 — 2026-07-27
+
+_(revision 2026-07-27 — heartbeat guidance for extendReservation / extend_by_ms)_
+
+- **HEARTBEAT GUIDANCE added to `extendReservation` — documentation only.**
+  Because `extend_by_ms` is relative to the reservation's CURRENT
+  `expires_at_ms` (not request time), a keep-alive client that extends by
+  `ttl_ms` on every sub-TTL beat (e.g. every ttl/2) drifts expiry outward by
+  ttl/2 per beat — an effectively unbounded zombie-reservation window that
+  works against the grace_period_ms zombie-reservation rationale — and burns
+  any server-side extension budget (MAX_EXTENSIONS_EXCEEDED) twice as fast as
+  necessary. All four official SDKs independently wrote this bug; the spec now
+  warns the next implementer.
+- Keep-alive clients SHOULD size extensions so remaining lifetime stays within
+  approximately [ttl/2, 1.5×ttl] — e.g. extend by `ttl_ms` on every second
+  beat of a ttl/2 cadence, or extend by the beat interval on every beat —
+  rather than extending by `ttl_ms` unconditionally per beat. Servers MAY
+  additionally clamp the effective new expiry to a policy maximum lead.
+- `ReservationExtendRequest.extend_by_ms` description gains a short pointer to
+  the operation-level HEARTBEAT GUIDANCE.
+- Description-text change only; no endpoint, schema, or wire-format change.
+  `semantic_base` remains 0.1.25.
+
 ## v0.1.25.15 — 2026-07-13
 
 _(revision 2026-07-13 — distinguish Cycles budget authority from payment-rail operations)_

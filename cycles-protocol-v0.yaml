@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cycles Budget Authority API
-  version: 0.1.25.15
+  version: 0.1.25.16
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -1758,9 +1758,12 @@ components:
           minimum: 1
           maximum: 86400000
           description: >
-            Amount of time (ms) to extend the reservation expiry relative to its current expires_at_ms 
+            Amount of time (ms) to extend the reservation expiry relative to its current expires_at_ms
             (i.e., not relative to request time). This does NOT change reserved amount. Server MAY clamp
             the effective extension to policy limits; the returned expires_at_ms is authoritative.
+            Keep-alive clients SHOULD NOT extend by ttl_ms on every sub-TTL beat — because extension is
+            relative to current expires_at_ms, that drifts expiry unboundedly outward; see HEARTBEAT
+            GUIDANCE on the extendReservation operation.
         metadata:
           type: object
           additionalProperties: true
@@ -2459,6 +2462,19 @@ paths:
         - If the reservation is COMMITTED or RELEASED, server MUST return 409 with error=RESERVATION_FINALIZED.
         - If the reservation is expired (server time > expires_at_ms), server MUST return 410 with error=RESERVATION_EXPIRED.
         - If the reservation never existed, server MUST return 404 with error=NOT_FOUND.
+
+        HEARTBEAT GUIDANCE:
+        - extend_by_ms is RELATIVE to the reservation's current expires_at_ms, not to request time. A keep-alive
+          client that extends by ttl_ms on every sub-TTL beat (e.g. every ttl/2) therefore drifts expiry outward
+          by ttl/2 per beat — an effectively unbounded zombie-reservation window (bounded only by a server's
+          extension limits) that a crashed client can leave holding budget, working against the same
+          zombie-reservation rationale as the grace_period_ms ceiling — and it consumes any server-side
+          extension budget (MAX_EXTENSIONS_EXCEEDED) twice as fast as necessary.
+        - Keep-alive clients SHOULD size extensions so the remaining lifetime stays within approximately
+          [ttl/2, 1.5×ttl] — e.g. extend by ttl_ms on every SECOND beat of a ttl/2 cadence, or extend by the
+          beat interval on every beat — rather than extending by ttl_ms unconditionally per beat.
+        - Servers MAY additionally clamp the effective new expiry to a policy maximum lead beyond server time;
+          the returned expires_at_ms is authoritative.
       parameters:
         - $ref: '#/components/parameters/ReservationId'
         - $ref: '#/components/parameters/IdempotencyKeyHeader'
