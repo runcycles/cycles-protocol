@@ -19,33 +19,46 @@ _(revision 2026-07-27 — heartbeat guidance for extendReservation / extend_by_m
   any server-side extension budget (MAX_EXTENSIONS_EXCEEDED) twice as fast as
   necessary. All four official SDKs independently wrote this bug; the spec now
   warns the next implementer.
-- Servers MAY cap the granted TTL below the requested `ttl_ms` by tenant
-  policy (e.g. `max_reservation_ttl_ms`) and MAY clamp the effective new
-  expiry of an extension to a policy maximum lead; the returned
-  `expires_at_ms` is authoritative in both cases. Because the create response
-  exposes neither the effective TTL nor a server-time anchor, keep-alive
-  clients SHOULD maintain a conservative LOWER BOUND on their lead built
-  entirely from same-frame differences (no cross-clock arithmetic anywhere):
+- Distinguishes two DISTINCT server clamp regimes: (1) per-extend GRANT
+  clamping (granted TTL capped below the requested `ttl_ms`, e.g.
+  `max_reservation_ttl_ms`) and (2) MAXIMUM-LEAD clamping (effective expiry
+  held at ≈ now + L beyond server time). The returned `expires_at_ms` is
+  authoritative in both cases. Because the create response exposes neither
+  the effective TTL nor a server-time anchor, keep-alive clients SHOULD
+  maintain a conservative LOWER BOUND on their lead built entirely from
+  same-frame differences (no cross-clock arithmetic anywhere):
   lead_min = Σ measured grants − client-monotonic elapsed since the reserve
   response, starting at 0, where each grant is the difference between
   successive returned `expires_at_ms` values (reserve response, then each
   extend response — the same server frame). lead_min never overstates the
   true lead and is latency-conservative.
-- Because lead_min starts at 0, the first extension SHOULD fire early after a
-  small bounded delay (e.g. min(requested ttl_ms/2, 30s, half the optional
-  `Date`-derived estimate when available)), establishing real measured margin
-  and revealing the actual per-extend grant. Subsequent cadence derives from
-  the measured grant (~last_grant/2, sensibly bounded), so server clamps
-  automatically tighten the beat; skip when lead_min ≥ 1.5×last_grant.
-- The HTTP `Date` response header is reframed as an OPTIONAL cadence hint for
-  the first-beat delay only — never load-bearing for correctness, never
-  clamped upward: per RFC 9110 §6.6.1/§5.6.7 it is a whole-second,
-  best-effort origination timestamp that may be generated at any point during
-  origination or replaced by intermediaries, and a server may derive
-  `expires_at_ms` and `Date` from DIFFERENT clocks. `Date` is now DECLARED as
-  a documented optional response header on the createReservation and
-  extendReservation 200 responses (documentation of standard HTTP behavior —
-  no wire change).
+- The FIRST extension SHOULD be IMMEDIATE. Any bounded first-beat delay can
+  outlive a small capped initial lease (24h requested, silently capped to 1s
+  → first beat at 30s arrives post-expiry), and no field of the create
+  response bounds the effective initial lease — an immediate first extension
+  is the only assumption-free schedule. It costs one extension from the
+  budget; total protected runtime (initial effective TTL + Σ grants) is
+  unchanged by schedule. Under maximum-lead clamping it may legitimately
+  measure a grant near or equal to zero — a regime signal, not an error.
+- Cadence is split BY REGIME, distinguished by comparing each measured grant
+  to the elapsed time since the previous successful extension: (a) grant ≫
+  elapsed (normal, or per-extend grant clamp) — beat at ~grant/2, sensibly
+  bounded; tightening here is correct. (b) grant ≈ elapsed or grant ≤ 0
+  (maximum-lead clamp) — successive `expires_at_ms` differences measure
+  elapsed time between calls, not lease size, so grant-derived cadence is a
+  feedback loop that collapses toward any floor and burns the extension
+  budget (default 10) in seconds; NO cadence signal exists in the current
+  wire contract, so clients SHOULD hold a fixed bounded cadence (e.g.
+  min(requested ttl_ms/2, 30s)), MUST NOT tighten toward a floor, SHOULD log
+  that the extension budget will deplete, and rely on
+  MAX_EXTENSIONS_EXCEEDED as the terminal signal. Skip a beat when
+  lead_min ≥ 1.5×last_grant (meaningful only in regime (a)).
+- The HTTP `Date` response header plays NO role in the guidance and MUST NOT
+  be used for lease arithmetic or heartbeat scheduling (whole-second,
+  best-effort, replaceable by intermediaries, potentially a different clock
+  than `expires_at_ms` — RFC 9110 §6.6.1/§5.6.7). Its declaration on the
+  createReservation and extendReservation 200 responses remains purely as
+  documentation of standard HTTP behavior (no wire change).
 - Fixed-margin promises are replaced by invariants: extend attempts occur
   while lead_min ≥ the beat interval whenever grants keep pace with elapsed
   time; total protected runtime equals the initial effective TTL plus the sum
@@ -58,10 +71,13 @@ _(revision 2026-07-27 — heartbeat guidance for extendReservation / extend_by_m
 - On RESERVATION_EXPIRED, RESERVATION_FINALIZED, MAX_EXTENSIONS_EXCEEDED,
   TENANT_CLOSED (closure is irreversible), or NOT_FOUND the heartbeat SHOULD
   stop (permanent conditions).
-- A future revision SHOULD add an explicit effective-TTL (or server-time)
-  field to `ReservationCreateResponse` — the only complete fix for the
-  first-beat window, since no header-derived estimate can be made both safe
-  and tight.
+- LIMITATION stated plainly: under maximum-lead clamping, correct heartbeat
+  cadence is UNDECIDABLE from data currently on the wire. A future revision
+  therefore SHOULD add an effective-lease field (effective TTL granted, or
+  equivalent expires-relative lease information plus a server-time anchor) to
+  BOTH `ReservationCreateResponse` AND `ReservationExtendResponse` — not an
+  optimization but REQUIRED for well-defined client keep-alive behavior under
+  lead clamping.
 - `ReservationExtendRequest.extend_by_ms` description gains a short pointer to
   the operation-level HEARTBEAT GUIDANCE.
 - Description-text and response-header documentation change only; no

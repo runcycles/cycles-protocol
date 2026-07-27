@@ -480,15 +480,15 @@ components:
     Date:
       description: >-
         Standard HTTP origination timestamp (RFC 9110 §6.6.1, IMF-fixdate per
-        §5.6.7). Declared here — OPTIONAL — because the HEARTBEAT GUIDANCE on
-        extendReservation references it as a cadence hint for sizing the
-        first-beat delay. It MUST NOT be treated as load-bearing for lease
-        correctness: Date has whole-second resolution, is a best-effort
-        timestamp that may be generated at any point during message origination
-        or replaced by intermediaries, and a server may derive `expires_at_ms`
-        and Date from DIFFERENT clocks (e.g. a data store's clock vs the HTTP
-        container's), so `expires_at_ms − Date` is an estimate, not a
-        same-frame measurement.
+        §5.6.7). Declared here — OPTIONAL — purely as documentation of standard
+        HTTP behavior on the reservation responses. It plays NO role in the
+        HEARTBEAT GUIDANCE on extendReservation and MUST NOT be used for lease
+        arithmetic or heartbeat scheduling: Date has whole-second resolution,
+        is a best-effort timestamp that may be generated at any point during
+        message origination or replaced by intermediaries, and a server may
+        derive `expires_at_ms` and Date from DIFFERENT clocks (e.g. a data
+        store's clock vs the HTTP container's), so `expires_at_ms − Date` is
+        not a same-frame measurement.
       schema:
         type: string
 
@@ -2485,12 +2485,15 @@ paths:
           extension limits) that a crashed client can leave holding budget, working against the same
           zombie-reservation rationale as the grace_period_ms ceiling — and it consumes any server-side
           extension budget (MAX_EXTENSIONS_EXCEEDED) twice as fast as necessary.
-        - Servers MAY cap the granted TTL below the requested ttl_ms by tenant policy (e.g. a
-          max_reservation_ttl_ms ceiling in deployments with a governance plane: a 24h request may be
-          silently capped to 1h), and MAY clamp the effective new expiry of an extension to a policy
-          maximum lead beyond server time. The returned expires_at_ms is AUTHORITATIVE in both cases —
-          but the create response exposes neither the effective TTL nor a server-time anchor, so a client
-          cannot compute its true initial lead from the create response alone.
+        - Servers MAY constrain extensions in two DISTINCT ways with different client-visible
+          signatures. (1) Per-extend GRANT clamping: the granted TTL is capped below the requested
+          ttl_ms (e.g. a max_reservation_ttl_ms ceiling in deployments with a governance plane: a 24h
+          request may be silently capped to 1h — or to 1s). (2) MAXIMUM-LEAD clamping: the effective
+          new expiry is clamped to at most a policy lead L beyond server time, so the server holds
+          expiry ≈ now + L no matter what is requested. The returned expires_at_ms is AUTHORITATIVE in
+          both cases — but the create response exposes neither the effective TTL nor a server-time
+          anchor, so a client cannot compute its true initial lead from the create response alone, nor
+          distinguish the two clamp regimes without measuring (see the cadence split below).
         - Keep-alive clients SHOULD therefore maintain a conservative LOWER BOUND on their lead, built
           entirely from same-frame differences (no cross-clock arithmetic anywhere):
           lead_min = (sum of measured grants) − monotonic_elapsed_since_reserve_response, starting at 0
@@ -2499,21 +2502,35 @@ paths:
           frame, so differencing them is legitimate). lead_min never overstates the true lead: it
           ignores the unknown initial effective TTL, and measuring elapsed time from receipt of each
           response makes request latency count against the bound, never for it.
-        - Because lead_min starts at 0, the FIRST extension SHOULD fire early, after a small bounded
-          delay — e.g. min(requested ttl_ms/2, 30s, half the optional Date-derived estimate below when
-          available). This both establishes real measured margin and reveals the actual per-extend
-          grant. Extend by the requested ttl_ms; the server MAY clamp; the measured grant is
-          authoritative.
-        - Subsequent cadence SHOULD derive from the measured grant: beat at approximately
-          last_grant/2 (bounded sensibly, e.g. no shorter than 1s), so a server clamp automatically
-          tightens the beat. Skip a beat when lead_min ≥ 1.5×last_grant.
-        - The HTTP Date response header MAY serve as an OPTIONAL cadence hint for sizing the first-beat
-          delay only (estimate ≈ expires_at_ms − Date, in ms). It MUST NOT be load-bearing for
-          correctness and MUST NOT be clamped upward: per RFC 9110 §6.6.1/§5.6.7, Date is a
-          whole-second, best-effort origination timestamp that may be generated at any point during
-          message origination or replaced by intermediaries — and a server may derive expires_at_ms and
-          Date from DIFFERENT clocks (e.g. a data store's clock vs the HTTP container's), so the two
-          values are not guaranteed to share a frame.
+        - The FIRST extension SHOULD be IMMEDIATE — fired as soon as the reserve response is
+          processed. Any bounded first-beat delay, however chosen, can outlive a small capped initial
+          lease (a 24h request silently capped to a 1s effective TTL is long expired when a 30s first
+          beat arrives), and no field of the create response bounds the effective initial lease — so an
+          immediate first extension is the only assumption-free schedule. It costs one extension from
+          any server-side extension budget, but total protected runtime (initial effective TTL plus the
+          sum of grants) is unchanged by schedule, so nothing is lost but the count. Extend by the
+          requested ttl_ms; the server MAY clamp; the measured grant is authoritative. Under
+          maximum-lead clamping an immediate first extension may legitimately measure a grant near or
+          equal to ZERO (expiry was already ≈ now + L); a zero or tiny measured grant is a regime
+          signal, not an error.
+        - Cadence SHOULD be chosen PER REGIME, distinguished by comparing each measured grant to the
+          monotonic elapsed time since the previous successful extension (for the first extension,
+          since the reserve response):
+          (a) grant ≫ elapsed — normal operation, or per-extend GRANT clamping: the grant measures
+          real lease. Beat at approximately grant/2 (bounded sensibly, e.g. no shorter than 1s). A
+          grant clamp tightening the cadence here is CORRECT — a smaller grant is a genuinely smaller
+          lease.
+          (b) grant ≈ elapsed, or grant ≤ 0 — MAXIMUM-LEAD clamping: the server re-anchors expiry to
+          now + L on every call, so successive expires_at_ms differences measure the elapsed time
+          BETWEEN calls, not the lease size — each "grant" merely echoes the client's own call
+          spacing. Deriving cadence from it is a feedback loop that collapses toward any cadence floor
+          and burns the server-side extension budget (default 10) in seconds. In this regime NO
+          cadence signal exists in the current wire contract: clients SHOULD hold a fixed bounded
+          cadence (e.g. min(requested ttl_ms/2, 30s)), MUST NOT tighten cadence toward a floor in
+          response to shrinking measured grants, SHOULD log or surface that the extension budget will
+          deplete, and SHOULD rely on MAX_EXTENSIONS_EXCEEDED as the terminal signal.
+        - Skip a beat when lead_min ≥ 1.5×last_grant. (The skip rule is meaningful only in regime (a);
+          under maximum-lead clamping lead_min tends toward a small constant and the rule never fires.)
         - Invariants (replacing any fixed-margin promise): extend attempts occur while lead_min ≥ the
           beat interval whenever grants keep pace with elapsed time; total protected runtime equals the
           initial effective TTL plus the sum of granted extensions, regardless of schedule; a failed
@@ -2525,9 +2542,14 @@ paths:
         - On RESERVATION_EXPIRED, RESERVATION_FINALIZED, MAX_EXTENSIONS_EXCEEDED, TENANT_CLOSED (tenant
           closure is irreversible), or NOT_FOUND the heartbeat SHOULD stop — these conditions are permanent
           for the reservation.
-        - A future revision SHOULD add an explicit effective-TTL (or server-time) field to
-          ReservationCreateResponse — the only complete fix for the first-beat window, since no
-          header-derived estimate can be made both safe and tight.
+        - LIMITATION (stated plainly): under maximum-lead clamping, a correct heartbeat cadence is
+          UNDECIDABLE from data currently on the wire — no combination of returned expires_at_ms
+          values and client-side clocks distinguishes "small lease" from "re-anchored lead" until the
+          extension budget is already burning. A future revision therefore SHOULD add an
+          effective-lease field — the effective TTL granted, or equivalent expires-relative lease
+          information together with a server-time anchor — to BOTH ReservationCreateResponse AND
+          ReservationExtendResponse. This is not an optimization: it is REQUIRED for well-defined
+          client keep-alive behavior under lead clamping.
       parameters:
         - $ref: '#/components/parameters/ReservationId'
         - $ref: '#/components/parameters/IdempotencyKeyHeader'
