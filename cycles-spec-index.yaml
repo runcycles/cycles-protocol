@@ -75,8 +75,8 @@ spec_family:
     extension_runtime: "0.1.27"           # ErrorCodeExtension base-list refresh (+ LIMIT_EXCEEDED, TENANT_CLOSED) against runtime 0.1.25.13
     extension_governance: "0.1.28"        # retain the base policy priority minimum in the extended PATCH
     action_kinds: "0.1.27"                # trace_id plus X-Cycles-Trace-Id response headers
-    evidence_envelope: "0.2.1"            # ErrorResponseMirror re-cut against canonical ErrorCode 0.1.25.13 (+ LIMIT_EXCEEDED, TENANT_CLOSED)
-    spec_index: "0.1.44"                  # runtime 0.1.25.16 pins (extendReservation heartbeat guidance)
+    evidence_envelope: "0.2.2"            # remaining_ttl_ms is volatile transport metadata, excluded from reserve evidence
+    spec_index: "0.1.45"                  # evidence 0.2.2 pin + runtime 0.1.25.16 heartbeat guidance
 
 # ---------------------------------------------------------------------------
 # CANONICAL DOCUMENTS
@@ -279,7 +279,7 @@ documents:
 
   - id: evidence_envelope
     file: cycles-evidence-v0.2.yaml
-    version: "0.2.1"           # ErrorResponseMirror re-cut against canonical ErrorCode 0.1.25.13
+    version: "0.2.2"           # remaining_ttl_ms is volatile transport metadata, excluded from reserve evidence
     role: companion
     conformance: normative
     conformance_status: active

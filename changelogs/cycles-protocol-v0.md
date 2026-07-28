@@ -17,19 +17,19 @@ _(revision 2026-07-28 — `remaining_ttl_ms` on reservation responses + heartbea
   server time). Servers SHOULD emit it; clients MUST treat it as optional
   for backward compatibility. `semantic_base` remains 0.1.25 (optional-field
   additive).
-- **Idempotent-replay carve-out (extendReservation ONLY).** On a same-key
-  replay of a successful EXTEND, a server that emits `remaining_ttl_ms` MUST
+- **Idempotent-replay carve-out for CREATE and EXTEND.** On a same-key
+  replay of a successful CREATE or EXTEND, a server that emits
+  `remaining_ttl_ms` MUST
   recompute it as max(0, original expires_at_ms − current authoritative
   server time) while constructing the replay response — never copy the
   stored value — while all other fields replay verbatim; it MUST be 0 if the
   reservation is no longer ACTIVE and may conservatively understate lead if
   a later, separately keyed extension moved expiry outward. Rationale: a
-  heartbeat retrying a lost extend with the same idempotency key schedules
+  heartbeat retrying a lost response with the same idempotency key schedules
   its next beat from the replayed body, and a cached value is stale by the
-  retry delay. On CREATE replays there is NO carve-out: the original body —
-  including the original `remaining_ttl_ms` — is returned verbatim, because
-  the emitted CyclesEvidence envelope references the original response body;
-  clients SHOULD NOT treat a replayed create's value as current.
+  retry delay. `remaining_ttl_ms` is volatile transport metadata and is
+  excluded from the attested CyclesEvidence reserve payload so recomputing it
+  does not change the original evidence identity.
 - **Why the field is needed.** `extend_by_ms` is relative to the
   reservation's CURRENT `expires_at_ms` (not request time), so naive
   extend-by-`ttl_ms`-every-ttl/2 keep-alives drift expiry unboundedly
@@ -59,17 +59,23 @@ _(revision 2026-07-28 — `remaining_ttl_ms` on reservation responses + heartbea
   next_delay = max(0, lead_floor − retry_reserve); schedule the next
   extension next_delay after response receipt. The reserve covers one failed
   attempt, one same-key retry, and margin; leases too short to hold it produce
-  next_delay=0. Transient failures retry with the SAME idempotency key after
-  a delay capped at
-  safe_latest_retry=max(0,current_lead_estimate−attempt_budget−safety_margin),
-  which becomes immediate rather than scheduling beyond safe lead. A 429
-  honors Retry-After only when that delay fits inside safe_latest_retry;
+  next_delay=0 and an immediate best-effort extension, without pretending a
+  later recovery retry is guaranteed to fit. Transient failures retry with
+  the SAME idempotency key only when the UNCLAMPED
+  retry_window=current_lead_estimate−attempt_budget−safety_margin is
+  non-negative, using a delay capped at retry_window. Zero means retry
+  immediately; a negative value stops because a complete retry plus margin
+  is no longer provably safe. A 429 honors Retry-After only when that delay
+  fits inside retry_window;
   otherwise the client stops rather than violate throttling or pretend the
-  lease can survive. Only a schema-valid HTTP 200 counts as an observed
-  success; malformed or other 2xx responses are ambiguous and use same-key
-  recovery. Repeated schema-valid successes that still produce next_delay=0
-  stop after one immediate fresh-key attempt, preventing a short
-  maximum-lead clamp from burning the extension budget in a tight loop.
+  lease can survive. Only schema-valid HTTP 200 create/extend responses count
+  as observed successes; malformed or other 2xx responses are ambiguous and
+  use same-key recovery. Each scheduled extension gets at most one same-key
+  recovery retry—the amount reserved by the formula—then stops and surfaces
+  another failure rather than silently exceeding the safety budget. Repeated
+  schema-valid successes that still produce next_delay=0 stop after one
+  immediate fresh-key attempt, preventing a short maximum-lead clamp from
+  burning the extension budget in a tight loop.
 - **Measured-grant scheme demoted to an explicitly NON-NORMATIVE fallback**
   for servers that do not emit `remaining_ttl_ms`, with its limits stated
   honestly: (a) it is only sound against servers that clamp the per-extend

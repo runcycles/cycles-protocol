@@ -191,7 +191,7 @@ components:
       description: |-
         Reference to the CyclesEvidence envelope emitted for an operation. The `evidence_id` is the sha256 content hash of the JCS-canonical envelope and is computed SYNCHRONOUSLY at decision time, so it is returned on the operation response even though the envelope is Ed25519-signed and stored ASYNCHRONOUSLY. A caller (e.g. an APS gateway) binds its own signed receipt to this evidence by recording `evidence_id`, then fetches the envelope at `cycles_evidence_url` (see `getEvidence`) to verify it offline. Because signing/storage is async, the envelope MAY be served shortly after this response — consumers SHOULD treat a transient `404` from `getEvidence` as not-yet-available and retry.
 
-        TRANSPORT METADATA, NOT ATTESTED: `cycles_evidence` is added to the response for the caller's convenience and is NOT part of the evidence the envelope attests. The `evidence_id` is computed over the operation response WITHOUT this field — the envelope's `payload.<artifact>.response` mirror (`cycles-evidence-v0.2.yaml`) keeps `additionalProperties: false` and omits `cycles_evidence` precisely so the content hash is never self-referential. Implementations MUST compute `evidence_id` before stamping `cycles_evidence` onto the response, and MUST NOT include `cycles_evidence` in the attested payload.
+        TRANSPORT METADATA, NOT ATTESTED: `cycles_evidence` is added to the response for the caller's convenience and is NOT part of the evidence the envelope attests. `remaining_ttl_ms` on ReservationCreateResponse is likewise a volatile transport observation rather than attested decision data, so a same-key replay can safely recompute it. The `evidence_id` is computed over the operation response WITHOUT either transport-only field — the envelope's `payload.<artifact>.response` mirror (`cycles-evidence-v0.2.yaml`) keeps `additionalProperties: false` and omits them. Implementations MUST compute `evidence_id` before stamping transport-only fields onto the response, and MUST NOT include either field in the attested payload.
       required:
       - evidence_id
       - cycles_evidence_url
@@ -797,7 +797,7 @@ components:
           format: int64
           minimum: 0
           description: |
-            Observation of remaining reservation lifetime in milliseconds while this response payload is constructed, computed as max(0, expires_at_ms - current authoritative server time) using the same authoritative clock used for reservation expiry decisions. Servers SHOULD emit it on successful responses that return a live reservation; it MUST be absent on dry-run and DENY responses. On a same-key idempotent replay of createReservation the ORIGINAL response body — including the original remaining_ttl_ms — is returned VERBATIM (the emitted CyclesEvidence envelope references the original body), so the replayed value reflects the ORIGINAL evaluation and clients SHOULD NOT treat a replayed create's remaining_ttl_ms as current. (This differs from extendReservation replays, where the field is recomputed — see ReservationExtendResponse.) Added in 0.1.25.16 (additive); clients MUST treat it as optional for backward compatibility. When present it is the NORMATIVE input to heartbeat scheduling — see HEARTBEAT GUIDANCE on extendReservation.
+            Observation of remaining reservation lifetime in milliseconds while this response payload is constructed, computed as max(0, expires_at_ms - current authoritative server time) using the same authoritative clock used for reservation expiry decisions. Servers SHOULD emit it on successful responses that return a live reservation; it MUST be absent on dry-run and DENY responses. This field is volatile transport metadata and is not part of the attested CyclesEvidence payload. On a same-key idempotent replay, a server that emits it MUST recompute it at replay-response construction time from the original expires_at_ms and MUST NOT copy its originally stored value; it MUST be 0 if the reservation is no longer ACTIVE and MAY conservatively understate current lead if a later, separately keyed extension moved expiry outward. All other fields replay verbatim. Added in 0.1.25.16 (additive); clients MUST treat it as optional for backward compatibility. When present it is the NORMATIVE input to heartbeat scheduling — see HEARTBEAT GUIDANCE on extendReservation.
         scope_path:
           type: string
           description: Canonical scope path (server-derived)
@@ -2235,16 +2235,15 @@ components:
       name: X-Idempotency-Key
       in: header
       required: false
-      description: 'Optional idempotency key header. If both header and body idempotency_key are provided,
+      description: Optional idempotency key header. If both header and body idempotency_key are provided,
         they MUST match. Server MUST enforce idempotency per endpoint by (effective tenant, endpoint,
         idempotency_key). On replay of an idempotent request that previously succeeded, server MUST return
         the original successful response outcome and payload (including any server-generated identifiers
-        such as reservation_id). The single exception is remaining_ttl_ms on a replayed extendReservation
-        success: it is volatile and, when emitted, MUST be recomputed from the original expires_at_ms
-        and the current authoritative server time, never copied from the stored response; it MUST be 0
-        if the reservation is no longer ACTIVE. On createReservation replays the original body — including
-        the original remaining_ttl_ms — is returned verbatim (the CyclesEvidence envelope references the
-        original body).'
+        such as reservation_id), except that remaining_ttl_ms on a replayed createReservation or extendReservation
+        success is a volatile response observation and is not part of the attested CyclesEvidence payload.
+        When emitted, it MUST be recomputed from the original expires_at_ms and the current authoritative
+        server time, never copied from the stored response; it MUST be 0 if the reservation is no longer
+        ACTIVE. All other fields replay verbatim.
       schema:
         $ref: '#/components/schemas/IdempotencyKey'
     ReservationId:
@@ -2448,13 +2447,14 @@ paths:
         \ scope has debt > overdraft_limit (is_over_limit=true), the reservation MUST be rejected \n \
         \ with 409 OVERDRAFT_LIMIT_EXCEEDED, regardless of available remaining budget.\n- This blocks\
         \ new work when overdraft reconciliation is needed.\nIDEMPOTENCY (NORMATIVE): - On replay with\
-        \ the same idempotency_key, the server MUST return the original successful response\n  payload\
-        \ VERBATIM, including the original reservation_id (if any) and the original remaining_ttl_ms:\n\
-        \  the emitted CyclesEvidence envelope references the original response body, so no field of a\
-        \ replayed\n  create may differ from it. Clients SHOULD NOT treat a replayed create's remaining_ttl_ms\
-        \ as current\n  (it reflects the ORIGINAL evaluation; the extendReservation replay carve-out does\
-        \ NOT apply here).\n\nTENANCY (NORMATIVE): - subject.tenant MUST match the effective tenant derived\
-        \ from auth; otherwise the server MUST return 403 FORBIDDEN."
+        \ the same idempotency_key, the server MUST return the original successful response\n  outcome\
+        \ and payload, including the original reservation_id (if any), except that remaining_ttl_ms is\
+        \ a\n  volatile transport observation not included in the attested CyclesEvidence payload. When\
+        \ emitted, it\n  MUST be recomputed from the original expires_at_ms and current authoritative\
+        \ server time while\n  constructing the replay response, MUST NOT be copied from the stored response,\
+        \ and MUST be 0 if the\n  reservation is no longer ACTIVE. All other fields replay verbatim.\n\
+        \nTENANCY (NORMATIVE): - subject.tenant MUST match the effective tenant derived from auth; otherwise\
+        \ the server MUST return 403 FORBIDDEN."
       parameters:
       - $ref: '#/components/parameters/IdempotencyKeyHeader'
       requestBody:
@@ -3003,9 +3003,8 @@ paths:
           and payload — all fields VERBATIM — except that remaining_ttl_ms is a volatile observation and, when
           emitted, MUST be recomputed from the original expires_at_ms and current authoritative server time while
           constructing the replay response. It MUST NOT be copied from the originally stored response and MUST be
-          0 if the reservation is no longer ACTIVE. (Rationale: a heartbeat retrying a lost extend with the same
-          idempotency key schedules from the replayed body; a cached value is stale by the retry delay. This
-          carve-out applies to extendReservation ONLY — createReservation replays are fully verbatim.)
+          0 if the reservation is no longer ACTIVE. (Rationale: a heartbeat retrying a lost response with the same
+          idempotency key schedules from the replayed body; a cached value is stale by the retry delay.)
 
         TENANCY (NORMATIVE): - If the reservation exists but is owned by a different effective tenant, the server MUST return 403 FORBIDDEN.
         ERROR SEMANTICS (NORMATIVE): - If the owning tenant's status is CLOSED (deployments with a governance plane),
@@ -3037,7 +3036,7 @@ paths:
           response_received after its complete, schema-valid response body is received.
           rtt = monotonic(response_received) − monotonic(attempt_sent);
           lead_floor = max(0, remaining_ttl_ms − rtt);
-          request_timeout_budget = the client's finite upper bound for one complete extend attempt
+          request_timeout_budget = the client's enforced finite upper bound for one complete extend attempt
           (connect, write, read, and failure detection);
           attempt_budget = max(request_timeout_budget, 1000 ms, 2 × maximum observed rtt);
           safety_margin = max(1000 ms, 2 × maximum observed rtt);
@@ -3045,7 +3044,9 @@ paths:
           next_delay = max(0, lead_floor − retry_reserve);
           schedule the next extension next_delay after response receipt. retry_reserve covers one
           failed attempt, one same-key retry, and scheduling/network margin; when the lease is too
-          short to hold that reserve, next_delay is 0 rather than an unsafe positive delay.
+          short to hold that reserve, next_delay is 0 rather than an unsafe positive delay. A zero
+          delay starts a best-effort extension immediately; it does not by itself prove that a
+          recovery retry will still fit if that attempt consumes its full budget.
           If attempt timing is unavailable or unreliable, the client MUST set lead_floor and
           next_delay to 0. If the request timeout is unknown or unbounded, treat attempt_budget as
           positive infinity, which likewise makes next_delay 0. Unknown timing MUST NOT be treated as
@@ -3053,26 +3054,33 @@ paths:
           remaining_ttl_ms in exactly the same way, so no immediate priming is needed when a positive
           safe delay can be established. Extend by the requested ttl_ms; the returned expires_at_ms
           and remaining_ttl_ms are authoritative.
-          Replay awareness: a same-key EXTEND retry is safe to schedule from — on extend replays the
+          Replay awareness: same-key CREATE and EXTEND retries are safe to schedule from because the
           server recomputes remaining_ttl_ms at replay-response construction time (see IDEMPOTENCY
-          above). A same-key CREATE retry is NOT: create replays return the ORIGINAL body verbatim,
-          including the original remaining_ttl_ms, so when a create response arrives after one or
-          more same-key retries the client MUST compute that response's rtt from the FIRST attempt's
-          monotonic send time (bounding the possible staleness of a replayed value); this widened rtt
-          feeds lead_floor as usual.
-          Only a schema-valid HTTP 200 ReservationExtendResponse counts as an observed success. A
-          different or malformed 2xx response is ambiguous and MUST be retried with the SAME
-          idempotency_key rather than used to schedule from stale state.
-          On a transient failure (timeout, connection error, 5xx, or 429 LIMIT_EXCEEDED), recompute
-          current_lead_estimate = max(0, last lead_floor − monotonic elapsed since that response was
-          received). Define safe_latest_retry = max(0, current_lead_estimate − attempt_budget −
-          safety_margin). For timeout, connection error, and 5xx, retry with the SAME idempotency_key
-          after retry_delay = min(30000 ms, current_lead_estimate/4, safe_latest_retry). For 429,
-          retry_delay equals a valid Retry-After only when Retry-After ≤ safe_latest_retry. If
-          Retry-After is missing, invalid, or exceeds safe_latest_retry, the client MUST NOT invent an
-          earlier retry that violates throttling and SHOULD stop and surface that the lease cannot be
-          safely renewed. The safe_latest_retry cap leaves one complete retry plus margin; when none
-          remains, ordinary transient failures retry immediately.
+          above). The client still measures rtt for the individual HTTP attempt that produced the
+          response; it MUST NOT substitute timing from an earlier attempt.
+          Only a schema-valid HTTP 200 ReservationCreateResponse (for the initial create) or
+          ReservationExtendResponse (for an extension) counts as an observed success. A different or
+          malformed 2xx response is ambiguous and MUST NOT be used to schedule from stale state.
+          After an ambiguous CREATE result, where no valid lead_floor exists, the client SHOULD make
+          one immediate retry with the SAME idempotency_key and then stop and surface the ambiguity if
+          that retry also fails to produce a schema-valid result.
+          On an EXTEND transient failure (timeout, connection error, 5xx, 429 LIMIT_EXCEEDED, or an
+          ambiguous 2xx), recompute current_lead_estimate = max(0, last lead_floor − monotonic elapsed
+          since the schema-valid response that established last lead_floor was received). Define
+          retry_window = current_lead_estimate − attempt_budget − safety_margin, WITHOUT clamping.
+          If retry_window < 0, no complete retry plus margin is provably safe: the client MUST NOT
+          retry and MUST stop and surface the failure. Otherwise, for timeout, connection error, 5xx,
+          and ambiguous 2xx, retry with the SAME idempotency_key after
+          retry_delay = min(30000 ms, current_lead_estimate/4, retry_window). For 429, retry_delay
+          equals a valid Retry-After only when Retry-After ≤ retry_window. If Retry-After is
+          missing, invalid, or exceeds retry_window, the client MUST NOT invent an earlier retry
+          that violates throttling and SHOULD stop and surface that the lease cannot be safely
+          renewed. The retry_window cap leaves one complete retry plus margin; retry_window = 0 means
+          retry immediately, while a negative value means stop. The client MUST make at most one
+          same-key recovery retry for each scheduled extension attempt; if that retry also fails or
+          is ambiguous, it MUST stop and surface the failure rather than exceed retry_reserve.
+          On any other 4xx response, the client SHOULD stop and surface the request or authorization
+          failure; it MUST NOT automatically rotate the idempotency key and retry an unchanged request.
           A client MUST NOT enter an unbounded zero-delay loop. When a schema-valid success produces
           next_delay = 0, it MAY make one immediate fresh extension attempt with a new idempotency_key.
           If that success also produces next_delay = 0, the client MUST stop and surface that the lease
@@ -3127,8 +3135,9 @@ paths:
         - A blind alternate-beat cadence (extend on every SECOND beat WITHOUT lead tracking) leaves zero
           margin after any single failed beat — at steady state the retry lands at the expiry instant — and
           cannot keep up when the beat interval exceeds ttl/2.
-        - On both paths, a failed attempt SHOULD be retried with the SAME idempotency_key so a
-          lost-response extend is not applied twice.
+        - On both paths, whenever a failed or ambiguous attempt is retried, the client MUST use the
+          SAME idempotency_key so a lost-response extend is not applied twice. The primary path's
+          one-recovery-retry limit still applies.
         - On RESERVATION_EXPIRED, RESERVATION_FINALIZED, MAX_EXTENSIONS_EXCEEDED, TENANT_CLOSED (tenant
           closure is irreversible), or NOT_FOUND the heartbeat SHOULD stop — these conditions are permanent
           for the reservation.
