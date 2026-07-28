@@ -476,8 +476,11 @@ components:
         type: string
     Retry-After:
       description: >-
-        On 429, the number of seconds a client SHOULD wait before retrying
-        (optional in v0).
+        On 429, the non-negative delta-seconds a client SHOULD wait before
+        retrying (optional in v0). This API intentionally supports only the
+        delta-seconds form of HTTP Retry-After; the HTTP-date form is invalid
+        for this contract because converting it to a safe monotonic delay
+        would require wall-clock assumptions that lease scheduling forbids.
       schema:
         type: integer
         format: int64
@@ -2589,10 +2592,26 @@ paths:
           short to hold that reserve, next_delay is 0 rather than an unsafe positive delay. A zero
           delay starts a best-effort extension immediately; it does not by itself prove that a
           recovery retry will still fit if that attempt consumes its full budget.
+          A positive next_delay is possible only when lead_floor > retry_reserve. Clients SHOULD
+          therefore configure both timeout and expected-network-latency bounds so
+          attempt_budget < (minimum expected lead_floor − safety_margin) / 2; in particular, the
+          enforced per-extend request_timeout_budget SHOULD satisfy that inequality whenever it
+          dominates attempt_budget.
+          For example, with a returned lead near the default requested ttl_ms of 60000 ms, a
+          10000 ms request timeout and 1500 ms maximum observed rtt give attempt_budget = 10000 ms,
+          safety_margin = 3000 ms, retry_reserve = 23000 ms, and next_delay ≈ 37000 ms. A 30000 ms
+          timeout instead makes retry_reserve at least 61000 ms, so a 60000 ms lead produces
+          next_delay = 0. An additive-delta server MAY establish positive lead after the immediate
+          extension, but a server clamped to a 60000 ms maximum lead cannot; client timeout defaults
+          SHOULD be chosen accordingly.
           If attempt timing is unavailable or unreliable, the client MUST set lead_floor and
           next_delay to 0. If the request timeout is unknown or unbounded, treat attempt_budget as
           positive infinity, which likewise makes next_delay 0. Unknown timing MUST NOT be treated as
-          zero elapsed time. The first beat derives from the CREATE response's
+          zero elapsed time. A client without reliable monotonic attempt timing therefore cannot
+          establish a safe primary-path delay: the two-consecutive-zero-delay guard below permits at
+          most one immediate fresh extension after a successful response and then requires the client
+          to stop. It MUST NOT switch to the fieldless fallback merely because its local timing is
+          unavailable. The first beat derives from the CREATE response's
           remaining_ttl_ms in exactly the same way, so no immediate priming is needed when a positive
           safe delay can be established. Extend by the requested ttl_ms; the returned expires_at_ms
           and remaining_ttl_ms are authoritative.
@@ -2620,9 +2639,16 @@ paths:
           conversion, the client MUST NOT invent an earlier retry that violates throttling and SHOULD
           stop and surface that the lease cannot be safely renewed. The retry_window cap leaves one
           complete retry plus margin; retry_window = 0 means retry immediately, while a negative value
-          means stop. The client MUST make at most one same-key recovery retry for each scheduled
-          extension attempt; if that retry also fails or is ambiguous, it MUST stop and surface the
-          failure rather than exceed retry_reserve.
+          means stop. After EVERY failed or ambiguous recovery attempt, the client MUST recompute
+          current_lead_estimate and retry_window from the same last schema-valid response and the new
+          monotonic elapsed time before deciding again. It MAY continue recovery with the SAME
+          idempotency_key while the freshly recomputed retry_window is positive; elapsed time from all
+          prior attempts has already been deducted, and each decision reserves one complete
+          attempt_budget plus safety_margin for the prospective retry. If retry_window = 0, the client
+          MAY make one immediate recovery retry; if that retry also fails or is ambiguous before an
+          intervening success, it MUST stop even if coarse clock resolution still reports zero. The
+          client MUST also stop if neither monotonic elapsed nor retry_window decreases between
+          consecutive failures, preventing a zero-time recovery loop.
           On any other 4xx response, the client SHOULD stop and surface the request or authorization
           failure; it MUST NOT automatically rotate the idempotency key and retry an unchanged request.
           A client MUST NOT enter an unbounded zero-delay loop. When a schema-valid success produces
@@ -2676,12 +2702,18 @@ paths:
           remaining lifetime. That is WHY remaining_ttl_ms exists. Fallback clients SHOULD prefer
           over-beating (bounded cadence, budget burn, MAX_EXTENSIONS_EXCEEDED as the stop) over
           risking lease lapse.
+          The primary and fallback prescriptions are intentionally asymmetric. A field-bearing client
+          with reliable timing has a conservative lead lower bound and stops when it can prove that no
+          complete attempt plus margin fits. A fieldless client cannot make that proof in either
+          direction, so bounded over-beating is a best-effort choice that favors avoiding an
+          unobservable lapse at the acknowledged cost of extension-budget burn.
         - A blind alternate-beat cadence (extend on every SECOND beat WITHOUT lead tracking) leaves zero
           margin after any single failed beat — at steady state the retry lands at the expiry instant — and
           cannot keep up when the beat interval exceeds ttl/2.
         - On both paths, whenever a failed or ambiguous attempt is retried, the client MUST use the
-          SAME idempotency_key so a lost-response extend is not applied twice. The primary path's
-          one-recovery-retry limit still applies.
+          SAME idempotency_key so a lost-response extend is not applied twice. Before every additional
+          primary-path recovery, the client MUST apply the freshly recomputed retry_window and progress
+          guards above.
         - On RESERVATION_EXPIRED, RESERVATION_FINALIZED, MAX_EXTENSIONS_EXCEEDED, TENANT_CLOSED (tenant
           closure is irreversible), or NOT_FOUND the heartbeat SHOULD stop — these conditions are permanent
           for the reservation.

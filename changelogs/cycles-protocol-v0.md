@@ -48,8 +48,12 @@ _(revision 2026-07-28 — `remaining_ttl_ms` on reservation responses + heartbea
   schema-valid successful create/extend response, never accumulate expiry
   differences. Clients MUST measure monotonic per-attempt RTT; unavailable or
   unreliable timing produces lead_floor=0 and an immediate action, never an
-  optimistic zero-elapsed assumption. An unknown or unbounded request timeout
-  makes attempt_budget infinite and likewise forces next_delay=0:
+  optimistic zero-elapsed assumption. Such a client cannot establish a safe
+  primary-path cadence: after one immediate fresh extension, the
+  two-consecutive-zero guard requires it to stop, and it cannot switch to the
+  fieldless fallback merely because local timing is unavailable. An unknown
+  or unbounded request timeout makes attempt_budget infinite and likewise
+  forces next_delay=0:
   rtt = monotonic receive − monotonic send;
   lead_floor = max(0, remaining_ttl_ms − rtt);
   attempt_budget = max(finite configured request-timeout budget, 1000 ms,
@@ -60,25 +64,36 @@ _(revision 2026-07-28 — `remaining_ttl_ms` on reservation responses + heartbea
   extension next_delay after response receipt. The reserve covers one failed
   attempt, one same-key retry, and margin; leases too short to hold it produce
   next_delay=0 and an immediate best-effort extension, without pretending a
-  later recovery retry is guaranteed to fit. Transient failures retry with
+  later recovery retry is guaranteed to fit. A positive delay requires
+  lead_floor > retry_reserve, so clients SHOULD configure timeout and expected
+  RTT bounds such that attempt_budget stays well below half their smallest
+  intended lead. With a 60000 ms returned lead,
+  a 10000 ms timeout and 1500 ms maximum observed RTT produce a 23000 ms
+  reserve and ≈37000 ms cadence; a 30000 ms timeout produces at least a
+  61000 ms reserve and therefore zero delay. An additive-delta server may
+  establish more lead on the immediate extension, but a 60000 ms maximum-lead
+  clamp cannot. Transient failures retry with
   the SAME idempotency key only when the UNCLAMPED
   retry_window=current_lead_estimate−attempt_budget−safety_margin is
   non-negative, using a delay capped at retry_window. Zero means retry
   immediately; a negative value stops because a complete retry plus margin
   is no longer provably safe. All duration arithmetic is overflow-safe and in
   milliseconds; clients round budgets/margins up and lead/delays down when
-  timer resolution requires rounding. A 429 converts the non-negative Retry-After value from
-  seconds to milliseconds and honors it only when that converted delay fits
-  inside retry_window;
+  timer resolution requires rounding. A 429 accepts only the non-negative
+  delta-seconds form of Retry-After (HTTP-date is intentionally invalid),
+  converts it to milliseconds, and honors it only when that converted delay
+  fits inside retry_window;
   otherwise the client stops rather than violate throttling or pretend the
   lease can survive. Only schema-valid HTTP 200 create/extend responses count
   as observed successes; malformed or other 2xx responses are ambiguous and
-  use same-key recovery. Each scheduled extension gets at most one same-key
-  recovery retry—the amount reserved by the formula—then stops and surfaces
-  another failure rather than silently exceeding the safety budget. Repeated
-  schema-valid successes that still produce next_delay=0 stop after one
-  immediate fresh-key attempt, preventing a short maximum-lead clamp from
-  burning the extension budget in a tight loop.
+  use same-key recovery. After every failed recovery, recompute retry_window
+  from the same last valid response and new monotonic elapsed time. Further
+  same-key retries are allowed while the fresh window is positive; each
+  decision reserves the next attempt plus margin. At exactly zero, allow only
+  one immediate recovery, and stop if time/window makes no progress, avoiding
+  a zero-time loop. Repeated schema-valid successes that still produce
+  next_delay=0 stop after one immediate fresh-key attempt, preventing a short
+  maximum-lead clamp from burning the extension budget in a tight loop.
 - **Measured-grant scheme demoted to an explicitly NON-NORMATIVE fallback**
   for servers that do not emit `remaining_ttl_ms`, with its limits stated
   honestly: (a) it is only sound against servers that clamp the per-extend
@@ -90,7 +105,10 @@ _(revision 2026-07-28 — `remaining_ttl_ms` on reservation responses + heartbea
   any true grant in [0.75×min(ttl/2, 30s), 0.9×ttl) stays misclassified
   permanently, and grant ≥ 0.9×ttl does not prove the normal regime either;
   (c) fallback clients SHOULD prefer over-beating (bounded cadence, budget
-  burn, MAX_EXTENSIONS_EXCEEDED as the stop) over risking lease lapse.
+  burn, MAX_EXTENSIONS_EXCEEDED as the stop) over risking lease lapse. This is
+  intentionally asymmetric with the primary path: a field-bearing client can
+  prove when no safe attempt fits and stops, while a fieldless client cannot
+  prove safety or lapse and over-beats as an explicitly best-effort tradeoff.
 - **Immediate-priming cost claim corrected (fallback path).** Under
   maximum-lead clamping the value of an extension is SCHEDULE-DEPENDENT
   (with a 60s max lead, an immediate extend measures ≈ 0 grant where the
