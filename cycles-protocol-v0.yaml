@@ -2581,7 +2581,9 @@ paths:
           retry_reserve = 2 × attempt_budget + safety_margin;
           next_delay = max(0, lead_floor − retry_reserve);
           All duration arithmetic MUST use milliseconds and MUST be overflow-safe; positive overflow
-          is treated as positive infinity, never wraparound.
+          is treated as positive infinity, never wraparound. When clock or timer resolution requires
+          rounding, clients MUST round attempt budgets and safety margins up, and lead lower bounds
+          and scheduling/retry delays down, so rounding cannot consume the reserved margin.
           schedule the next extension next_delay after response receipt. retry_reserve covers one
           failed attempt, one same-key retry, and scheduling/network margin; when the lease is too
           short to hold that reserve, next_delay is 0 rather than an unsafe positive delay. A zero

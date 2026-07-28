@@ -66,7 +66,8 @@ _(revision 2026-07-28 — `remaining_ttl_ms` on reservation responses + heartbea
   non-negative, using a delay capped at retry_window. Zero means retry
   immediately; a negative value stops because a complete retry plus margin
   is no longer provably safe. All duration arithmetic is overflow-safe and in
-  milliseconds. A 429 converts the non-negative Retry-After value from
+  milliseconds; clients round budgets/margins up and lead/delays down when
+  timer resolution requires rounding. A 429 converts the non-negative Retry-After value from
   seconds to milliseconds and honors it only when that converted delay fits
   inside retry_window;
   otherwise the client stops rather than violate throttling or pretend the
