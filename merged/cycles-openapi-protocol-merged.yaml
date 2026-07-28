@@ -792,6 +792,7 @@ components:
         expires_at_ms:
           type: integer
           format: int64
+          minimum: 0
         remaining_ttl_ms:
           type: integer
           format: int64
@@ -3085,6 +3086,8 @@ paths:
           Only a schema-valid HTTP 200 ReservationCreateResponse (for the initial create) or
           ReservationExtendResponse (for an extension) counts as an observed success. A different or
           malformed 2xx response is ambiguous and MUST NOT be used to schedule from stale state.
+          This response-success predicate applies on BOTH the primary and fallback paths; the fallback
+          changes only how the next delay is chosen after a valid success, not what proves success.
           After a CREATE timeout, connection error, 5xx, or ambiguous 2xx, where no valid lead_floor
           exists, the client SHOULD make one immediate retry with the SAME idempotency_key and then
           stop and surface the ambiguity if that retry also fails to produce a schema-valid result.

@@ -17,6 +17,12 @@ _(revision 2026-07-28 — `remaining_ttl_ms` on reservation responses + heartbea
   server time). Servers SHOULD emit it; clients MUST treat it as optional
   for backward compatibility. `semantic_base` remains 0.1.25 (optional-field
   additive).
+- **Schema clarification:** `ReservationCreateResponse.expires_at_ms` now
+  explicitly has `minimum: 0`, matching its epoch-millisecond meaning and the
+  existing constraint on `ReservationExtendResponse.expires_at_ms`.
+- **Cross-mode success-predicate clarification:** only a schema-valid HTTP 200
+  create/extend response counts as success on both the primary and fieldless
+  fallback paths; fallback changes scheduling, not proof of success.
 - **Idempotent-replay carve-out for CREATE and EXTEND.** On a same-key
   replay of a successful CREATE or EXTEND, a server that emits
   `remaining_ttl_ms` MUST
