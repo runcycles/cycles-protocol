@@ -6,94 +6,84 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
-## v0.1.25.16 — 2026-07-27
+## v0.1.25.16 — 2026-07-28
 
-_(revision 2026-07-27 — heartbeat guidance for extendReservation / extend_by_ms)_
+_(revision 2026-07-28 — `remaining_ttl_ms` on reservation responses + heartbeat guidance for extendReservation / extend_by_ms)_
 
-- **HEARTBEAT GUIDANCE added to `extendReservation` — documentation only.**
-  Because `extend_by_ms` is relative to the reservation's CURRENT
-  `expires_at_ms` (not request time), a keep-alive client that extends by
-  `ttl_ms` on every sub-TTL beat (e.g. every ttl/2) drifts expiry outward by
-  ttl/2 per beat — an effectively unbounded zombie-reservation window that
-  works against the grace_period_ms zombie-reservation rationale — and burns
-  any server-side extension budget (MAX_EXTENSIONS_EXCEEDED) twice as fast as
-  necessary. All four official SDKs independently wrote this bug; the spec now
-  warns the next implementer.
-- Distinguishes two DISTINCT server clamp regimes: (1) per-extend GRANT
-  clamping (granted TTL capped below the requested `ttl_ms`, e.g.
-  `max_reservation_ttl_ms`) and (2) MAXIMUM-LEAD clamping (effective expiry
-  held at ≈ now + L beyond server time). The returned `expires_at_ms` is
-  authoritative in both cases. Because the create response exposes neither
-  the effective TTL nor a server-time anchor, keep-alive clients SHOULD
-  maintain a conservative LOWER BOUND on their lead built entirely from
-  same-frame differences (no cross-clock arithmetic anywhere):
-  lead_min = Σ measured grants − client-monotonic elapsed since the reserve
-  response, starting at 0, where each grant is the difference between
-  successive returned `expires_at_ms` values (reserve response, then each
-  extend response — the same server frame). lead_min never overstates the
-  true lead and is latency-conservative.
-- The FIRST extension SHOULD be IMMEDIATE. Any bounded first-beat delay can
-  outlive a small capped initial lease (24h requested, silently capped to 1s
-  → first beat at 30s arrives post-expiry), and no field of the create
-  response bounds the effective initial lease — an immediate first extension
-  is the only assumption-free schedule. It costs one extension from the
-  budget; total protected runtime (initial effective TTL + Σ grants) is
-  unchanged by schedule. Under maximum-lead clamping it may legitimately
-  measure a grant near or equal to zero — a regime signal, not an error.
-- Cadence is split BY REGIME, distinguished by comparing each measured grant
-  to the elapsed time since the previous successful extension. Regime
-  detection uses a BAND test, not an upper bound alone: maximum-lead clamping
-  is indicated when the grant sits inside a band around elapsed (e.g.
-  0.75×elapsed ≤ grant ≤ 1.25×elapsed) or when grant ≤ 0 (always clamping);
-  grant ≥ ~0.9×requested ttl_ms always indicates the normal regime. The
-  band's lower edge is load-bearing: after a lead_min skip the next grant
-  arrives across a doubled gap, so a genuine per-extend-grant-clamped server
-  beating at grant/2 measures grant ≈ elapsed exactly — an upper-bound-only
-  test would misclassify it as lead-clamped and the held cadence would
-  self-sustain while the lease decays to a lapse. A genuine maximum-lead
-  clamp tracks ANY inter-success gap (ratio ≈ 1 at every cadence), while a
-  real small grant across a skip-doubled gap matches the band at most once,
-  so misclassification is transient, never sticky. (a) Normal or per-extend
-  grant clamp (positive, outside the band) — beat at ~grant/2, sensibly
-  bounded; tightening here is correct. (b) Maximum-lead clamp (inside the
-  band, or ≤ 0) — successive `expires_at_ms` differences measure
-  elapsed time between calls, not lease size, so grant-derived cadence is a
-  feedback loop that collapses toward any floor and burns the extension
-  budget (default 10) in seconds; NO cadence signal exists in the current
-  wire contract, so clients SHOULD hold a fixed bounded cadence (e.g.
-  min(requested ttl_ms/2, 30s)), MUST NOT tighten toward a floor, SHOULD log
-  that the extension budget will deplete, and rely on
-  MAX_EXTENSIONS_EXCEEDED as the terminal signal. Skip a beat when
-  lead_min ≥ 1.5×last_grant (meaningful only in regime (a)).
+- **ADDITIVE WIRE CHANGE: optional `remaining_ttl_ms` field added to both
+  `ReservationCreateResponse` and `ReservationExtendResponse`.** Remaining
+  reservation lifetime in milliseconds at the moment the response was
+  evaluated, measured with the same authoritative clock snapshot used to
+  compute `expires_at_ms`; present on every successful response that returns
+  a live reservation (absent on dry-run and on DENY decisions). Servers
+  SHOULD emit it; clients MUST treat it as optional for backward
+  compatibility. `semantic_base` remains 0.1.25 (optional-field additive).
+- **Why the field is needed.** `extend_by_ms` is relative to the
+  reservation's CURRENT `expires_at_ms` (not request time), so naive
+  extend-by-`ttl_ms`-every-ttl/2 keep-alives drift expiry unboundedly
+  outward (zombie reservations) and burn the extension budget
+  (MAX_EXTENSIONS_EXCEEDED) twice as fast as necessary — all four official
+  SDKs independently wrote this bug. Servers may also (1) GRANT-clamp the
+  per-extend delta below the requested `ttl_ms` (e.g.
+  `max_reservation_ttl_ms`) or (2) MAXIMUM-LEAD-clamp effective expiry to
+  ≈ now + L beyond server time. Without remaining-lifetime data, regime
+  detection from the observables (grant, elapsed) is UNDECIDABLE in general,
+  and NO portable, safe, extension-efficient heartbeat exists when servers
+  may both cap the initial TTL and clamp to a maximum lead — that
+  impossibility is why `remaining_ttl_ms` exists.
+- **HEARTBEAT GUIDANCE on `extendReservation`: NORMATIVE scheduling
+  algorithm when `remaining_ttl_ms` is present.** Recompute from EVERY
+  successful create/extend response, never accumulate expiry differences:
+  rtt = monotonic receive − monotonic send (unknown → 0);
+  lead_floor = max(0, remaining_ttl_ms − rtt);
+  retry_reserve = min(lead_floor/2, max(1000 ms, 2×max observed rtt));
+  next_delay = max(0, lead_floor − retry_reserve); schedule the next
+  extension next_delay after response receipt. The first beat derives from
+  the CREATE response's `remaining_ttl_ms` the same way — no immediate
+  priming needed, no extension wasted. Extend by the requested `ttl_ms`; any
+  2xx counts as applied. Transient failures retry with the SAME
+  `idempotency_key` after clamp(current_lead_estimate/4, 1s, 30s), where
+  current_lead_estimate = last lead_floor − monotonic elapsed since that
+  response.
+- **Measured-grant scheme demoted to an explicitly NON-NORMATIVE fallback**
+  for servers that do not emit `remaining_ttl_ms`, with its limits stated
+  honestly: (a) it is only sound against servers that clamp the per-extend
+  DELTA; (b) regime detection from (grant, elapsed) is undecidable — the
+  band heuristic (0.75×elapsed ≤ grant ≤ 1.25×elapsed → lead-clamped) is
+  best-effort, not sound: with requested ttl 24s and a 10s grant cap, the
+  post-skip held cadence min(ttl/2, 30s) = 12s yields ratio 10/12 ≈ 0.833,
+  inside the band FOREVER, while the lease erodes 2s per cycle to a lapse;
+  any true grant in [0.75×min(ttl/2, 30s), 0.9×ttl) stays misclassified
+  permanently, and grant ≥ 0.9×ttl does not prove the normal regime either;
+  (c) fallback clients SHOULD prefer over-beating (bounded cadence, budget
+  burn, MAX_EXTENSIONS_EXCEEDED as the stop) over risking lease lapse.
+- **Immediate-priming cost claim corrected (fallback path).** Under
+  maximum-lead clamping the value of an extension is SCHEDULE-DEPENDENT
+  (with a 60s max lead, an immediate extend measures ≈ 0 grant where the
+  same extend 30s later measures ≈ 30s), so total protected runtime and
+  Σ grants are NOT schedule-invariant; the earlier "nothing is lost but the
+  count" claim was false. Immediate priming is presented as a tradeoff:
+  it minimizes unknown-initial-lease lapse risk at the cost of one
+  potentially zero-value extension.
 - The HTTP `Date` response header plays NO role in the guidance and MUST NOT
   be used for lease arithmetic or heartbeat scheduling (whole-second,
   best-effort, replaceable by intermediaries, potentially a different clock
   than `expires_at_ms` — RFC 9110 §6.6.1/§5.6.7). Its declaration on the
   createReservation and extendReservation 200 responses remains purely as
-  documentation of standard HTTP behavior (no wire change).
-- Fixed-margin promises are replaced by invariants: extend attempts occur
-  while lead_min ≥ the beat interval whenever grants keep pace with elapsed
-  time; total protected runtime equals the initial effective TTL plus the sum
-  of grants regardless of schedule; a failed attempt consumes lead_min and is
-  retried at the current cadence with the SAME `idempotency_key` so a
-  lost-response extend is not applied twice.
+  documentation of standard HTTP behavior.
 - Warns that a blind alternate-beat cadence without lead tracking leaves zero
   margin after any single failed beat (at steady state the retry lands at the
   expiry instant) and cannot keep up when the beat interval exceeds ttl/2.
-- On RESERVATION_EXPIRED, RESERVATION_FINALIZED, MAX_EXTENSIONS_EXCEEDED,
-  TENANT_CLOSED (closure is irreversible), or NOT_FOUND the heartbeat SHOULD
-  stop (permanent conditions).
-- LIMITATION stated plainly: under maximum-lead clamping, correct heartbeat
-  cadence is UNDECIDABLE from data currently on the wire. A future revision
-  therefore SHOULD add an effective-lease field (effective TTL granted, or
-  equivalent expires-relative lease information plus a server-time anchor) to
-  BOTH `ReservationCreateResponse` AND `ReservationExtendResponse` — not an
-  optimization but REQUIRED for well-defined client keep-alive behavior under
-  lead clamping.
+- On both paths a failed attempt is retried with the SAME `idempotency_key`
+  so a lost-response extend is not applied twice. On RESERVATION_EXPIRED,
+  RESERVATION_FINALIZED, MAX_EXTENSIONS_EXCEEDED, TENANT_CLOSED (closure is
+  irreversible), or NOT_FOUND the heartbeat SHOULD stop (permanent
+  conditions).
 - `ReservationExtendRequest.extend_by_ms` description gains a short pointer to
   the operation-level HEARTBEAT GUIDANCE.
-- Description-text and response-header documentation change only; no
-  endpoint, schema, or wire-format change. `semantic_base` remains 0.1.25.
+- Backward-compatible additive schema change (one optional response field on
+  two schemas) plus description-text and response-header documentation; no
+  endpoint or breaking wire-format change. `semantic_base` remains 0.1.25.
 
 ## v0.1.25.15 — 2026-07-13
 
