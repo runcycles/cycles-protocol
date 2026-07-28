@@ -2336,6 +2336,7 @@ components:
       schema:
         type: integer
         format: int64
+        minimum: 0
     X-Cycles-Tenant:
       description: Effective tenant identifier derived from auth context (optional in v0)
       schema:
@@ -3042,6 +3043,8 @@ paths:
           safety_margin = max(1000 ms, 2 × maximum observed rtt);
           retry_reserve = 2 × attempt_budget + safety_margin;
           next_delay = max(0, lead_floor − retry_reserve);
+          All duration arithmetic MUST use milliseconds and MUST be overflow-safe; positive overflow
+          is treated as positive infinity, never wraparound.
           schedule the next extension next_delay after response receipt. retry_reserve covers one
           failed attempt, one same-key retry, and scheduling/network margin; when the lease is too
           short to hold that reserve, next_delay is 0 rather than an unsafe positive delay. A zero
@@ -3061,9 +3064,9 @@ paths:
           Only a schema-valid HTTP 200 ReservationCreateResponse (for the initial create) or
           ReservationExtendResponse (for an extension) counts as an observed success. A different or
           malformed 2xx response is ambiguous and MUST NOT be used to schedule from stale state.
-          After an ambiguous CREATE result, where no valid lead_floor exists, the client SHOULD make
-          one immediate retry with the SAME idempotency_key and then stop and surface the ambiguity if
-          that retry also fails to produce a schema-valid result.
+          After a CREATE timeout, connection error, 5xx, or ambiguous 2xx, where no valid lead_floor
+          exists, the client SHOULD make one immediate retry with the SAME idempotency_key and then
+          stop and surface the ambiguity if that retry also fails to produce a schema-valid result.
           On an EXTEND transient failure (timeout, connection error, 5xx, 429 LIMIT_EXCEEDED, or an
           ambiguous 2xx), recompute current_lead_estimate = max(0, last lead_floor − monotonic elapsed
           since the schema-valid response that established last lead_floor was received). Define
@@ -3071,14 +3074,16 @@ paths:
           If retry_window < 0, no complete retry plus margin is provably safe: the client MUST NOT
           retry and MUST stop and surface the failure. Otherwise, for timeout, connection error, 5xx,
           and ambiguous 2xx, retry with the SAME idempotency_key after
-          retry_delay = min(30000 ms, current_lead_estimate/4, retry_window). For 429, retry_delay
-          equals a valid Retry-After only when Retry-After ≤ retry_window. If Retry-After is
-          missing, invalid, or exceeds retry_window, the client MUST NOT invent an earlier retry
-          that violates throttling and SHOULD stop and surface that the lease cannot be safely
-          renewed. The retry_window cap leaves one complete retry plus margin; retry_window = 0 means
-          retry immediately, while a negative value means stop. The client MUST make at most one
-          same-key recovery retry for each scheduled extension attempt; if that retry also fails or
-          is ambiguous, it MUST stop and surface the failure rather than exceed retry_reserve.
+          retry_delay = min(30000 ms, current_lead_estimate/4, retry_window). For 429, first convert
+          the non-negative Retry-After seconds to retry_after_ms = 1000 × Retry-After using
+          overflow-safe arithmetic; retry_delay equals retry_after_ms only when retry_after_ms ≤
+          retry_window. If Retry-After is missing, invalid, overflows, or exceeds retry_window after
+          conversion, the client MUST NOT invent an earlier retry that violates throttling and SHOULD
+          stop and surface that the lease cannot be safely renewed. The retry_window cap leaves one
+          complete retry plus margin; retry_window = 0 means retry immediately, while a negative value
+          means stop. The client MUST make at most one same-key recovery retry for each scheduled
+          extension attempt; if that retry also fails or is ambiguous, it MUST stop and surface the
+          failure rather than exceed retry_reserve.
           On any other 4xx response, the client SHOULD stop and surface the request or authorization
           failure; it MUST NOT automatically rotate the idempotency key and retry an unchanged request.
           A client MUST NOT enter an unbounded zero-delay loop. When a schema-valid success produces

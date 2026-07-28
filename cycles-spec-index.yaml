@@ -297,7 +297,9 @@ documents:
       authority resolution (did:cycles / JWKS / rotation) NORMATIVE; it is
       additive to the envelope wire shape, whose `schema_version` discriminator
       stays `cycles-evidence/v0.1` (v0.1 envelopes remain valid byte-for-byte).
-      Design agreed with APS on runcycles/cycles-protocol#103 / #112.
+      Reserve evidence deliberately omits the transport-only `cycles_evidence`
+      and `remaining_ttl_ms` fields. Design agreed with APS on
+      runcycles/cycles-protocol#103 / #112.
     title: Cycles Evidence Envelope
     plane: cross-system-audit
     owns:
