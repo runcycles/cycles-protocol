@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cycles Evidence Envelope
-  version: 0.2.1
+  version: 0.2.2
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -822,8 +822,8 @@ components:
     #     for evidence — extra fields would change the canonical
     #     bytes and invalidate the signature.
     #   - Drift from the canonical spec is a v0.1 bug. New canonical
-    #     constraints MUST be reflected here (or this file must be
-    #     re-cut against a newer canonical version) before evidence
+    #     constraints MUST be reflected here (or explicitly classified as
+    #     non-attested transport metadata and omitted) before evidence
     #     consumers may rely on them.
     #
     # Field lists and constraints derived from runcycles Python SDK
@@ -902,15 +902,18 @@ components:
         (canonical L981 and L1404) span request and response, so they
         live at the `ReservePayload` level rather than here.
 
-        DELIBERATE OMISSION — `cycles_evidence`: the canonical response
-        carries an optional `cycles_evidence` ref (`evidence_id` +
-        `cycles_evidence_url`), but it is TRANSPORT METADATA and is NOT
-        attested by this envelope, so it is intentionally absent here and
-        `additionalProperties: false` FORBIDS it in the attested payload.
-        The `evidence_id` is computed over this pre-evidence-ref response;
-        including the ref would make the content hash self-referential.
-        Servers MUST compute `evidence_id` before stamping `cycles_evidence`
-        onto the wire response.
+        DELIBERATE OMISSIONS — `cycles_evidence` and `remaining_ttl_ms`:
+        the canonical response carries an optional `cycles_evidence` ref
+        (`evidence_id` + `cycles_evidence_url`), but it is transport metadata
+        and is NOT attested because including it would make the content hash
+        self-referential. `remaining_ttl_ms` is likewise volatile transport
+        metadata rather than decision data; excluding it permits same-key
+        create replays to report current safe lead without changing the
+        original reserve evidence identity. Both fields are intentionally
+        absent here and `additionalProperties: false` FORBIDS them in the
+        attested payload. Servers MUST compute `evidence_id` over the response
+        without either field before stamping the transport-only fields onto
+        the wire response.
       required: [decision, affected_scopes]
       additionalProperties: false
       properties:

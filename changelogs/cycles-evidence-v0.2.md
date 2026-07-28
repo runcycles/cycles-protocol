@@ -6,6 +6,20 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.2.2 — 2026-07-28
+
+_(revision 2026-07-28 — classify `remaining_ttl_ms` as non-attested transport metadata)_
+
+- **Reserve-response mirror contract clarified for the additive runtime
+  `remaining_ttl_ms` field.** The field is a volatile observation used for
+  heartbeat scheduling, not stable decision data, and is deliberately omitted
+  from `ReservationCreateResponseMirror` alongside `cycles_evidence`.
+  Evidence emitters compute the reserve `evidence_id` over the response without
+  either transport-only field. This lets a same-key create replay recompute a
+  safe current TTL without changing the original reserve evidence identity.
+- Envelope wire shape and `schema_version` are unchanged; existing evidence
+  remains valid byte-for-byte.
+
 ## v0.2.1 — 2026-07-10
 
 _(revision 2026-07-10 — ErrorResponseMirror re-cut against canonical ErrorCode 0.1.25.13)_
