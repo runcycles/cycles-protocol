@@ -179,7 +179,18 @@ info:
       - If X-Idempotency-Key header is present and body.idempotency_key is present, they MUST match.
       - Server MUST enforce idempotency per (effective tenant, endpoint, idempotency_key).
       - On replay of an idempotent request that previously succeeded, server MUST return the original successful
-        response payload (including any server-generated identifiers such as reservation_id).
+        response outcome and payload (including any server-generated identifiers such as reservation_id). The
+        SINGLE exception is remaining_ttl_ms on extendReservation replays, defined as a volatile response
+        observation below.
+      - remaining_ttl_ms on a replayed extendReservation success is a volatile response observation: when
+        emitted, the server MUST recompute it while constructing the replay response as
+        max(0, original expires_at_ms - current authoritative server time); it MUST NOT replay the originally
+        stored remaining_ttl_ms value. It MUST be 0 if the reservation is no longer ACTIVE and MAY
+        conservatively understate current lead if a later, separately keyed extension moved expiry outward.
+        All other fields replay verbatim as the original outcome. On createReservation replays there is NO
+        carve-out: the original body — including the original remaining_ttl_ms — is returned VERBATIM, because
+        the emitted CyclesEvidence envelope references the original response body; clients SHOULD NOT treat a
+        replayed create's remaining_ttl_ms as current.
       - If the same key is reused with a different request payload, server MUST return 409 IDEMPOTENCY_MISMATCH.
       - Servers SHOULD compare idempotency payloads using a canonical JSON representation
         (e.g., RFC 8785 JSON Canonicalization Scheme) or an equivalent stable serialization.
@@ -501,7 +512,12 @@ components:
         Optional idempotency key header. If both header and body idempotency_key are provided, they MUST match.
         Server MUST enforce idempotency per endpoint by (effective tenant, endpoint, idempotency_key).
         On replay of an idempotent request that previously succeeded, server MUST return the original successful
-        response payload (including any server-generated identifiers such as reservation_id).
+        response outcome and payload (including any server-generated identifiers such as reservation_id). The
+        single exception is remaining_ttl_ms on a replayed extendReservation success: it is volatile and, when
+        emitted, MUST be recomputed from the original expires_at_ms and the current authoritative server time,
+        never copied from the stored response; it MUST be 0 if the reservation is no longer ACTIVE. On
+        createReservation replays the original body — including the original remaining_ttl_ms — is returned
+        verbatim (the CyclesEvidence envelope references the original body).
       schema:
         $ref: '#/components/schemas/IdempotencyKey'
 
@@ -1343,14 +1359,23 @@ components:
           format: int64
           minimum: 0
           description: >
-            Remaining reservation lifetime in milliseconds at the moment the
-            response was evaluated, measured with the same authoritative clock
-            snapshot used to compute expires_at_ms. Present on every successful
-            response that returns a live reservation (absent on dry-run and on
-            DENY decisions). Added in 0.1.25.16 (additive): servers SHOULD emit
-            it; clients MUST treat it as optional for backward compatibility.
-            When present it is the NORMATIVE input to heartbeat scheduling —
-            see HEARTBEAT GUIDANCE on extendReservation.
+            Observation of remaining reservation lifetime in milliseconds while
+            this response payload is constructed, computed as
+            max(0, expires_at_ms - current authoritative server time) using
+            the same authoritative clock used for reservation expiry decisions.
+            Servers SHOULD emit it on successful responses that return a live
+            reservation; it MUST be absent on dry-run and DENY responses.
+            On a same-key idempotent replay of createReservation the ORIGINAL
+            response body — including the original remaining_ttl_ms — is
+            returned VERBATIM (the emitted CyclesEvidence envelope references
+            the original body), so the replayed value reflects the ORIGINAL
+            evaluation and clients SHOULD NOT treat a replayed create's
+            remaining_ttl_ms as current. (This differs from extendReservation
+            replays, where the field is recomputed — see
+            ReservationExtendResponse.) Added in 0.1.25.16 (additive); clients
+            MUST treat it as optional for backward compatibility. When present
+            it is the NORMATIVE input to heartbeat scheduling — see HEARTBEAT
+            GUIDANCE on extendReservation.
         scope_path:
           type: string
           description: Canonical scope path (server-derived)
@@ -1816,14 +1841,25 @@ components:
           format: int64
           minimum: 0
           description: >
-            Remaining reservation lifetime in milliseconds at the moment the
-            response was evaluated, measured with the same authoritative clock
-            snapshot used to compute expires_at_ms. Present on every successful
-            response that returns a live reservation (absent on dry-run and on
-            DENY decisions). Added in 0.1.25.16 (additive): servers SHOULD emit
-            it; clients MUST treat it as optional for backward compatibility.
-            When present it is the NORMATIVE input to heartbeat scheduling —
-            see HEARTBEAT GUIDANCE on extendReservation.
+            Volatile observation of remaining reservation lifetime in
+            milliseconds while this response payload is constructed, computed
+            as max(0, expires_at_ms - current authoritative server time) using
+            the same authoritative clock used for reservation expiry decisions.
+            Servers SHOULD emit it on every successful extension response. On a
+            same-key idempotent replay, a server that emits this field MUST
+            recompute it at replay-response construction time and MUST NOT copy
+            its originally stored value, while ALL OTHER fields replay verbatim
+            from the original response. Rationale: a heartbeat retrying a lost
+            extend with the same idempotency key schedules its next beat from
+            the replayed body, and a cached remaining_ttl_ms would be stale by
+            at least the retry delay — scheduling from it would overshoot the
+            real lease. It MAY therefore be 0 even though the
+            original extension succeeded, and MUST be 0 if the reservation is
+            no longer ACTIVE. It MAY conservatively understate current lead if
+            a later, separately keyed extension moved expiry outward. Added in
+            0.1.25.16 (additive); clients MUST treat it as optional for backward
+            compatibility. When present it is the NORMATIVE input to heartbeat
+            scheduling — see HEARTBEAT GUIDANCE on extendReservation.
         balances:
           type: array
           items:
@@ -1922,10 +1958,13 @@ paths:
         - This blocks new work when overdraft reconciliation is needed.
 
         IDEMPOTENCY (NORMATIVE):
-        - On replay with the same idempotency_key, the server MUST return the original successful response payload, 
-        including the original reservation_id (if any).
+        - On replay with the same idempotency_key, the server MUST return the original successful response
+          payload VERBATIM, including the original reservation_id (if any) and the original remaining_ttl_ms:
+          the emitted CyclesEvidence envelope references the original response body, so no field of a replayed
+          create may differ from it. Clients SHOULD NOT treat a replayed create's remaining_ttl_ms as current
+          (it reflects the ORIGINAL evaluation; the extendReservation replay carve-out does NOT apply here).
 
-        TENANCY (NORMATIVE): 
+        TENANCY (NORMATIVE):
         - subject.tenant MUST match the effective tenant derived from auth; otherwise the server MUST return 403 FORBIDDEN.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKeyHeader'
@@ -2375,7 +2414,7 @@ paths:
         Commits actual spend. If actual < reserved, delta is released automatically. If actual > reserved, behavior is controlled
         by the reservation's overage_policy.
 
-        IDEMPOTENCY (NORMATIVE): 
+        IDEMPOTENCY (NORMATIVE):
         - On replay with the same idempotency_key, the server MUST return the original successful response payload.
 
         TENANCY (NORMATIVE): 
@@ -2415,7 +2454,7 @@ paths:
       description: >-
         Releases reserved amount back to remaining budget.
 
-        IDEMPOTENCY (NORMATIVE): 
+        IDEMPOTENCY (NORMATIVE):
         - On replay with the same idempotency_key, the server MUST return the original successful response payload.
 
         TENANCY (NORMATIVE):
@@ -2491,7 +2530,13 @@ paths:
           (i.e., server time ≤ expires_at_ms). If the reservation is expired, server MUST return 410 with error=RESERVATION_EXPIRED.
 
         IDEMPOTENCY (NORMATIVE):
-        - On replay with the same idempotency_key, the server MUST return the original successful response payload.
+        - On replay with the same idempotency_key, the server MUST return the original successful response outcome
+          and payload — all fields VERBATIM — except that remaining_ttl_ms is a volatile observation and, when
+          emitted, MUST be recomputed from the original expires_at_ms and current authoritative server time while
+          constructing the replay response. It MUST NOT be copied from the originally stored response and MUST be
+          0 if the reservation is no longer ACTIVE. (Rationale: a heartbeat retrying a lost extend with the same
+          idempotency key schedules from the replayed body; a cached value is stale by the retry delay. This
+          carve-out applies to extendReservation ONLY — createReservation replays are fully verbatim.)
 
         TENANCY (NORMATIVE):
         - If the reservation exists but is owned by a different effective tenant, the server MUST return 403 FORBIDDEN.
@@ -2526,18 +2571,52 @@ paths:
           SHOULD emit it; clients MUST treat it as optional for backward compatibility). On EVERY
           successful create or extend response, recompute the schedule from that response alone —
           never accumulate expiry differences:
-          rtt = monotonic(response received) − monotonic(request sent), treating unknown rtt as 0;
+          Clients MUST record monotonic attempt_sent immediately before each HTTP attempt and
+          response_received after its complete, schema-valid response body is received.
+          rtt = monotonic(response_received) − monotonic(attempt_sent);
           lead_floor = max(0, remaining_ttl_ms − rtt);
-          retry_reserve = min(lead_floor/2, max(1000 ms, 2 × maximum observed rtt));
+          request_timeout_budget = the client's finite upper bound for one complete extend attempt
+          (connect, write, read, and failure detection);
+          attempt_budget = max(request_timeout_budget, 1000 ms, 2 × maximum observed rtt);
+          safety_margin = max(1000 ms, 2 × maximum observed rtt);
+          retry_reserve = 2 × attempt_budget + safety_margin;
           next_delay = max(0, lead_floor − retry_reserve);
-          schedule the next extension next_delay after response receipt. The first beat derives from
-          the CREATE response's remaining_ttl_ms in exactly the same way — no immediate priming is
-          needed and no extension is wasted when the field is present. Extend by the requested
-          ttl_ms; the returned expires_at_ms and remaining_ttl_ms are authoritative; any 2xx response
-          counts as applied. On a transient failure (timeout, connection error, 5xx), retry with the
-          SAME idempotency_key after clamp(current_lead_estimate/4, 1s, 30s), where
-          current_lead_estimate = the last lead_floor − monotonic elapsed since that response was
-          received.
+          schedule the next extension next_delay after response receipt. retry_reserve covers one
+          failed attempt, one same-key retry, and scheduling/network margin; when the lease is too
+          short to hold that reserve, next_delay is 0 rather than an unsafe positive delay.
+          If attempt timing is unavailable or unreliable, the client MUST set lead_floor and
+          next_delay to 0. If the request timeout is unknown or unbounded, treat attempt_budget as
+          positive infinity, which likewise makes next_delay 0. Unknown timing MUST NOT be treated as
+          zero elapsed time. The first beat derives from the CREATE response's
+          remaining_ttl_ms in exactly the same way, so no immediate priming is needed when a positive
+          safe delay can be established. Extend by the requested ttl_ms; the returned expires_at_ms
+          and remaining_ttl_ms are authoritative.
+          Replay awareness: a same-key EXTEND retry is safe to schedule from — on extend replays the
+          server recomputes remaining_ttl_ms at replay-response construction time (see IDEMPOTENCY
+          above). A same-key CREATE retry is NOT: create replays return the ORIGINAL body verbatim,
+          including the original remaining_ttl_ms, so when a create response arrives after one or
+          more same-key retries the client MUST compute that response's rtt from the FIRST attempt's
+          monotonic send time (bounding the possible staleness of a replayed value); this widened rtt
+          feeds lead_floor as usual.
+          Only a schema-valid HTTP 200 ReservationExtendResponse counts as an observed success. A
+          different or malformed 2xx response is ambiguous and MUST be retried with the SAME
+          idempotency_key rather than used to schedule from stale state.
+          On a transient failure (timeout, connection error, 5xx, or 429 LIMIT_EXCEEDED), recompute
+          current_lead_estimate = max(0, last lead_floor − monotonic elapsed since that response was
+          received). Define safe_latest_retry = max(0, current_lead_estimate − attempt_budget −
+          safety_margin). For timeout, connection error, and 5xx, retry with the SAME idempotency_key
+          after retry_delay = min(30000 ms, current_lead_estimate/4, safe_latest_retry). For 429,
+          retry_delay equals a valid Retry-After only when Retry-After ≤ safe_latest_retry. If
+          Retry-After is missing, invalid, or exceeds safe_latest_retry, the client MUST NOT invent an
+          earlier retry that violates throttling and SHOULD stop and surface that the lease cannot be
+          safely renewed. The safe_latest_retry cap leaves one complete retry plus margin; when none
+          remains, ordinary transient failures retry immediately.
+          A client MUST NOT enter an unbounded zero-delay loop. When a schema-valid success produces
+          next_delay = 0, it MAY make one immediate fresh extension attempt with a new idempotency_key.
+          If that success also produces next_delay = 0, the client MUST stop and surface that the lease
+          is shorter than its retry-safety budget; this still permits an additive-delta server's first
+          immediate extension to establish a larger positive lead without burning a maximum-lead
+          server's extension budget in a tight loop.
         - FALLBACK (NON-NORMATIVE) — only for servers that do not emit remaining_ttl_ms. A
           measured-grant scheme, with its limits stated honestly below; no refinement of it removes
           them.
@@ -2618,6 +2697,14 @@ paths:
         "404": {$ref: '#/components/responses/ErrorResponse'}
         "409": {$ref: '#/components/responses/ErrorResponse'}
         "410": {$ref: '#/components/responses/ErrorResponse'}
+        "429":
+          description: Rate limited; retry only after the indicated delay if the reservation can remain live.
+          headers:
+            Retry-After: {$ref: '#/components/headers/Retry-After'}
+            X-RateLimit-Reset: {$ref: '#/components/headers/X-RateLimit-Reset'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
         "500": {$ref: '#/components/responses/ErrorResponse'}
 
   /v1/evidence/{evidence_id}:
