@@ -1,5 +1,5 @@
 profile: cycles-sdk-recovery
-version: "0.1"
+version: "0.2"
 
 scenarios:
   - id: CR-CORE-001
@@ -58,16 +58,16 @@ scenarios:
 
   - id: CR-DURABLE-001
     level: durable
-    name: pending commit survives process restart
+    name: first commit is journaled before it leaves the process
     precondition: actual_known
     faults:
-      - commit_transient_failure
-      - process_terminated_after_journal_write
+      - process_terminated_while_first_commit_is_in_flight
       - process_restarted
     expected_requests:
       - commit
       - commit_same_key_after_restart
     assertions:
+      - journal_write_precedes_first_settlement_request
       - unresolved_record_survives_restart
       - successful_replay_removes_record
       - settlement_occurs_at_most_once
@@ -140,6 +140,25 @@ scenarios:
     assertions:
       - settlement_occurs_at_most_once
       - terminal_record_is_removed
+
+  - id: CR-DURABLE-007
+    level: durable
+    name: journal filenames preserve distinct arbitrary reservation identifiers
+    precondition: two_actuals_known_with_colliding_legacy_identifiers
+    faults:
+      - first_settlement_for_each_identifier_is_ambiguous
+      - process_restarted
+      - legacy_record_encountered
+    expected_requests:
+      - commit_first_identifier
+      - commit_second_identifier
+      - commit_first_identifier_same_key_after_restart
+      - commit_second_identifier_same_key_after_restart
+    assertions:
+      - standard_filename_is_sha256_of_exact_utf8_identifier
+      - distinct_identifiers_never_share_a_journal_file
+      - matching_legacy_record_migrates_without_deleting_collision
+      - both_settlements_occur_at_most_once
 
   - id: CR-BOUNDARY-001
     level: boundary

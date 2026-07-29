@@ -42,10 +42,11 @@ A core-conformant SDK:
 
 A durable-conformant SDK additionally:
 
-- MUST persist an unresolved settlement before returning control to application
-  code or relying on asynchronous/background retry.
-- SHOULD persist before the first commit request once actual usage is known;
-  doing so closes the process-death window while the first response is pending.
+- MUST persist an unresolved settlement before the first commit or direct-event
+  request once actual usage is known. The durable write MUST complete before
+  the request can leave the process. If persistence fails, the SDK MUST surface
+  the failure to operators but MAY still make the synchronous settlement
+  attempt.
 - MUST write each record atomically, restrict access to records where the
   platform supports permissions, and quarantine malformed records.
 - MUST retain records across retry exhaustion, authentication failure,
@@ -61,6 +62,13 @@ A durable-conformant SDK additionally:
   configured, the partition SHOULD remain stable across API-key rotation.
 - MUST expose an explicit flush/drain operation for graceful shutdown, with a
   bounded wait whose timeout leaves unresolved records intact.
+- MUST derive journal filenames from the exact UTF-8 reservation identifier
+  with a collision-resistant, cross-language algorithm. The standard filename
+  is `v2-<sha256-lower-hex>.json`, where the digest input is the unmodified
+  UTF-8 reservation identifier. Implementations upgrading from a legacy
+  filename scheme MUST migrate a valid record to the standard filename and
+  MUST NOT delete a legacy file unless its stored reservation identifier
+  exactly matches the requested identifier.
 
 Durability is best-effort only when journal I/O itself fails. Such a failure MUST
 be surfaced to operators and MUST NOT prevent the synchronous settlement attempt.
@@ -83,11 +91,13 @@ not silently swallow heartbeat failures under any policy.
 ## Executable scenario contract
 
 `scenarios.yaml` is the shared source of scenario IDs and observable outcomes.
-SDK repositories SHOULD bind every scenario whose `level` they claim to a
+SDK repositories MUST bind every scenario whose `level` they claim to a
 native adapter, including child-process tests for restart and concurrent
-replay. The shared runner invokes that adapter once per scenario in a fresh
-process, writes the complete scenario JSON to stdin, appends the scenario ID
-to the adapter command, and requires one JSON result on stdout:
+replay. Core and durable claims both include boundary scenarios. The shared
+runner invokes that adapter once per scenario in a fresh process, writes only
+the scenario inputs (`id`, `level`, `name`, `precondition`, and `faults`) to
+stdin, appends the scenario ID to the adapter command, and requires one JSON
+result on stdout:
 
 ```json
 {
@@ -103,8 +113,11 @@ to the adapter command, and requires one JSON result on stdout:
 
 Diagnostics belong on stderr. `observed_requests` must exactly match the shared
 choreography; `assertions` may contain adapter-specific observations in
-addition to every required assertion. A durable SDK runs core and durable
-scenarios:
+addition to every required assertion. The expected request choreography and
+required assertions are runner-owned oracle data and are never disclosed to
+the adapter. An adapter MUST obtain its observations by executing the SDK's
+native behavior test; echoing catalog expectations is not conformance. A
+durable SDK runs core, durable, and boundary scenarios:
 
 ```sh
 python scripts/run_client_recovery_conformance.py \

@@ -15,6 +15,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = ROOT / "client-recovery" / "scenarios.yaml"
+ADAPTER_INPUT_FIELDS = ("id", "level", "name", "precondition", "faults")
 
 
 class ConformanceFailure(ValueError):
@@ -23,7 +24,11 @@ class ConformanceFailure(ValueError):
 
 def load_scenarios(claim: str, selected: set[str]) -> list[dict[str, Any]]:
     data = yaml.safe_load(CATALOG.read_text(encoding="utf-8"))
-    levels = {"core"} if claim == "core" else {"core", "durable"}
+    levels = (
+        {"core", "boundary"}
+        if claim == "core"
+        else {"core", "durable", "boundary"}
+    )
     scenarios = [
         scenario
         for scenario in data["scenarios"]
@@ -75,10 +80,11 @@ def run_scenario(
     scenario: dict[str, Any], adapter: list[str], timeout_seconds: float
 ) -> None:
     scenario_id = scenario["id"]
+    adapter_input = {field: scenario[field] for field in ADAPTER_INPUT_FIELDS}
     try:
         completed = subprocess.run(
             [*adapter, scenario_id],
-            input=json.dumps(scenario),
+            input=json.dumps(adapter_input),
             text=True,
             capture_output=True,
             timeout=timeout_seconds,
@@ -134,7 +140,11 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    scenarios = load_scenarios(args.claim, set(args.scenario))
+    try:
+        scenarios = load_scenarios(args.claim, set(args.scenario))
+    except ConformanceFailure as error:
+        print(f"FAIL {error}", file=sys.stderr)
+        return 1
     failures: list[str] = []
     for scenario in scenarios:
         try:

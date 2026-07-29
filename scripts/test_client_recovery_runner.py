@@ -60,17 +60,29 @@ class ResultValidationTests(unittest.TestCase):
 
 
 class ProcessAdapterTests(unittest.TestCase):
-    def test_runner_executes_each_core_scenario_in_a_fresh_adapter(self) -> None:
-        adapter_source = """
+    def test_runner_hides_oracle_and_includes_boundary_scenarios(self) -> None:
+        scenarios = runner.load_scenarios("core", set())
+        results = {
+            scenario["id"]: {
+                "observed_requests": scenario["expected_requests"],
+                "assertions": scenario["assertions"],
+            }
+            for scenario in scenarios
+        }
+        adapter_source = f"""
 import json
 import sys
 scenario = json.load(sys.stdin)
-json.dump({
+assert "expected_requests" not in scenario
+assert "assertions" not in scenario
+results = {results!r}
+observation = results[scenario["id"]]
+json.dump({{
     "scenario_id": scenario["id"],
     "passed": True,
-    "observed_requests": scenario["expected_requests"],
-    "assertions": scenario["assertions"],
-}, sys.stdout)
+    "observed_requests": observation["observed_requests"],
+    "assertions": observation["assertions"],
+}}, sys.stdout)
 """
         with tempfile.TemporaryDirectory() as directory:
             adapter = Path(directory) / "adapter.py"
@@ -90,8 +102,31 @@ json.dump({
                 check=False,
             )
         self.assertEqual(completed.returncode, 0, completed.stderr)
-        expected = len(runner.load_scenarios("core", set()))
+        expected = len(scenarios)
         self.assertIn(f"Passed {expected} core recovery scenarios.", completed.stdout)
+        self.assertTrue(any(scenario["level"] == "boundary" for scenario in scenarios))
+
+    def test_unknown_selected_scenario_is_reported_without_traceback(self) -> None:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(Path(runner.__file__)),
+                "--claim",
+                "core",
+                "--scenario",
+                "CR-DURABLE-001",
+                "--adapter",
+                sys.executable,
+                "-c",
+                "raise SystemExit(0)",
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn("outside the core claim", completed.stderr)
+        self.assertNotIn("Traceback", completed.stderr)
 
 
 if __name__ == "__main__":
