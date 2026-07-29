@@ -3,6 +3,16 @@
 Each spec in the suite maintains its own changelog. Pick the spec you care
 about:
 
+## Repository maintenance — 2026-07-29
+
+- Hardened the SDK recovery profile so durable clients persist known actual
+  usage before the first settlement request, accept only schema-valid
+  settlement success, and derive collision-resistant journal filenames from
+  the exact UTF-8 reservation identifier.
+- Added the filename-collision scenario, made boundary scenarios mandatory for
+  both claims, hid runner-owned expected outcomes from adapters, and required
+  every SDK claim to bind the shared scenario catalog in CI.
+
 ## Repository maintenance — 2026-07-28
 
 - Added a separately versioned SDK recovery conformance profile, scenario
