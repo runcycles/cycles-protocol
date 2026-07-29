@@ -1,0 +1,153 @@
+profile: cycles-sdk-recovery
+version: "0.1"
+
+scenarios:
+  - id: CR-CORE-001
+    level: core
+    name: lost commit response reuses the same key
+    precondition: actual_known
+    faults:
+      - commit_response_lost
+    expected_requests:
+      - commit
+      - commit_same_key
+    assertions:
+      - settlement_occurs_at_most_once
+      - retry_uses_original_idempotency_key
+
+  - id: CR-CORE-002
+    level: core
+    name: expired commit falls back to an event
+    precondition: actual_known
+    faults:
+      - commit_reservation_expired
+    expected_requests:
+      - commit
+      - event_same_key
+    assertions:
+      - event_carries_original_subject_action_actual
+      - settlement_occurs_at_most_once
+
+  - id: CR-CORE-003
+    level: core
+    name: heartbeat transport failure is observable and non-fatal
+    precondition: action_running
+    faults:
+      - extend_transport_error
+    expected_requests:
+      - extend
+      - extend_same_key
+      - commit
+    assertions:
+      - heartbeat_failure_reports_reservation_and_disposition
+      - guarded_action_continues_under_warn_policy
+      - final_settlement_is_attempted
+
+  - id: CR-CORE-004
+    level: core
+    name: protocol-invalid settlement success remains ambiguous
+    precondition: actual_known
+    faults:
+      - commit_nonconformant_2xx_or_body
+    expected_requests:
+      - commit
+      - commit_same_key
+    assertions:
+      - only_schema_valid_expected_status_is_terminal_success
+      - ambiguous_success_retains_original_idempotency_key
+
+  - id: CR-DURABLE-001
+    level: durable
+    name: pending commit survives process restart
+    precondition: actual_known
+    faults:
+      - commit_transient_failure
+      - process_terminated_after_journal_write
+      - process_restarted
+    expected_requests:
+      - commit
+      - commit_same_key_after_restart
+    assertions:
+      - unresolved_record_survives_restart
+      - successful_replay_removes_record
+      - settlement_occurs_at_most_once
+
+  - id: CR-DURABLE-002
+    level: durable
+    name: replayed expired commit switches durably to event mode
+    precondition: journal_contains_commit
+    faults:
+      - process_restarted
+      - commit_reservation_expired
+      - process_terminated_after_mode_switch
+      - process_restarted
+    expected_requests:
+      - commit_same_key_after_restart
+      - event_same_key_after_restart
+    assertions:
+      - event_mode_is_persisted_before_event_attempt
+      - successful_event_removes_record
+      - settlement_occurs_at_most_once
+
+  - id: CR-DURABLE-003
+    level: durable
+    name: rate-limit floor survives restart
+    precondition: actual_known
+    faults:
+      - commit_429_with_retry_after
+      - process_terminated_after_journal_write
+      - process_restarted_before_retry_after
+    expected_requests:
+      - commit
+      - commit_same_key_after_retry_after
+    assertions:
+      - no_retry_before_persisted_not_before
+      - successful_replay_removes_record
+
+  - id: CR-DURABLE-004
+    level: durable
+    name: tenant journal survives API-key rotation
+    precondition: journal_contains_commit_with_tenant_identity
+    faults:
+      - api_key_rotated
+      - process_restarted
+    expected_requests:
+      - commit_same_key_after_restart
+    assertions:
+      - new_tenant_credential_finds_record
+      - old_api_key_is_not_stored
+
+  - id: CR-DURABLE-005
+    level: durable
+    name: corrupt journal record is quarantined
+    precondition: journal_contains_corrupt_record
+    faults:
+      - process_restarted
+    expected_requests: []
+    assertions:
+      - corrupt_record_is_quarantined
+      - other_valid_records_still_replay
+      - corruption_is_reported
+
+  - id: CR-DURABLE-006
+    level: durable
+    name: concurrent replay remains exactly once
+    precondition: journal_contains_commit
+    faults:
+      - two_processes_replay_same_record
+    expected_requests:
+      - concurrent_commit_same_key
+    assertions:
+      - settlement_occurs_at_most_once
+      - terminal_record_is_removed
+
+  - id: CR-BOUNDARY-001
+    level: boundary
+    name: death before actual is known has no convergence claim
+    precondition: actual_unknown
+    faults:
+      - process_terminated_during_downstream_action
+    expected_requests: []
+    assertions:
+      - sdk_does_not_claim_ledger_convergence
+      - application_checkpoint_is_required

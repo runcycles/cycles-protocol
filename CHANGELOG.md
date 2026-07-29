@@ -3,6 +3,17 @@
 Each spec in the suite maintains its own changelog. Pick the spec you care
 about:
 
+## Repository maintenance — 2026-07-28
+
+- Added a separately versioned SDK recovery conformance profile, scenario
+  catalog, and language-neutral process-adapter runner covering ambiguous
+  commit recovery, expiry-to-event fallback, durable restart replay, persisted
+  rate-limit floors, credential rotation, corrupt records, concurrent replay,
+  heartbeat observability, and the explicit boundary before actual usage is
+  known.
+- Wired catalog validation and runner self-tests into `make validate` and CI.
+  The OpenAPI wire contract and server conformance target are unchanged.
+
 ## Repository maintenance — 2026-07-18
 
 - Reconciled both `cycles-spec-index.yaml` runtime version pins with the

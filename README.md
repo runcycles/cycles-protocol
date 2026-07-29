@@ -10,6 +10,7 @@ Cycles is the protocol layer that ensures agents cannot authorize more spend or 
 ## Start here
 
 - **Implementing a compatible server?** Read [`CONFORMANCE.md`](CONFORMANCE.md) — it's the authoritative MUST/SHOULD/MAY statement.
+- **Implementing an SDK?** Read the [`SDK recovery profile`](client-recovery/PROFILE.md) and bind its [shared failure scenarios](client-recovery/scenarios.yaml) to native tests.
 - **Want the runtime API?** Start with [`cycles-protocol-v0.yaml`](cycles-protocol-v0.yaml) (4 core ops: reserve, commit, release, extend).
 - **Want governance/admin operations?** See [`cycles-governance-admin-v0.1.25.yaml`](cycles-governance-admin-v0.1.25.yaml).
 - **Want upcoming action-level governance?** See the v0.1.26 extension specs ([protocol extensions](cycles-protocol-extensions-v0.1.26.yaml), [action kinds](cycles-action-kinds-v0.1.26.yaml), [governance extensions](cycles-governance-extensions-v0.1.26.yaml)).
