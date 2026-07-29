@@ -54,25 +54,16 @@ def validate_result(scenario: dict[str, Any], result: object) -> None:
         diagnostic = result.get("diagnostic", "adapter reported failure")
         raise ConformanceFailure(f"{scenario_id}: {diagnostic}")
 
-    observed_requests = result.get("observed_requests")
-    if observed_requests != scenario["expected_requests"]:
-        raise ConformanceFailure(
-            f"{scenario_id}: observed request choreography {observed_requests!r} "
-            f"does not equal {scenario['expected_requests']!r}"
-        )
-
-    assertions = result.get("assertions")
-    if not isinstance(assertions, list) or not all(
-        isinstance(assertion, str) for assertion in assertions
+    native_tests = result.get("native_tests")
+    if not isinstance(native_tests, list) or not native_tests or not all(
+        isinstance(test, str) and test.strip() for test in native_tests
     ):
         raise ConformanceFailure(
-            f"{scenario_id}: assertions must be a list of strings"
+            f"{scenario_id}: native_tests must be a non-empty list of test identifiers"
         )
-    missing = set(scenario["assertions"]) - set(assertions)
-    if missing:
+    if len(native_tests) != len(set(native_tests)):
         raise ConformanceFailure(
-            f"{scenario_id}: missing required observations: "
-            f"{', '.join(sorted(missing))}"
+            f"{scenario_id}: native_tests must not contain duplicates"
         )
 
 

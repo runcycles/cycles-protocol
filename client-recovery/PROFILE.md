@@ -91,33 +91,46 @@ not silently swallow heartbeat failures under any policy.
 ## Executable scenario contract
 
 `scenarios.yaml` is the shared source of scenario IDs and observable outcomes.
-SDK repositories MUST bind every scenario whose `level` they claim to a
-native adapter, including child-process tests for restart and concurrent
-replay. Core and durable claims both include boundary scenarios. The shared
-runner invokes that adapter once per scenario in a fresh process, writes only
-the scenario inputs (`id`, `level`, `name`, `precondition`, and `faults`) to
-stdin, appends the scenario ID to the adapter command, and requires one JSON
-result on stdout:
+SDK repositories MUST bind every scenario whose `level` they claim to one or
+more native behavior tests. A restart test MUST construct a fresh
+client/runtime instance from the durable record and MUST NOT carry in-memory
+retry state across the simulated process boundary. A concurrent-replay test
+MUST use independently constructed replay workers and synchronize their
+settlement attempts. Running those workers as operating-system child processes
+is RECOMMENDED where the SDK's test toolchain supports it reliably, but is not
+required to model a restart: the invariant under test is that only durable
+state crosses the boundary. The boundary scenario executes the observable half
+of the guarantee above: without a known actual amount, the SDK sends no
+settlement request and surfaces the guarded-action failure. The process-death
+and application-checkpoint responsibility remains an integration guarantee
+that cannot be proven by an SDK-only network trace. Core and durable claims
+both include boundary scenarios. The shared runner invokes that adapter once
+per scenario in a fresh process, writes only the scenario inputs (`id`,
+`level`, `name`,
+`precondition`, and `faults`) to stdin, appends the scenario ID to the adapter
+command, and requires one JSON result on stdout:
 
 ```json
 {
   "scenario_id": "CR-CORE-001",
   "passed": true,
-  "observed_requests": ["commit", "commit_same_key"],
-  "assertions": [
-    "settlement_occurs_at_most_once",
-    "retry_uses_original_idempotency_key"
+  "native_tests": [
+    "tests/recovery.test.ts > lost response reuses original key"
   ]
 }
 ```
 
-Diagnostics belong on stderr. `observed_requests` must exactly match the shared
-choreography; `assertions` may contain adapter-specific observations in
-addition to every required assertion. The expected request choreography and
-required assertions are runner-owned oracle data and are never disclosed to
-the adapter. An adapter MUST obtain its observations by executing the SDK's
-native behavior test; echoing catalog expectations is not conformance. A
-durable SDK runs core, durable, and boundary scenarios:
+Diagnostics belong on stderr. `native_tests` MUST identify the exact tests
+executed for that scenario; broad class/module-only mappings are not
+sufficient when they allow unrelated tests to make the scenario pass. The
+listed tests collectively MUST assert the catalog's expected request
+choreography and every required assertion. The expected choreography and
+assertion labels are runner-owned review oracle data: they are not written to
+adapter stdin and MUST NOT be copied into adapter results. This keeps the
+runner honest about what it can verify—the adapter attests a concrete native
+test execution, while code review verifies that test's assertions. Returning
+precomputed request/assertion labels is not conformance. A durable SDK runs
+core, durable, and boundary scenarios:
 
 ```sh
 python scripts/run_client_recovery_conformance.py \

@@ -12,6 +12,13 @@ about:
 - Added the filename-collision scenario, made boundary scenarios mandatory for
   both claims, hid runner-owned expected outcomes from adapters, and required
   every SDK claim to bind the shared scenario catalog in CI.
+- Replaced adapter-supplied copies of the expected choreography with exact
+  native-test evidence, and extended corrupt-record conformance to quarantine
+  unsupported journal format versions.
+- Defined restart tests in terms of fresh runtime instances carrying only
+  durable state, required independently synchronized workers for concurrent
+  replay, and removed redundant settlement choreography from the filename-only
+  collision scenario.
 
 ## Repository maintenance — 2026-07-28
 

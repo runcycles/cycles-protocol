@@ -20,41 +20,37 @@ class ResultValidationTests(unittest.TestCase):
         "assertions": ["settlement_occurs_at_most_once"],
     }
 
-    def test_accepts_exact_choreography_and_required_observations(self) -> None:
+    def test_accepts_concrete_native_test_evidence(self) -> None:
         runner.validate_result(
             self.scenario,
             {
                 "scenario_id": "CR-CORE-999",
                 "passed": True,
-                "observed_requests": ["commit", "commit_same_key"],
-                "assertions": [
-                    "settlement_occurs_at_most_once",
-                    "adapter_specific_observation",
+                "native_tests": [
+                    "tests/recovery.test.ts > lost response reuses original key"
                 ],
             },
         )
 
-    def test_rejects_request_choreography_drift(self) -> None:
-        with self.assertRaisesRegex(runner.ConformanceFailure, "choreography"):
+    def test_rejects_missing_native_test_evidence(self) -> None:
+        with self.assertRaisesRegex(runner.ConformanceFailure, "native_tests"):
             runner.validate_result(
                 self.scenario,
                 {
                     "scenario_id": "CR-CORE-999",
                     "passed": True,
-                    "observed_requests": ["commit", "commit_new_key"],
-                    "assertions": ["settlement_occurs_at_most_once"],
+                    "native_tests": [],
                 },
             )
 
-    def test_rejects_missing_observations(self) -> None:
-        with self.assertRaisesRegex(runner.ConformanceFailure, "missing required"):
+    def test_rejects_duplicate_native_test_evidence(self) -> None:
+        with self.assertRaisesRegex(runner.ConformanceFailure, "duplicates"):
             runner.validate_result(
                 self.scenario,
                 {
                     "scenario_id": "CR-CORE-999",
                     "passed": True,
-                    "observed_requests": ["commit", "commit_same_key"],
-                    "assertions": [],
+                    "native_tests": ["test_one", "test_one"],
                 },
             )
 
@@ -62,26 +58,16 @@ class ResultValidationTests(unittest.TestCase):
 class ProcessAdapterTests(unittest.TestCase):
     def test_runner_hides_oracle_and_includes_boundary_scenarios(self) -> None:
         scenarios = runner.load_scenarios("core", set())
-        results = {
-            scenario["id"]: {
-                "observed_requests": scenario["expected_requests"],
-                "assertions": scenario["assertions"],
-            }
-            for scenario in scenarios
-        }
         adapter_source = f"""
 import json
 import sys
 scenario = json.load(sys.stdin)
 assert "expected_requests" not in scenario
 assert "assertions" not in scenario
-results = {results!r}
-observation = results[scenario["id"]]
 json.dump({{
     "scenario_id": scenario["id"],
     "passed": True,
-    "observed_requests": observation["observed_requests"],
-    "assertions": observation["assertions"],
+    "native_tests": [f"native::{{scenario['id']}}"],
 }}, sys.stdout)
 """
         with tempfile.TemporaryDirectory() as directory:

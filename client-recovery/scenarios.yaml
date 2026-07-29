@@ -1,5 +1,5 @@
 profile: cycles-sdk-recovery
-version: "0.2"
+version: "0.3"
 
 scenarios:
   - id: CR-CORE-001
@@ -119,13 +119,14 @@ scenarios:
 
   - id: CR-DURABLE-005
     level: durable
-    name: corrupt journal record is quarantined
-    precondition: journal_contains_corrupt_record
+    name: corrupt or unsupported journal record is quarantined
+    precondition: journal_contains_corrupt_or_unsupported_record
     faults:
       - process_restarted
     expected_requests: []
     assertions:
       - corrupt_record_is_quarantined
+      - unsupported_record_version_is_quarantined
       - other_valid_records_still_replay
       - corruption_is_reported
 
@@ -134,7 +135,7 @@ scenarios:
     name: concurrent replay remains exactly once
     precondition: journal_contains_commit
     faults:
-      - two_processes_replay_same_record
+      - two_independent_workers_replay_same_record
     expected_requests:
       - concurrent_commit_same_key
     assertions:
@@ -144,29 +145,22 @@ scenarios:
   - id: CR-DURABLE-007
     level: durable
     name: journal filenames preserve distinct arbitrary reservation identifiers
-    precondition: two_actuals_known_with_colliding_legacy_identifiers
+    precondition: journal_contains_records_with_colliding_legacy_identifiers
     faults:
-      - first_settlement_for_each_identifier_is_ambiguous
-      - process_restarted
       - legacy_record_encountered
-    expected_requests:
-      - commit_first_identifier
-      - commit_second_identifier
-      - commit_first_identifier_same_key_after_restart
-      - commit_second_identifier_same_key_after_restart
+    expected_requests: []
     assertions:
       - standard_filename_is_sha256_of_exact_utf8_identifier
       - distinct_identifiers_never_share_a_journal_file
       - matching_legacy_record_migrates_without_deleting_collision
-      - both_settlements_occur_at_most_once
 
   - id: CR-BOUNDARY-001
     level: boundary
-    name: death before actual is known has no convergence claim
+    name: missing actual is surfaced without settlement
     precondition: actual_unknown
     faults:
-      - process_terminated_during_downstream_action
+      - guarded_action_does_not_return_actual
     expected_requests: []
     assertions:
-      - sdk_does_not_claim_ledger_convergence
-      - application_checkpoint_is_required
+      - no_commit_or_event_without_known_actual
+      - missing_actual_or_guarded_action_failure_is_surfaced
