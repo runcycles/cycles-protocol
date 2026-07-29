@@ -65,3 +65,8 @@ jobs:
       # canonical publication summary must enumerate every indexed document.
       - name: Verify composition index matches source specs
         run: make spec-index-check
+
+      # Step 6: Client-side recovery choreography is versioned separately
+      # from server conformance but its scenario catalog is executable.
+      - name: Validate SDK recovery conformance scenarios
+        run: make client-recovery-check

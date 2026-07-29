@@ -3,6 +3,34 @@
 Each spec in the suite maintains its own changelog. Pick the spec you care
 about:
 
+## Repository maintenance — 2026-07-29
+
+- Hardened the SDK recovery profile so durable clients persist known actual
+  usage before the first settlement request, accept only schema-valid
+  settlement success, and derive collision-resistant journal filenames from
+  the exact UTF-8 reservation identifier.
+- Added the filename-collision scenario, made boundary scenarios mandatory for
+  both claims, hid runner-owned expected outcomes from adapters, and required
+  every SDK claim to bind the shared scenario catalog in CI.
+- Replaced adapter-supplied copies of the expected choreography with exact
+  native-test evidence, and extended corrupt-record conformance to quarantine
+  unsupported journal format versions.
+- Defined restart tests in terms of fresh runtime instances carrying only
+  durable state, required independently synchronized workers for concurrent
+  replay, and removed redundant settlement choreography from the filename-only
+  collision scenario.
+
+## Repository maintenance — 2026-07-28
+
+- Added a separately versioned SDK recovery conformance profile, scenario
+  catalog, and language-neutral process-adapter runner covering ambiguous
+  commit recovery, expiry-to-event fallback, durable restart replay, persisted
+  rate-limit floors, credential rotation, corrupt records, concurrent replay,
+  heartbeat observability, and the explicit boundary before actual usage is
+  known.
+- Wired catalog validation and runner self-tests into `make validate` and CI.
+  The OpenAPI wire contract and server conformance target are unchanged.
+
 ## Repository maintenance — 2026-07-18
 
 - Reconciled both `cycles-spec-index.yaml` runtime version pins with the

@@ -2,6 +2,12 @@
 
 This document is the authoritative statement of what a Cycles implementation MUST, SHOULD, and MAY do to claim conformance with the Cycles Protocol.
 
+This document covers server/protocol conformance. SDK failure choreography is
+defined separately by the [Cycles SDK Recovery Conformance
+Profile](client-recovery/PROFILE.md), with a machine-readable scenario catalog.
+An implementation MUST state separately whether it claims core or durable SDK
+recovery conformance; wire-format conformance alone does not imply either.
+
 **Current conformance target:** **v0.1.25** (runtime base + governance-admin cross-plane surface). This is the version runcycles' own reference servers implement today and the version against which a second implementation can be validated.
 
 **Upcoming conformance target:** **v0.1.26** (action-kind registry, runtime extensions, governance extensions). These specs are published in this repo but are **not yet required for conformance**; implementations SHOULD plan for them. They will be promoted to MUST in a future revision of this document once the reference stack implements them.
@@ -152,6 +158,14 @@ A Cycles conformance test kit (a set of black-box curl/pytest probes any server 
 3. Running the runcycles reference Python/TypeScript/Rust clients against your server's `/v1/reservations` endpoints and verifying expected ALLOW / DENY / error behavior.
 
 A dedicated conformance kit is tracked for a future release. Contributions welcome.
+
+For an SDK recovery claim, validate the shared tools with
+`make client-recovery-check`, run the process-adapter command documented in
+[`client-recovery/PROFILE.md`](client-recovery/PROFILE.md), and publish a
+mapping from each claimed [`client-recovery/scenarios.yaml`](client-recovery/scenarios.yaml)
+scenario ID to a passing native SDK test. Restart and concurrent-replay
+scenarios require process-level tests; request-serialization tests are
+insufficient.
 
 ---
 
