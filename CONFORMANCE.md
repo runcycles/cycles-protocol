@@ -165,7 +165,10 @@ For an SDK recovery claim, validate the shared tools with
 mapping from each claimed [`client-recovery/scenarios.yaml`](client-recovery/scenarios.yaml)
 scenario ID to a passing native SDK test. Restart and concurrent-replay
 scenarios require process-level tests; request-serialization tests are
-insufficient.
+insufficient. Official evidence reports conform to
+[`client-recovery/report.schema.json`](client-recovery/report.schema.json) and
+bind those native tests to the exact profile, catalog digest, implementation
+commit, and CI run.
 
 ---
 

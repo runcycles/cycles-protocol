@@ -148,3 +148,28 @@ The catalog deliberately separates:
 An SDK claiming durable recovery MUST run the shared runner in CI and publish
 a mapping from every durable scenario ID to its adapter test. Merely testing
 request serialization does not satisfy this profile.
+
+## Machine-readable evidence
+
+The runner can atomically write a report conforming to
+[`report.schema.json`](report.schema.json):
+
+```sh
+python scripts/run_client_recovery_conformance.py \
+  --claim durable \
+  --report-json recovery-conformance.json \
+  --implementation runcycles/example-sdk \
+  --implementation-commit "$GITHUB_SHA" \
+  --evidence-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+  --adapter path/to/sdk-recovery-adapter
+```
+
+The report binds the claim and every scenario result to the profile version,
+the exact catalog digest, the protocol checkout commit, the SDK commit, and
+the concrete native tests executed by the adapter. The catalog digest hashes
+the UTF-8 scenario text after normalizing checkout-specific line endings to
+LF, so one catalog commit has one digest on every platform. CI SHOULD upload
+this file even when the runner fails so a failed or stale claim remains
+visible rather than disappearing. A published conformance matrix MUST
+distinguish a passing report from a missing, failed, unclaimed, or stale
+report.
