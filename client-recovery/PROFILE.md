@@ -166,7 +166,10 @@ python scripts/run_client_recovery_conformance.py \
 
 The report binds the claim and every scenario result to the profile version,
 the exact catalog digest, the protocol checkout commit, the SDK commit, and
-the concrete native tests executed by the adapter. CI SHOULD upload this file
-even when the runner fails so a failed or stale claim remains visible rather
-than disappearing. A published conformance matrix MUST distinguish a passing
-report from a missing, failed, unclaimed, or stale report.
+the concrete native tests executed by the adapter. The catalog digest hashes
+the UTF-8 scenario text after normalizing checkout-specific line endings to
+LF, so one catalog commit has one digest on every platform. CI SHOULD upload
+this file even when the runner fails so a failed or stale claim remains
+visible rather than disappearing. A published conformance matrix MUST
+distinguish a passing report from a missing, failed, unclaimed, or stale
+report.

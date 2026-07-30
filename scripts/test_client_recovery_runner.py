@@ -54,6 +54,18 @@ class ResultValidationTests(unittest.TestCase):
                 },
             )
 
+    def test_catalog_digest_is_independent_of_checkout_line_endings(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            lf = Path(directory) / "lf.yaml"
+            crlf = Path(directory) / "crlf.yaml"
+            lf.write_bytes(b"profile: example\nversion: 1\n")
+            crlf.write_bytes(b"profile: example\r\nversion: 1\r\n")
+
+            self.assertEqual(
+                runner.canonical_text_sha256(lf),
+                runner.canonical_text_sha256(crlf),
+            )
+
 
 class ProcessAdapterTests(unittest.TestCase):
     def test_runner_hides_oracle_and_includes_boundary_scenarios(self) -> None:

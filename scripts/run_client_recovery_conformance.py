@@ -143,6 +143,12 @@ def github_run_url() -> str | None:
     return None
 
 
+def canonical_text_sha256(path: Path) -> str:
+    """Hash UTF-8 text with checkout-specific line endings normalized to LF."""
+    text = path.read_text(encoding="utf-8")
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def build_report(
     args: argparse.Namespace,
     scenarios: list[dict[str, Any]],
@@ -197,7 +203,7 @@ def build_report(
             "name": catalog["profile"],
             "version": str(catalog["version"]),
             "commit": profile_commit,
-            "catalog_sha256": hashlib.sha256(CATALOG.read_bytes()).hexdigest(),
+            "catalog_sha256": canonical_text_sha256(CATALOG),
         },
         "claim": args.claim,
         "implementation": implementation,
