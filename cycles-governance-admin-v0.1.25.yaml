@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.42
+  version: 0.1.25.43
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Stable governance base — document revision 0.1.25.42; semantic base
+    Stable governance base — document revision 0.1.25.43; semantic base
     frozen at 0.1.25.9. This file is self-sufficient for the current
     v0.1.25 conformance target (it adds a
     normative tenant-close cascade contract at
@@ -50,7 +50,8 @@ info:
     selectors, by any provisioning mechanism) on the conformance surface,
     and fixes the #209 operator migration recipe to be submittable;
     document revision 0.1.25.42 makes the non-negative Policy priority
-    invariant consistent across create, update, and response schemas)
+    invariant consistent across create, update, and response schemas;
+    document revision 0.1.25.43 clarifies optional funding idempotency)
     and also serves as the base for the upcoming v0.1.26
     spec family. Covers tenant management, authentication, and runtime
     enforcement. NOTE: This file alone is NOT sufficient for the
@@ -4865,8 +4866,9 @@ paths:
         - Use for: manual debt reconciliation
 
         IDEMPOTENCY:
-        - Required idempotency_key prevents double-funding
-        - Replayed requests return original response
+        - Supply an optional idempotency_key to retry funding safely on the same ledger.
+        - A matching replay returns the original response without applying the operation again.
+        - When the key is omitted, each request applies independently.
       security:
         - ApiKeyAuth: []
         - AdminKeyAuth: []
