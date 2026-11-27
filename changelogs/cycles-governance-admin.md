@@ -6,6 +6,11 @@ New entries are added directly to this file. See `scripts/validate_changelogs.py
 
 ---
 
+## v0.1.25.44 — 2026-11-27
+
+- The optional funding key provides a 24-hour replay window starting with the original mutation.
+- Documented HTTP 409 `CONCURRENT_MODIFICATION` for retryable API-key and webhook write conflicts.
+
 ## v0.1.25.43 — 2026-11-26
 
 - Clarified that `fundBudget` accepts an optional `idempotency_key`, as declared by
