@@ -70,7 +70,7 @@ spec_family:
   current_versions:
     base_runtime: "0.1.25.16"             # extendReservation heartbeat guidance + additive optional remaining_ttl_ms on create/extend responses
     base_runtime_semantic_base: "0.1.25"  # frozen wire baseline — 0.1.25.16 addition is optional-field additive, backward compatible
-    base_governance: "0.1.25.42"          # align non-negative policy priority across create, update, and response schemas
+    base_governance: "0.1.25.44"          # funding replay window and concurrent-write errors
     base_governance_semantic_base: "0.1.25.9"  # frozen wire baseline
     extension_runtime: "0.1.27"           # ErrorCodeExtension base-list refresh (+ LIMIT_EXCEEDED, TENANT_CLOSED) against runtime 0.1.25.13
     extension_governance: "0.1.28"        # retain the base policy priority minimum in the extended PATCH
@@ -112,7 +112,7 @@ documents:
 
   - id: governance_base
     file: cycles-governance-admin-v0.1.25.yaml
-    version: "0.1.25.42"          # non-negative policy priority request/response alignment (matches info.version)
+    version: "0.1.25.44"          # funding replay window and concurrent-write errors (matches info.version)
     semantic_base: "0.1.25.9"     # frozen wire baseline
     role: base
     conformance: mixed

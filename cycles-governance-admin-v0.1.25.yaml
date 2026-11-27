@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: Complete Budget Governance Admin API
-  version: 0.1.25.42
+  version: 0.1.25.44
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
   summary: >-
-    Stable governance base — document revision 0.1.25.42; semantic base
+    Stable governance base — document revision 0.1.25.44; semantic base
     frozen at 0.1.25.9. This file is self-sufficient for the current
     v0.1.25 conformance target (it adds a
     normative tenant-close cascade contract at
@@ -50,7 +50,9 @@ info:
     selectors, by any provisioning mechanism) on the conformance surface,
     and fixes the #209 operator migration recipe to be submittable;
     document revision 0.1.25.42 makes the non-negative Policy priority
-    invariant consistent across create, update, and response schemas)
+    invariant consistent across create, update, and response schemas;
+    document revision 0.1.25.43 clarifies optional funding idempotency; revision 0.1.25.44
+    specifies the funding replay window and the retryable concurrent-write error)
     and also serves as the base for the upcoming v0.1.26
     spec family. Covers tenant management, authentication, and runtime
     enforcement. NOTE: This file alone is NOT sufficient for the
@@ -1632,6 +1634,7 @@ components:
         - RESERVATION_EXPIRED
         - RESERVATION_FINALIZED
         - IDEMPOTENCY_MISMATCH
+        - CONCURRENT_MODIFICATION
         - UNIT_MISMATCH
         - OVERDRAFT_LIMIT_EXCEEDED
         - DEBT_OUTSTANDING
@@ -3362,7 +3365,7 @@ components:
           description: >-
             Machine-readable failure code. Present in `failed[]` entries
             only. Known codes: INVALID_TRANSITION, NOT_FOUND,
-            PERMISSION_DENIED, BUDGET_EXCEEDED, INTERNAL_ERROR. Servers
+            PERMISSION_DENIED, BUDGET_EXCEEDED, CONCURRENT_MODIFICATION, INTERNAL_ERROR. Servers
             MAY introduce additional codes; clients MUST treat unknown
             codes as equivalent to INTERNAL_ERROR. Note: this code set
             is the per-row outcome vocabulary for bulk-action responses
@@ -4865,8 +4868,10 @@ paths:
         - Use for: manual debt reconciliation
 
         IDEMPOTENCY:
-        - Required idempotency_key prevents double-funding
-        - Replayed requests return original response
+        - Supply an optional idempotency_key to retry funding safely on the same ledger.
+        - A matching retry within 24 hours of the original mutation returns its original response.
+        - After that window the same key can apply funding again.
+        - When the key is omitted, each request applies independently.
       security:
         - ApiKeyAuth: []
         - AdminKeyAuth: []
@@ -5697,7 +5702,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: Key is revoked or expired (cannot modify)
+          description: Key is revoked or expired (cannot modify). A concurrent write returns CONCURRENT_MODIFICATION. Refresh the resource before retrying.
           content:
             application/json:
               schema:
@@ -5774,7 +5779,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: API key already revoked (ALREADY_REVOKED)
+          description: API key already revoked (ALREADY_REVOKED). A concurrent write returns CONCURRENT_MODIFICATION. Refresh the resource before retrying.
           content:
             application/json:
               schema:
@@ -6381,6 +6386,7 @@ paths:
             Owning tenant is CLOSED (`TENANT_CLOSED`). Terminal-owner
             mutation guard per CASCADE SEMANTICS Rule 2 — cannot create
             a webhook subscription scoped to a CLOSED tenant.
+            A concurrent write returns CONCURRENT_MODIFICATION. Refresh the resource before retrying.
           content:
             application/json:
               schema:
@@ -6649,6 +6655,7 @@ paths:
             Owning tenant is CLOSED (`TENANT_CLOSED`). Terminal-owner
             mutation guard per CASCADE SEMANTICS Rule 2 — webhook subscriptions
             owned by a CLOSED tenant cannot be modified.
+            A concurrent write returns CONCURRENT_MODIFICATION. Refresh the resource before retrying.
           content:
             application/json:
               schema:
@@ -7569,6 +7576,7 @@ paths:
             Owning tenant is CLOSED (`TENANT_CLOSED`). Terminal-owner
             mutation guard per CASCADE SEMANTICS Rule 2 — cannot
             create a webhook subscription under a CLOSED tenant.
+            A concurrent write returns CONCURRENT_MODIFICATION. Refresh the resource before retrying.
           content:
             application/json:
               schema:
@@ -7813,6 +7821,7 @@ paths:
             Owning tenant is CLOSED (`TENANT_CLOSED`). Terminal-owner
             mutation guard per CASCADE SEMANTICS Rule 2 — cannot update
             a webhook subscription whose owning tenant is CLOSED.
+            A concurrent write returns CONCURRENT_MODIFICATION. Refresh the resource before retrying.
           content:
             application/json:
               schema:
