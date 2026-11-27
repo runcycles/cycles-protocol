@@ -3365,7 +3365,7 @@ components:
           description: >-
             Machine-readable failure code. Present in `failed[]` entries
             only. Known codes: INVALID_TRANSITION, NOT_FOUND,
-            PERMISSION_DENIED, BUDGET_EXCEEDED, INTERNAL_ERROR. Servers
+            PERMISSION_DENIED, BUDGET_EXCEEDED, CONCURRENT_MODIFICATION, INTERNAL_ERROR. Servers
             MAY introduce additional codes; clients MUST treat unknown
             codes as equivalent to INTERNAL_ERROR. Note: this code set
             is the per-row outcome vocabulary for bulk-action responses

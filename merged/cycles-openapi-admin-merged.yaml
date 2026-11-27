@@ -2849,11 +2849,11 @@ components:
         error_code:
           type: string
           description: 'Machine-readable failure code. Present in `failed[]` entries only. Known codes:
-            INVALID_TRANSITION, NOT_FOUND, PERMISSION_DENIED, BUDGET_EXCEEDED, INTERNAL_ERROR. Servers
-            MAY introduce additional codes; clients MUST treat unknown codes as equivalent to INTERNAL_ERROR.
-            Note: this code set is the per-row outcome vocabulary for bulk-action responses and is intentionally
-            BROADER than the top-level ErrorCode enum — values like INVALID_TRANSITION and BUDGET_EXCEEDED
-            are row-level outcomes, not request-level ErrorResponse codes.'
+            INVALID_TRANSITION, NOT_FOUND, PERMISSION_DENIED, BUDGET_EXCEEDED, CONCURRENT_MODIFICATION,
+            INTERNAL_ERROR. Servers MAY introduce additional codes; clients MUST treat unknown codes as
+            equivalent to INTERNAL_ERROR. Note: this code set is the per-row outcome vocabulary for bulk-action
+            responses and is intentionally BROADER than the top-level ErrorCode enum — values like INVALID_TRANSITION
+            and BUDGET_EXCEEDED are row-level outcomes, not request-level ErrorResponse codes.'
         message:
           type: string
           description: Human-readable failure reason. Present in `failed[]` entries only. Safe to display
